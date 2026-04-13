@@ -56,8 +56,8 @@ models:
   # DeepSeek V3 - 综合能力强
   - name: "deepseek"
     provider: "openai_compatible"
-    api_key: "e82347db-15de-4d09-bfff-9b155a445873"
-    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    api_key: "add  your api  key"
+    base_url: "add your base_url"
     model: "deepseek-v3-2-251201"
     default_weight: 1.0
     enabled: true
@@ -67,8 +67,8 @@ models:
   # GLM-4.7 - 长上下文分析
   - name: "glm-4.7"
     provider: "openai_compatible"
-    api_key: "e82347db-15de-4d09-bfff-9b155a445873"
-    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    api_key: "add your api key"
+    base_url: "add your base_url"
     model: "glm-4-7-251222"
     default_weight: 0.9
     enabled: true
@@ -78,8 +78,8 @@ models:
   # 豆包 Seed 2.0 Code - 代码分析
   - name: "doubao-seed-code"
     provider: "openai_compatible"
-    api_key: "e82347db-15de-4d09-bfff-9b155a445873"
-    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    api_key: "add your api key"
+    base_url: "add your base_url"
     model: "doubao-seed-2-0-code-preview-260215"
     default_weight: 0.85
     enabled: true
@@ -89,8 +89,8 @@ models:
   # 豆包 Seed 2.0 Pro - 综合推理
   - name: "doubao-seed-pro"
     provider: "openai_compatible"
-    api_key: "e82347db-15de-4d09-bfff-9b155a445873"
-    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    api_key: "add your api key"
+    base_url: "add your base_url"
     model: "doubao-seed-2-0-pro-260215"
     default_weight: 1.1
     enabled: true
