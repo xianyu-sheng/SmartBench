@@ -1,0 +1,62 @@
+# SmartBench 开发环境配置
+# 用于本地开发和测试
+
+# 输出目录
+output_dir: "./output"
+data_dir: "./data"
+
+# 权重引擎配置
+weight_engine:
+  confidence_threshold: 0.25  # 开发环境阈值稍低
+  default_model_weight: 0.8
+  max_suggestions: 8  # 开发环境返回更多建议
+  history_db_path: "./data/history_dev.json"
+
+# 系统配置
+systems:
+  - name: "raft_kv"
+    system_type: "raft_kv"
+    project_path: "/home/xianyu-sheng/MyKV_storageBase_Raft_cpp"
+    benchmark_command: "./test_stable_bench.sh"
+    log_path: "./build"
+    config_paths:
+      - "./myRPC/conf/myrpc_0.conf"
+      - "./myRPC/conf/myrpc_1.conf"
+      - "./myRPC/conf/myrpc_2.conf"
+
+# 模型配置
+models:
+  - name: "deepseek-dev"
+    provider: "openai_compatible"
+    api_key: "${DEEPSEEK_API_KEY}"
+    base_url: "https://api.deepseek.com"
+    model: "deepseek-chat"
+    default_weight: 0.8
+    enabled: true
+    max_retries: 2
+    timeout: 30  # 开发环境超时短
+
+  - name: "qwen-dev"
+    provider: "dashscope"
+    api_key: "${DASHSCOPE_API_KEY}"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    model: "qwen-turbo"
+    default_weight: 0.7
+    enabled: false
+    max_retries: 2
+    timeout: 30
+
+# 提示词配置
+prompts:
+  system_prompt: |
+    你是一个资深的分布式系统性能优化专家。
+    请分析提供的性能指标和日志，给出具体可实施的优化建议。
+    开发环境模式，分析可以更详细。
+
+    要求：
+    1. 每次分析限制在 5 条以内
+    2. 评估每个建议的风险等级
+    3. 给出预期收益估计
+    4. 提供伪代码实现
+
+    输出格式为 JSON。

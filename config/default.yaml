@@ -1,0 +1,120 @@
+# SmartBench 默认配置
+
+# 输出目录
+output_dir: "./output"
+
+# 数据存储目录
+data_dir: "./data"
+
+# 权重引擎配置
+weight_engine:
+  # 置信度阈值，低于此值的建议将被过滤
+  confidence_threshold: 0.3
+
+  # 默认模型权重
+  default_model_weight: 0.7
+
+  # 最大输出建议数量
+  max_suggestions: 5
+
+  # 历史数据存储路径
+  history_db_path: "./data/history.json"
+
+# 系统配置 - 支持多系统
+systems:
+  # Raft KV 分布式存储系统
+  - name: "raft_kv"
+    system_type: "raft_kv"
+    project_path: "/home/xianyu-sheng/MyKV_storageBase_Raft_cpp"
+    benchmark_command: "./test_fast_bench.sh"
+    log_path: "./build"
+    config_paths:
+      - "./myRPC/conf/myrpc_0.conf"
+      - "./myRPC/conf/myrpc_1.conf"
+      - "./myRPC/conf/myrpc_2.conf"
+    # 自定义配置（会被传递到插件）
+    custom_settings:
+      # 完整压测脚本：等待时间较长，适合全面测试
+      full_benchmark_command: "./test_stable_bench.sh"
+      # 默认目标 QPS（你的系统实测 363 QPS，峰值 687 QPS）
+      default_target_qps: 400
+      # QPS 探索范围
+      qps_range: [300, 400, 500, 600, 700]
+      # 每次压测的操作数
+      ops_per_test: 100
+      # 最佳线程数（你的系统 4 线程最优）
+      optimal_threads: 4
+      # 预热操作数
+      warmup_ops: 50
+      # Leader 就绪最大等待秒数
+      leader_wait_timeout: 15
+
+# 模型配置 - 多模型交叉验证
+models:
+  # ============ 主力模型 ============
+
+  # DeepSeek V3 - 综合能力强
+  - name: "deepseek"
+    provider: "openai_compatible"
+    api_key: "e82347db-15de-4d09-bfff-9b155a445873"
+    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    model: "deepseek-v3-2-251201"
+    default_weight: 1.0
+    enabled: true
+    max_retries: 2
+    timeout: 60
+
+  # GLM-4.7 - 长上下文分析
+  - name: "glm-4.7"
+    provider: "openai_compatible"
+    api_key: "e82347db-15de-4d09-bfff-9b155a445873"
+    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    model: "glm-4-7-251222"
+    default_weight: 0.9
+    enabled: true
+    max_retries: 2
+    timeout: 60
+
+  # 豆包 Seed 2.0 Code - 代码分析
+  - name: "doubao-seed-code"
+    provider: "openai_compatible"
+    api_key: "e82347db-15de-4d09-bfff-9b155a445873"
+    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    model: "doubao-seed-2-0-code-preview-260215"
+    default_weight: 0.85
+    enabled: true
+    max_retries: 2
+    timeout: 60
+
+  # 豆包 Seed 2.0 Pro - 综合推理
+  - name: "doubao-seed-pro"
+    provider: "openai_compatible"
+    api_key: "e82347db-15de-4d09-bfff-9b155a445873"
+    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    model: "doubao-seed-2-0-pro-260215"
+    default_weight: 1.1
+    enabled: true
+    max_retries: 2
+    timeout: 60
+
+# 提示词配置（可选）
+prompts:
+  system_prompt: |
+    你是一个资深的分布式系统性能优化专家。
+    请分析提供的性能指标和日志，给出具体可实施的优化建议。
+
+    要求：
+    1. 每次分析限制在 3 条以内，优先给出最高优先级的建议
+    2. 评估每个建议的风险等级 (low/medium/high)
+    3. 给出预期收益估计
+    4. 提供伪代码实现
+
+    输出格式为 JSON，包含以下字段：
+    - title: 建议标题
+    - description: 问题分析描述
+    - pseudocode: 伪代码实现
+    - priority: 优先级 (1-5)
+    - risk_level: 风险等级 (low/medium/high)
+    - expected_gain: 预期收益描述
+    - implementation_steps: 实施步骤列表
+    - self_confidence: 自评置信度 (0-1)

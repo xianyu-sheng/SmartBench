@@ -1,0 +1,57 @@
+# SmartBench 生产环境配置
+# 用于生产环境部署
+
+# 输出目录
+output_dir: "/var/log/smartbench/output"
+data_dir: "/var/log/smartbench/data"
+
+# 权重引擎配置
+weight_engine:
+  confidence_threshold: 0.35  # 生产环境阈值稍高
+  default_model_weight: 0.75
+  max_suggestions: 5  # 生产环境只返回最关键的 5 条
+  history_db_path: "/var/log/smartbench/data/history.json"
+
+# 系统配置
+systems:
+  - name: "raft_kv"
+    system_type: "raft_kv"
+    project_path: "/opt/MyKV_storageBase_Raft_cpp"
+    benchmark_command: "./test_stable_bench.sh"
+    log_path: "./build"
+
+# 模型配置
+models:
+  - name: "deepseek"
+    provider: "openai_compatible"
+    api_key: "${DEEPSEEK_API_KEY}"
+    base_url: "https://api.deepseek.com"
+    model: "deepseek-chat"
+    default_weight: 0.8
+    enabled: true
+    max_retries: 3
+    timeout: 60
+
+  - name: "claude"
+    provider: "anthropic"
+    api_key: "${ANTHROPIC_API_KEY}"
+    model: "claude-3-5-sonnet-20241022"
+    default_weight: 1.2
+    enabled: true
+    max_retries: 3
+    timeout: 120
+
+# 提示词配置
+prompts:
+  system_prompt: |
+    你是一个资深的分布式系统性能优化专家。
+    请分析提供的性能指标和日志，给出具体可实施的优化建议。
+    生产环境模式，只输出最关键的优化建议。
+
+    要求：
+    1. 每次分析限制在 3 条以内
+    2. 评估每个建议的风险等级
+    3. 给出预期收益估计
+    4. 提供伪代码实现
+
+    输出格式为 JSON。

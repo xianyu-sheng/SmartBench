@@ -1,0 +1,38 @@
+[
+  {
+    "timestamp": "2026-04-13T20:04:15.826647",
+    "qps": 292.3,
+    "avg_latency": 2.96365,
+    "p99_latency": 6.959,
+    "error_rate": 0.0,
+    "target_qps": 400.0,
+    "notes": "分析生成 2 条建议"
+  },
+  {
+    "timestamp": "2026-04-13T20:08:22.258847",
+    "qps": 387.746,
+    "avg_latency": 2.40217,
+    "p99_latency": 7.663,
+    "error_rate": 0.0,
+    "target_qps": 400.0,
+    "notes": "分析生成 2 条建议"
+  },
+  {
+    "timestamp": "2026-04-13T20:15:15.165341",
+    "qps": 377.129,
+    "avg_latency": 2.32365,
+    "p99_latency": 7.51,
+    "error_rate": 0.0,
+    "target_qps": 400.0,
+    "notes": "分析生成 2 条建议"
+  },
+  {
+    "timestamp": "2026-04-13T20:18:54.783246",
+    "qps": 329.773,
+    "avg_latency": 2.86431,
+    "p99_latency": 7.447,
+    "error_rate": 0.0,
+    "target_qps": 400.0,
+    "notes": "分析生成 3 条建议"
+  }
+]
