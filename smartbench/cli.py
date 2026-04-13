@@ -38,6 +38,8 @@ from smartbench.engine.generator import DocumentGenerator
 from smartbench.engine.cache import CodeCache, get_code_cache
 from smartbench.engine.regression import PerformanceRegression, get_regression_engine
 from smartbench.engine.debate import DebateEngine, MultiModelAggregator
+from smartbench.engine.system_diagnosis import SystemDiagnostician
+from smartbench.engine.diagnostic import ProblemType
 from smartbench.agents.orchestrator import OrchestratorAgent
 
 # 创建 CLI 应用
@@ -815,7 +817,7 @@ def run(
                 api_config=api_config,
                 code_cache=code_cache,
                 max_iterations=2,
-                timeout_per_call=60,
+                timeout_per_call=120,  # 增加超时到 120 秒
             )
 
             debate_result = debate_engine.run_debate(
@@ -827,11 +829,24 @@ def run(
             suggestions = debate_result.final_suggestions
             debate_log = debate_result.debate_log
 
+            # 如果辩论失败，回退到多模型
+            if not suggestions:
+                console.print("[yellow]⚠️ 辩论引擎返回空，建议使用多模型聚合模式[/yellow]")
+                progress.update(main_task, description=f"[yellow]⚠ 回退到多模型聚合模式...", completed=75)
+
+                analysis_results = _parallel_model_call(enabled_models, metrics_dict, logs, code_snippets)
+
+                aggregator = MultiModelAggregator([{"name": m.name, "weight": m.default_weight} for m in enabled_models])
+                suggestions = aggregator.aggregate(analysis_results)
+                debate_log = []
+
+                progress.update(main_task, description=f"[green]✓ {len([r for r in analysis_results if r.get('success')])} 个模型分析完成", completed=90)
+
             progress.update(main_task, description=f"[green]✓ 辩论完成 ({len(suggestions)} 条建议)", completed=90)
 
         except Exception as e:
             # 回退到多模型聚合
-            progress.update(main_task, description=f"[yellow]⚠ 回退到多模型聚合模式...", completed=75)
+            progress.update(main_task, description="[yellow]🤖 辩论引擎不可用，使用多模型分析...", completed=75)
 
             # 并行调用多个模型
             analysis_results = _parallel_model_call(enabled_models, metrics_dict, logs, code_snippets)
@@ -841,7 +856,8 @@ def run(
             suggestions = aggregator.aggregate(analysis_results)
             debate_log = []
 
-            progress.update(main_task, description=f"[green]✓ {len([r for r in analysis_results if r.get('success')])} 个模型分析完成", completed=90)
+            success_count = len([r for r in analysis_results if r.get('success')])
+            progress.update(main_task, description=f"[green]✓ 多模型分析完成 ({success_count}/{len(analysis_results)} 成功)", completed=90)
 
         # 去重和排序
         suggestions = _deduplicate_suggestions(suggestions)
@@ -1579,8 +1595,244 @@ def _display_suggestions(suggestions: List[Suggestion]):
             priority_icon,
             f"{s.final_weight:.2f}",
         )
-    
+
     console.print(table)
+
+
+@app.command()
+def diagnose(
+    project_path: str = typer.Option(None, help="项目路径"),
+    symptoms: str = typer.Option(None, help="问题症状描述"),
+    error_logs: str = typer.Option(None, help="错误日志文件路径"),
+    core_dump: str = typer.Option(None, help="core dump 文件路径"),
+    performance: bool = typer.Option(False, help="执行性能分析"),
+    duration: int = typer.Option(30, help="性能采样时长（秒）"),
+    output: str = typer.Option(None, help="输出报告文件路径"),
+):
+    """
+    智能诊断 - 自动检测并分析问题
+
+    支持的诊断类型：
+    - 崩溃 (段错误、SIGSEGV)
+    - 死锁 (程序无响应)
+    - 内存泄漏 (Valgrind 检测)
+    - 缺页中断 (OOM)
+    - 性能瓶颈 (火焰图分析)
+    - 启动失败 (依赖检查)
+
+    示例:
+        smartbench diagnose --symptoms "程序崩溃"
+        smartbench diagnose --performance --duration 60
+        smartbench diagnose --core-dump ./core
+    """
+    console.print(Panel.fit(
+        "[bold blue]🔍 SmartBench 智能诊断[/bold blue]",
+        border_style="blue"
+    ))
+
+    # 如果没有指定项目路径，使用默认值
+    if not project_path:
+        project_path = "/home/xianyu-sheng/MyKV_storageBase_Raft_cpp"
+
+    console.print(f"[cyan]项目路径:[/cyan] {project_path}")
+    console.print("")
+
+    # 初始化诊断器
+    diagnostician = SystemDiagnostician(
+        project_path=project_path,
+        binary_name="kvserver",
+    )
+
+    # 检查二进制文件
+    if not diagnostician.binary_path:
+        console.print("[yellow]⚠️ 未找到二进制文件，尝试从 build 目录搜索...[/yellow]")
+    else:
+        console.print(f"[green]✓ 找到二进制: {diagnostician.binary_path}[/green]")
+
+    # 如果指定了 core dump，执行专门诊断
+    if core_dump:
+        console.print(f"[cyan]分析 core dump:[/cyan] {core_dump}")
+        result = diagnostician.diagnose_crash(core_dump)
+
+        if result.get("error"):
+            console.print(f"[red]❌ {result['error']}[/red]")
+        else:
+            summary = result.get("summary", "")
+            console.print(f"[green]✓ {summary}[/green]")
+            console.print("")
+
+            # 显示调用栈
+            analysis = result.get("analysis", {})
+            if analysis.get("backtrace"):
+                console.print("[yellow]调用栈:[/yellow]")
+                for frame in analysis["backtrace"][:10]:
+                    console.print(f"  #{frame['frame']} {frame['function']}()")
+                console.print("")
+
+    # 如果是性能分析
+    elif performance:
+        console.print(f"[cyan]执行性能分析 (采样 {duration} 秒)...[/cyan]")
+        result = diagnostician.diagnose_performance(
+            duration=duration,
+            profile_type="cpu",
+        )
+
+        # 显示系统信息
+        system = result.get("system", {})
+        if system.get("cpu_usage"):
+            console.print("[yellow]CPU 使用情况:[/yellow]")
+            for line in system["cpu_usage"].get("snapshot", "").split('\n'):
+                if line.strip():
+                    console.print(f"  {line.strip()}")
+            console.print("")
+
+        # 显示热点函数
+        hotspots = result.get("hotspots", {}).get("hot_functions", [])
+        if hotspots:
+            console.print(f"[yellow]🔥 CPU 热点 (共 {len(hotspots)} 个):[/yellow]")
+            for func in hotspots[:10]:
+                console.print(f"  {func['percent']:5.1f}%  {func['name']}")
+            console.print("")
+
+        # 显示建议
+        recommendations = result.get("recommendations", [])
+        if recommendations:
+            console.print("[cyan]💡 优化建议:[/cyan]")
+            for rec in recommendations:
+                console.print(f"  - {rec.get('title', '')}")
+                console.print(f"    {rec.get('description', '')}")
+            console.print("")
+
+        # 生成的文件
+        flamegraph = result.get("flamegraph", {})
+        if flamegraph.get("svg_path"):
+            console.print(f"[green]✓ 火焰图已生成: {flamegraph['svg_path']}[/green]")
+            console.print("[dim]使用浏览器打开查看火焰图[/dim]")
+
+    # 自动诊断
+    else:
+        # 读取错误日志
+        logs_content = None
+        if error_logs and Path(error_logs).exists():
+            with open(error_logs, 'r', encoding='utf-8', errors='ignore') as f:
+                logs_content = f.read()[:5000]
+
+        console.print("[cyan]开始智能诊断...[/cyan]")
+
+        # 执行诊断
+        report = diagnostician.diagnose(
+            symptoms=symptoms,
+            error_logs=logs_content,
+        )
+
+        # 显示报告
+        text_report = diagnostician.generate_text_report(report)
+        console.print(text_report)
+
+        # 保存报告
+        if output:
+            with open(output, 'w', encoding='utf-8') as f:
+                f.write(text_report)
+            console.print(f"\n[green]✓ 报告已保存: {output}[/green]")
+
+    console.print("")
+
+
+@app.command()
+def health_check(
+    project_path: str = typer.Option(None, help="项目路径"),
+    detailed: bool = typer.Option(False, "--verbose", help="详细输出"),
+):
+    """
+    系统健康检查 - 快速检测常见问题
+
+    示例:
+        smartbench health-check
+        smartbench health-check --verbose
+    """
+    console.print(Panel.fit(
+        "[bold blue]🏥 SmartBench 健康检查[/bold blue]",
+        border_style="blue"
+    ))
+
+    if not project_path:
+        project_path = "/home/xianyu-sheng/MyKV_storageBase_Raft_cpp"
+
+    diagnostician = SystemDiagnostician(
+        project_path=project_path,
+        binary_name="kvserver",
+    )
+
+    # 检查项
+    checks = []
+
+    # 1. 二进制文件
+    if diagnostician.binary_path:
+        checks.append(("二进制文件", True, str(diagnostician.binary_path)))
+    else:
+        checks.append(("二进制文件", False, "未找到"))
+
+    # 2. GDB 可用性
+    import subprocess
+    try:
+        result = subprocess.run(["gdb", "--version"], capture_output=True, check=True)
+        gdb_version = result.stdout.split('\n')[0]
+        checks.append(("GDB", True, gdb_version))
+    except:
+        checks.append(("GDB", False, "未安装"))
+
+    # 3. perf 可用性
+    try:
+        result = subprocess.run(["perf", "version"], capture_output=True, check=True)
+        checks.append(("perf", True, "可用"))
+    except:
+        checks.append(("perf", False, "未安装或无权限"))
+
+    # 4. Valgrind 可用性
+    try:
+        result = subprocess.run(["valgrind", "--version"], capture_output=True, check=True)
+        checks.append(("Valgrind", True, result.stdout.strip()))
+    except:
+        checks.append(("Valgrind", False, "未安装"))
+
+    # 5. FlameGraph
+    flamegraph_dir = Path.home() / "FlameGraph"
+    if flamegraph_dir.exists():
+        checks.append(("FlameGraph", True, str(flamegraph_dir)))
+    else:
+        checks.append(("FlameGraph", False, "未安装"))
+
+    # 6. 系统资源
+    try:
+        result = subprocess.run(["free", "-h"], capture_output=True, text=True)
+        mem_info = result.stdout.strip().split('\n')[1].split()
+        mem_available = mem_info[6] if len(mem_info) > 6 else "N/A"
+        checks.append(("可用内存", True, mem_available))
+    except:
+        checks.append(("可用内存", False, "无法获取"))
+
+    # 显示检查结果
+    table = Table(title="检查项", show_header=True)
+    table.add_column("项目", style="cyan")
+    table.add_column("状态", justify="center")
+    table.add_column("详情")
+
+    for name, passed, detail in checks:
+        status = "✅" if passed else "❌"
+        table.add_row(name, status, detail[:50])
+
+    console.print(table)
+    console.print("")
+
+    # 总结
+    passed_count = sum(1 for _, p, _ in checks if p)
+    total_count = len(checks)
+
+    if passed_count == total_count:
+        console.print(f"[green]✅ 健康检查通过 ({passed_count}/{total_count})[/green]")
+    else:
+        console.print(f"[yellow]⚠️  部分工具未安装 ({passed_count}/{total_count})[/yellow]")
+        console.print("[dim]安装缺失工具可提升诊断能力[/dim]")
 
 
 def main():

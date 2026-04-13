@@ -34,5 +34,104 @@
     "error_rate": 0.0,
     "target_qps": 400.0,
     "notes": "分析生成 3 条建议"
+  },
+  {
+    "timestamp": "2026-04-13T20:27:15.503976",
+    "qps": 287.582,
+    "avg_latency": 2.55733,
+    "p99_latency": 6.847,
+    "error_rate": 0.0,
+    "target_qps": 400.0,
+    "notes": "分析生成 3 条建议"
+  },
+  {
+    "timestamp": "2026-04-13T20:28:53.169176",
+    "qps": 380.384,
+    "avg_latency": 2.04578,
+    "p99_latency": 6.405,
+    "error_rate": 0.0,
+    "target_qps": 400.0,
+    "notes": "分析生成 0 条建议"
+  },
+  {
+    "timestamp": "2026-04-13T20:30:50.346511",
+    "qps": 325.198,
+    "avg_latency": 2.57618,
+    "p99_latency": 7.037,
+    "error_rate": 0.0,
+    "target_qps": 400.0,
+    "notes": "分析生成 0 条建议"
+  },
+  {
+    "timestamp": "2026-04-13T20:32:16.315574",
+    "qps": 289.643,
+    "avg_latency": 2.74517,
+    "p99_latency": 6.822,
+    "error_rate": 0.0,
+    "target_qps": 400.0,
+    "notes": "分析生成 0 条建议"
+  },
+  {
+    "timestamp": "2026-04-13T20:34:11.325729",
+    "qps": 296.612,
+    "avg_latency": 2.87095,
+    "p99_latency": 7.72,
+    "error_rate": 0.0,
+    "target_qps": 400.0,
+    "notes": "分析生成 0 条建议"
+  },
+  {
+    "timestamp": "2026-04-13T20:37:01.849459",
+    "qps": 349.883,
+    "avg_latency": 2.34195,
+    "p99_latency": 6.967,
+    "error_rate": 0.0,
+    "target_qps": 400.0,
+    "notes": "分析生成 0 条建议"
+  },
+  {
+    "timestamp": "2026-04-13T20:39:59.388091",
+    "qps": 375.638,
+    "avg_latency": 2.57649,
+    "p99_latency": 6.258,
+    "error_rate": 0.0,
+    "target_qps": 400.0,
+    "notes": "分析生成 3 条建议"
+  },
+  {
+    "timestamp": "2026-04-13T20:44:33.594419",
+    "qps": 349.636,
+    "avg_latency": 2.71629,
+    "p99_latency": 11.08,
+    "error_rate": 0.0,
+    "target_qps": 400.0,
+    "notes": "分析生成 2 条建议"
+  },
+  {
+    "timestamp": "2026-04-13T21:08:07.603717",
+    "qps": 299.466,
+    "avg_latency": 2.54028,
+    "p99_latency": 6.995,
+    "error_rate": 0.0,
+    "target_qps": 400.0,
+    "notes": "分析生成 3 条建议"
+  },
+  {
+    "timestamp": "2026-04-13T21:16:00.051510",
+    "qps": 306.687,
+    "avg_latency": 2.78009,
+    "p99_latency": 7.34,
+    "error_rate": 0.0,
+    "target_qps": 500.0,
+    "notes": "分析生成 3 条建议"
+  },
+  {
+    "timestamp": "2026-04-13T21:16:13.269662",
+    "qps": 324.824,
+    "avg_latency": 3.2905,
+    "p99_latency": 8.915,
+    "error_rate": 0.0,
+    "target_qps": 400.0,
+    "notes": "分析生成 2 条建议"
   }
 ]

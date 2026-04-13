@@ -1,12 +1,18 @@
-# SmartBench v0.3
+# SmartBench v0.4
 
-**智能 Raft KV 性能优化分析工具** - 基于多 Agent 辩论引擎的分布式存储系统诊断平台
+**智能 Raft KV 性能优化分析与诊断平台** - 基于多 Agent 辩论引擎 + 智能诊断的分布式存储系统工具
 
 ---
 
 ## 核心定位
 
-SmartBench 是一款专注于 **Raft 分布式 KV 存储系统** 的性能分析与优化建议工具。它通过多模型辩论机制（Proposer/Critique/Judge）对压测数据、日志、源码进行深度分析，生成**具体可实施**的优化建议。
+SmartBench 是一款专注于 **Raft 分布式 KV 存储系统** 的性能分析与**智能诊断**工具。它不仅能生成优化建议，还能**自动诊断问题**。
+
+### 两大核心功能
+
+1. **性能优化**: 通过多模型辩论机制（Proposer/Critique/Judge）对压测数据、日志、源码进行深度分析，生成**具体可实施**的优化建议。
+
+2. **智能诊断**: 自动检测并诊断崩溃、死锁、内存泄漏、缺页中断、性能瓶颈等问题，结合 GDB、火焰图等工具给出修复建议。
 
 **重要原则**: SmartBench 仅分析和建议，**不修改**被测项目任何代码。
 
@@ -20,22 +26,31 @@ SmartBench 是一款专注于 **Raft 分布式 KV 存储系统** 的性能分析
 - **Critique (交叉审查者)**: 审查方案的潜在风险和可行性
 - **Judge (最终仲裁者)**: 综合意见，输出最终建议
 
-### 2. 代码智能缓存
+### 2. 智能诊断引擎
+自动检测和诊断多种问题类型：
+- **崩溃 (crash)**: 段错误、SIGSEGV、SIGABRT
+- **死锁 (deadlock)**: 线程卡死、无响应
+- **内存泄漏 (memory_leak)**: Valgrind 检测
+- **缺页中断 (page_fault)**: OOM、内存不足
+- **性能瓶颈 (performance)**: CPU 热点、I/O 瓶颈
+- **启动失败 (startup_failure)**: 依赖缺失、权限问题
+
+### 3. 系统诊断工具集成
+- **GDB**: core dump 分析、堆栈跟踪
+- **火焰图**: CPU 热点可视化分析
+- **Linux 诊断命令**: dmesg, vmstat, iostat, ps 等
+
+### 4. 代码智能缓存
 - 自动缓存源码文件，仅在文件变更时重新读取
 - 智能提取关键代码片段供 AI 分析
 - 大幅降低 API token 消耗
 
-### 3. 性能回归分析
+### 5. 性能回归分析
 - 记录每次压测结果
 - 对比优化前后 QPS、延迟变化
 - 检测性能回归，生成趋势报告
 
-### 4. 代码位置验证
-- 验证 AI 建议的代码位置是否正确
-- 提取原始代码上下文
-- 分析修改的语法正确性
-
-### 5. 多模型协作
+### 6. 多模型协作
 支持多种 AI 模型并行分析：
 - DeepSeek V3
 - GLM-4.7
@@ -79,6 +94,12 @@ cd /home/xianyu-sheng/SmartBench
 # 或直接使用 CLI
 python3 -m smartbench.cli run --target-qps 400 --rounds 1
 ```
+
+### 详细使用文档
+
+更多详细的使用说明、诊断案例、常见问题，请参考：
+
+📖 **[USAGE_GUIDE.md](docs/USAGE_GUIDE.md)** - 智能诊断功能完整使用指南
 
 ---
 
@@ -257,6 +278,110 @@ python3 -m smartbench.cli stats
 python3 -m smartbench.cli export --output my_config.yaml --format yaml
 ```
 
+### 7. `diagnose` - 智能诊断
+
+自动检测并分析问题，支持多种诊断类型：
+
+```bash
+python3 -m smartbench.cli diagnose [OPTIONS]
+
+# 常用选项
+--symptoms           问题症状描述
+--error-logs         错误日志文件路径
+--core-dump          core dump 文件路径
+--performance         执行性能分析（火焰图）
+--duration           性能采样时长（秒）
+--output             输出报告文件路径
+```
+
+**示例**:
+
+```bash
+# 自动诊断
+python3 -m smartbench.cli diagnose --symptoms "程序崩溃"
+
+# 性能分析（生成火焰图）
+python3 -m smartbench.cli diagnose --performance --duration 60
+
+# 分析 core dump
+python3 -m smartbench.cli diagnose --core-dump ./core
+
+# 诊断启动失败
+python3 -m smartbench.cli diagnose --symptoms "程序无法启动"
+
+# 保存报告
+python3 -m smartbench.cli diagnose --performance -o report.txt
+```
+
+**诊断类型**:
+
+| 类型 | 关键词 | 诊断工具 |
+|------|--------|----------|
+| 崩溃 | segfault, SIGSEGV | GDB, dmesg |
+| 死锁 | deadlock, hang | pstack, /proc |
+| 内存泄漏 | leak, memory | Valgrind |
+| 缺页中断 | oom, page_fault | vmstat, dmesg |
+| 性能瓶颈 | slow, bottleneck | perf, 火焰图 |
+| 启动失败 | failed, not found | ldd, file |
+
+**输出示例**:
+
+```
+╭────────────────────────╮
+│ 🔍 SmartBench 智能诊断 │
+╰────────────────────────╯
+
+⏰ 诊断时间: 2026-04-13T21:00:00
+📋 问题类型: performance
+⚠️  严重程度: MEDIUM
+
+🔍 根本原因:
+  - CPU 热点在日志序列化函数
+  - 批量处理未充分利用
+
+💡 修复建议:
+  1. 优化序列化
+     命令: g++ -O2 main.cpp
+     说明: 使用二进制序列化替代文本
+
+  2. 启用批量处理
+     命令: 检查 kvserver.conf
+     说明: 调整 batch_size 参数
+```
+
+### 8. `health-check` - 系统健康检查
+
+快速检测诊断工具是否可用：
+
+```bash
+python3 -m smartbench.cli health-check
+
+# 详细输出
+python3 -m smartbench.cli health-check --verbose
+```
+
+**输出示例**:
+
+```
+╭────────────────────────╮
+│ 🏥 SmartBench 健康检查 │
+╰────────────────────────╯
+
+检查项                                  
+┏━━━━━━━━━━━━┳━━━━━━┳━━━━━━━━━━━━━━━━━━━━┓
+┃ 项目       ┃ 状态 ┃ 详情               ┃
+┡━━━━━━━━━━━━╇━━━━━━╇━━━━━━━━━━━━━━━━━━━━┩
+│ 二进制文件 │  ✅  │ /path/to/kvserver  │
+│ GDB        │  ✅  │ 8.0.1             │
+│ perf       │  ✅  │ 可用               │
+│ Valgrind   │  ❌  │ 未安装             │
+│ FlameGraph │  ❌  │ 未安装             │
+└────────────┴──────┴────────────────────┘
+
+⚠️  部分工具未安装 (3/5)
+安装缺失工具可提升诊断能力
+```
+
 ---
 
 ## 配置详解
@@ -348,6 +473,10 @@ SmartBench/
 │   │   └── types.py             # 数据类型定义
 │   ├── engine/                  # 分析引擎
 │   │   ├── debate.py            # 辩论引擎 (Proposer/Critique/Judge)
+│   │   ├── diagnostic.py         # 诊断引擎核心
+│   │   ├── gdb_diagnosis.py     # GDB 诊断模块
+│   │   ├── flamegraph.py        # 火焰图生成模块
+│   │   ├── system_diagnosis.py   # 系统诊断整合模块
 │   │   ├── cache.py             # 代码缓存
 │   │   ├── regression.py        # 性能回归分析
 │   │   ├── compiler.py          # 代码分析器
@@ -439,6 +568,71 @@ SmartBench/
      │ 生成报告     │
      └──────────────┘
 ```
+
+### 智能诊断架构
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        SmartBench 诊断流程                          │
+└─────────────────────────────────────────────────────────────────────┘
+
+     ┌──────────────┐
+     │ 1. 收集信息  │
+     │ 症状、日志    │
+     │ dmesg/日志   │
+     └──────┬───────┘
+            │
+            ▼
+     ┌──────────────────────────────────────────────────┐
+     │ 2. 自动问题分类                                   │
+     ├──────────────────────────────────────────────────┤
+     │                                                  │
+     │  ┌─────────┐ ┌─────────┐ ┌─────────┐           │
+     │  │  崩溃   │ │  死锁   │ │ 内存泄漏 │           │
+     │  │ crash   │ │ deadlock│ │ leak    │           │
+     │  └────┬────┘ └────┬────┘ └────┬────┘           │
+     │       │            │            │                 │
+     │  ┌─────────┐ ┌─────────┐ ┌─────────┐           │
+     │  │ 缺页中断 │ │ 性能瓶颈 │ │ 启动失败 │           │
+     │  │ page_flt│ │ perf    │ │ startup │           │
+     │  └────┬────┘ └────┬────┘ └────┬────┘           │
+     │       └────────────┼────────────┘                 │
+     └────────────────────┼──────────────────────────────┘
+                          │
+                          ▼
+     ┌──────────────────────────────────────────────────┐
+     │ 3. 工具协同诊断                                    │
+     ├──────────────────────────────────────────────────┤
+     │                                                   │
+     │  ┌─────────┐  ┌─────────┐  ┌─────────┐          │
+     │  │   GDB   │  │ 火焰图  │  │ Linux   │          │
+     │  │ core分析 │  │ perf   │  │ dmesg   │          │
+     │  └────┬────┘  └────┬────┘  └────┬────┘          │
+     │       │            │            │                 │
+     │       └────────────┼────────────┘                 │
+     └────────────────────┼──────────────────────────────┘
+                          │
+                          ▼
+     ┌──────────────┐
+     │ 4. 生成报告  │
+     │ 症状、原因   │
+     │ 修复建议     │
+     └──────────────┘
+```
+
+### 诊断工具知识库
+
+| 问题类型 | 诊断命令 | 输出 |
+|----------|----------|------|
+| 崩溃 | `gdb -c core ./binary` | 堆栈跟踪 |
+| 崩溃 | `dmesg \| tail` | 内核日志 |
+| 内存泄漏 | `valgrind --leak-check=full` | 泄漏报告 |
+| 性能 | `perf record -F 99 -a -g` | perf.data |
+| 性能 | `perf script \| flamegraph.pl` | 火焰图 SVG |
+| 缺页 | `vmstat 1` | 中断率 |
+| OOM | `dmesg \| grep -i oom` | OOM Killer |
+| 启动失败 | `ldd ./binary` | 依赖缺失 |
+| 死锁 | `pstack <pid>` | 线程堆栈 |
 
 ### 辩论引擎详解
 
@@ -689,7 +883,53 @@ rm -rf /home/xianyu-sheng/SmartBench/data/regression/*
 
 ---
 
+## 测试结果记录
+
+### v0.3 测试用例 (2026-04-13)
+
+#### 测试环境
+- 目标系统: Raft KV 分布式存储
+- 目标 QPS: 400
+- 测试模型: DeepSeek V3, GLM-4.7, Doubao-Seed
+
+#### 测试结果
+
+| 指标 | 值 |
+|------|-----|
+| 当前 QPS | 349.6 |
+| 目标 QPS | 400.0 |
+| 平均延迟 | 2.72 ms |
+| P99 延迟 | 11.08 ms |
+| 错误率 | 0.00% |
+
+#### 生成建议 (2 条)
+
+**建议 1: 异步批量 Apply**
+- 优先级: ⭐ | 风险: MEDIUM
+- 问题: Raft状态机Apply日志串行执行，导致高延迟低吞吐
+- 根因: 缺乏批量处理，阻塞日志复制
+- 预期效果: QPS +10% (350→385), 延迟 -15% (2.72ms→2.30ms)
+
+**建议 2: Follower ReadIndex 缓存**
+- 优先级: ⭐ | 风险: LOW
+- 问题: Follower读请求同步等待Apply，延迟高
+- 根因: 缺乏安全读缓存
+- 预期效果: QPS +16% (350→405), 延迟 -23% (2.72ms→2.10ms)
+
+---
+
 ## 更新日志
+
+### v0.4 (2026-04-13)
+- ✅ 新增智能诊断引擎 (diagnostic.py)
+- ✅ 新增 GDB 诊断模块 (gdb_diagnosis.py)
+- ✅ 新增火焰图生成模块 (flamegraph.py)
+- ✅ 新增系统诊断整合模块 (system_diagnosis.py)
+- ✅ 新增 `diagnose` 命令 - 智能诊断
+- ✅ 新增 `health-check` 命令 - 系统健康检查
+- ✅ 支持崩溃、死锁、内存泄漏、缺页中断、性能瓶颈、启动失败诊断
+- ✅ 自动运行 GDB、perf、火焰图等工具
+- ✅ 生成详细诊断报告和修复建议
 
 ### v0.3 (2026-04-13)
 - ✅ 新增辩论引擎 (Proposer/Critique/Judge)
@@ -698,6 +938,7 @@ rm -rf /home/xianyu-sheng/SmartBench/data/regression/*
 - ✅ 新增建议代码位置验证
 - ✅ 移除修改被测项目代码的功能
 - ✅ 支持多模型并行分析
+- ✅ 详细化建议输出（根因分析、实施步骤、预期效果）
 
 ### v0.2 (2026-04-10)
 - ✅ 支持多模型协作

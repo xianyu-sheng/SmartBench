@@ -247,15 +247,6 @@ class DebateEngine:
             "content": json.dumps(proposals, ensure_ascii=False, indent=2),
         })
 
-        if not proposals.get("proposals"):
-            return DebateResult(
-                final_suggestions=[],
-                debate_log=debate_log,
-                consensus_reached=False,
-                iterations=0,
-                code_snippets={},
-            )
-
         # ============ 第 2 轮：Critique 审查 ============
         critiques = self._run_critique(proposals, context)
         debate_log.append({
@@ -272,6 +263,11 @@ class DebateEngine:
 
         # 提取最终建议
         final_suggestions = final_decision.get("final_suggestions", [])
+
+        # 添加来源信息
+        model_name = self.api_config.get("model", "deepseek")
+        for suggestion in final_suggestions:
+            suggestion["source_model"] = model_name
 
         # 提取代码片段
         code_snippets_dict = {}
@@ -304,14 +300,15 @@ class DebateEngine:
             avg_latency=avg_latency,
             p99_latency=p99_latency,
             gap=gap,
-            code_snippets=context[:10000],
+            code_snippets=context[:6000],  # 减少代码量
         )
 
         response = self._call_model(prompt)
         if response.success:
             try:
                 content = self._clean_json(response.content)
-                return json.loads(content)
+                result = json.loads(content)
+                return result
             except json.JSONDecodeError as e:
                 return {"performance_analysis": {}, "proposals": []}
         return {"performance_analysis": {}, "proposals": []}
@@ -319,8 +316,8 @@ class DebateEngine:
     def _run_critique(self, proposals: Dict[str, Any], context: str) -> Dict[str, Any]:
         """运行 Critique"""
         prompt = self.critique_prompt.format(
-            proposals=json.dumps(proposals, ensure_ascii=False, indent=2)[:5000],
-            code_snippets=context[:5000],
+            proposals=json.dumps(proposals, ensure_ascii=False, indent=2)[:3000],
+            code_snippets=context[:3000],
         )
 
         response = self._call_model(prompt)
@@ -353,7 +350,8 @@ class DebateEngine:
         if response.success:
             try:
                 content = self._clean_json(response.content)
-                return json.loads(content)
+                result = json.loads(content)
+                return result
             except json.JSONDecodeError as e:
                 return {"final_suggestions": []}
         return {"final_suggestions": []}
@@ -375,59 +373,98 @@ class DebateEngine:
     def _call_model(self, prompt: str) -> ModelResponse:
         """调用模型"""
         import requests
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
         model = self.api_config.get("model", "deepseek-v3-2-251201")
 
-        try:
-            headers = {
-                "Authorization": f"Bearer {self.api_config['api_key']}",
-                "Content-Type": "application/json"
-            }
+        # 重试机制
+        max_retries = 3
+        retry_delay = 2
 
-            payload = {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": "你是一个严格的 C++ 分布式系统性能优化专家。你输出的 JSON 必须严格符合格式要求。"},
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.2,
-                "max_tokens": 3000,
-            }
+        for attempt in range(max_retries):
+            try:
+                headers = {
+                    "Authorization": f"Bearer {self.api_config['api_key']}",
+                    "Content-Type": "application/json"
+                }
 
-            response = requests.post(
-                f"{self.api_config['base_url']}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=self.timeout,
-            )
+                payload = {
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": "你是一个严格的 C++ 分布式系统性能优化专家。你输出的 JSON 必须严格符合格式要求。"},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 3000,
+                }
 
-            if response.status_code != 200:
+                response = requests.post(
+                    f"{self.api_config['base_url']}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=self.timeout,
+                    verify=False,
+                )
+
+                if response.status_code != 200:
+                    return ModelResponse(
+                        model_name=model,
+                        role="",
+                        content="",
+                        success=False,
+                        error=f"API error: {response.status_code}",
+                    )
+
+                result = response.json()
+                content = result["choices"][0]["message"]["content"]
+
+                return ModelResponse(
+                    model_name=model,
+                    role="",
+                    content=content,
+                    success=True,
+                )
+
+            except requests.exceptions.SSLError as e:
+                # SSL 错误，稍后重试
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(retry_delay)
+                    continue
                 return ModelResponse(
                     model_name=model,
                     role="",
                     content="",
                     success=False,
-                    error=f"API error: {response.status_code}",
+                    error=f"SSL error after {max_retries} retries: {str(e)[:100]}",
                 )
 
-            result = response.json()
-            content = result["choices"][0]["message"]["content"]
+            except requests.exceptions.Timeout as e:
+                return ModelResponse(
+                    model_name=model,
+                    role="",
+                    content="",
+                    success=False,
+                    error=f"Request timeout",
+                )
 
-            return ModelResponse(
-                model_name=model,
-                role="",
-                content=content,
-                success=True,
-            )
+            except Exception as e:
+                return ModelResponse(
+                    model_name=model,
+                    role="",
+                    content="",
+                    success=False,
+                    error=str(e),
+                )
 
-        except Exception as e:
-            return ModelResponse(
-                model_name=model,
-                role="",
-                content="",
-                success=False,
-                error=str(e),
-            )
+        return ModelResponse(
+            model_name=model,
+            role="",
+            content="",
+            success=False,
+            error="Max retries exceeded",
+        )
 
 
 class MultiModelAggregator:
