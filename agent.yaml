@@ -56,4 +56,4 @@ capabilities:
     requires_env: ["API keys for configured LLM providers"]
 
 interface:
-  command: cd D:/SmartBench && smartbench --mode quick --json-output "{goal}"
+  command: cd D:/SmartBench && smartbench --quick --project {project} --concern "{goal}"
