@@ -180,18 +180,18 @@ class PromptFactory:
       "evidence_claims": [
         {{
           "type": "file_location",
-          "target": "frontend/src/main.tsx:10",
+          "target": "相对于项目根目录的文件路径:行号（必须是代码上下文中真实存在的文件）",
           "description": "此处存在你描述的问题"
         }},
         {{
           "type": "call_chain",
-          "target": "handleRequest -> processData -> saveResult",
-          "description": "该问题涉及的调用链"
+          "target": "函数A -> 函数B -> 函数C",
+          "description": "该问题涉及的调用链（使用代码图中实际存在的函数名）"
         }},
         {{
           "type": "code_pattern",
-          "target": "缺少错误处理的异步调用",
-          "description": "具体代码模式问题"
+          "target": "具体代码模式问题",
+          "description": "如：缺少错误处理的异步调用"
         }}
       ],
       "expected_improvement": "预期改进效果（中文，如：延迟降低约15%）",
@@ -201,7 +201,9 @@ class PromptFactory:
   ]
 }}
 ```
-**重要**：evidence_claims 是必须提供的！每条方案至少提供 2 个 evidence_claims。file_location 的 target 字段必须是项目中真实的相对路径和行号（如 `backend/app/api/events.py:42`），不要凭空编造。
+**重要**：evidence_claims 是必须提供的！每条方案至少提供 2 个 evidence_claims。
+file_location 的 target 字段必须使用上面提供的「代码上下文」中真实存在的文件路径和行号。
+只能引用代码上下文中实际列出的文件，不要凭借猜测编造路径。
 只返回 JSON，不要其他文字。"""
 
     def build_critique_prompt(self, proposals_json: str, analysis_context: str,

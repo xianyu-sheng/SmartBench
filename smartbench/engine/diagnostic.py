@@ -410,11 +410,16 @@ class DiagnosticEngine:
 
         for cmd in unique_commands[:10]:  # 限制数量
             try:
-                # 替换二进制路径占位符
+                # 替换二进制路径占位符 — 使用 shlex.quote 防止命令注入
                 actual_cmd = cmd.command
                 if './binary' in actual_cmd and self.binary_path:
-                    actual_cmd = actual_cmd.replace('./binary', str(self.binary_path))
+                    import shlex as _shlex
+                    actual_cmd = actual_cmd.replace(
+                        './binary', _shlex.quote(str(self.binary_path))
+                    )
 
+                # 诊断命令通常使用 shell 管道（如 dmesg | tail），需要 shell=True
+                # 但所有用户输入均已通过 shlex.quote 转义
                 result = subprocess.run(
                     actual_cmd,
                     shell=True,

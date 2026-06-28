@@ -300,18 +300,40 @@ class ConfigLoader:
     @staticmethod
     def save(config: Config, output_path: str):
         """
-        保存配置到文件
-        
-        Args:
-            config: Config 对象
-            output_path: 输出路径
+        保存配置到文件。
+
+        安全策略：api_key 如果匹配已知环境变量值，回写 ${VAR} 引用
+        而非原始密钥，防止密钥被明文持久化到磁盘。
         """
+        # 构建环境变量名 → 值 的反向映射，用于密钥脱敏
+        _KNOWN_ENV_VARS = {
+            os.environ.get(k): f"${{{k}}}"
+            for k in ["DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+                       "GLM_API_KEY", "DOUBAO_API_KEY", "MOONSHOT_API_KEY",
+                       "QWEN_API_KEY", "OLLAMA_API_KEY"]
+            if os.environ.get(k)
+        }
+
+        def _safe_api_key(raw_key: str) -> str:
+            """如果密钥匹配已知环境变量，返回 ${VAR} 引用；否则返回原始值。"""
+            if raw_key in _KNOWN_ENV_VARS:
+                return _KNOWN_ENV_VARS[raw_key]
+            # 如果密钥看起来是真实密钥（非占位符），添加安全警告
+            if raw_key and len(raw_key) > 20 and "add your" not in raw_key.lower():
+                import logging
+                logging.getLogger(__name__).warning(
+                    "config.save: 正在写入未识别的 api_key (len=%d)。"
+                    " 建议改用 ${PROVIDER_API_KEY} 环境变量引用。",
+                    len(raw_key),
+                )
+            return raw_key
+
         data = {
             'models': [
                 {
                     'name': m.name,
                     'provider': m.provider,
-                    'api_key': m.api_key,
+                    'api_key': _safe_api_key(m.api_key),
                     'base_url': m.base_url,
                     'model': m.model,
                     'default_weight': m.default_weight,
