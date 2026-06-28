@@ -293,7 +293,14 @@ class ConfigLoader:
             # 匹配 ${VAR} 格式的环境变量
             if data.startswith('${') and data.endswith('}'):
                 env_var = data[2:-1]
-                return os.environ.get(env_var, '')
+                value = os.environ.get(env_var)
+                if value is None:
+                    raise ValueError(
+                        f"环境变量 {env_var} 未设置。"
+                        f"请在配置文件中直接提供值，"
+                        f"或在 .env 文件中设置 {env_var}=<your_value>"
+                    )
+                return value
             return data
         return data
     
