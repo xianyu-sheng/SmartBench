@@ -41,6 +41,13 @@ from smartbench.llm.provider import (
     masked_input,
 )
 from smartbench.llm.client import call_llm, parse_json_safe as _parse_json_safe
+from smartbench.cli.display import (
+    show_debate_round,
+    display_fingerprint,
+    display_project_understanding,
+    display_diagnosis_results,
+    display_graph_stats,
+)
 
 app = typer.Typer(
     name="smartbench",
@@ -148,7 +155,7 @@ def run_interactive_wizard():
     # ── Step 3: Project detection ─────────────────────────────────────
     console.print("\n[bold]Step 3/4[/bold] — Analyzing your project...")
     fingerprint = run_phase1_detection(project_path)
-    _display_fingerprint(fingerprint)
+    display_fingerprint(console, fingerprint)
 
     # Phase 2: LLM reads README
     readme_content = ""
@@ -168,7 +175,7 @@ def run_interactive_wizard():
         if response:
             understanding = _parse_json_safe(response)
             if understanding:
-                _display_project_understanding(understanding)
+                display_project_understanding(console, understanding)
 
     # ── Step 4: Clarify concern ───────────────────────────────────────
     console.print("\n[bold]Step 4/4[/bold] — What would you like to diagnose?")
@@ -212,7 +219,7 @@ def run_quick_mode(project: Optional[str] = None, concern: Optional[str] = None)
         console.print("[yellow]No API keys in environment — some features disabled[/yellow]")
 
     fingerprint = run_phase1_detection(project_path)
-    _display_fingerprint(fingerprint)
+    display_fingerprint(console, fingerprint)
 
     if not concern:
         concern = "analyze the project for potential issues"
@@ -236,7 +243,7 @@ def run_diagnose_mode(project: str, symptoms: Optional[str], performance: bool):
 
     api_config = load_api_keys_from_env()
     fingerprint = run_phase1_detection(project_path)
-    _display_fingerprint(fingerprint)
+    display_fingerprint(console, fingerprint)
 
     category = ProblemCategory.PERFORMANCE if performance else ProblemCategory.UNKNOWN
     registry = DiagnosticRegistry()
@@ -364,7 +371,7 @@ def run_diagnosis_with_graph(project_path: str, fingerprint: ProjectFingerprint,
     """Run the full graph-enhanced diagnosis pipeline with RAG + verification."""
     if not api_config:
         console.print("[yellow]No LLM configured — showing graph stats only[/yellow]")
-        _display_graph_stats(graph, fingerprint)
+        display_graph_stats(console, graph, fingerprint)
         return
 
     factory = PromptFactory(fingerprint)
@@ -452,7 +459,7 @@ def run_diagnosis_with_graph(project_path: str, fingerprint: ProjectFingerprint,
         except Exception:
             pass
 
-    _display_diagnosis_results(result, fingerprint, graph)
+    display_diagnosis_results(console, result, fingerprint, graph)
 
 
 def run_fallback_analysis(project_path: str, fingerprint: ProjectFingerprint,
@@ -496,114 +503,14 @@ def run_fallback_analysis(project_path: str, fingerprint: ProjectFingerprint,
     result = debate_engine.debate(analysis_context, target=concern,
                                   on_progress=_show_debate_round)
 
-    _display_diagnosis_results(result, fingerprint, None)
-
-
-def _show_debate_round(role: str, parsed_json: Optional[Dict], raw_text: str):
-    """辩论每轮结束后调用 — 用 Rich Panel 显示 LLM 产出。"""
-    role_names = {
-        "proposer": ("Proposer（方案提出者）", "cyan"),
-        "critique": ("Critique（交叉审查者）", "yellow"),
-        "judge": ("Judge（最终仲裁者）", "green"),
-    }
-    display_name, color = role_names.get(role, (role, "white"))
-
-    if role == "verifier":
-        # Verification round display
-        vtype = parsed_json.get("type", "") if parsed_json else ""
-        proposals = parsed_json.get("proposals", []) if parsed_json else []
-        summary = parsed_json.get("summary", "") if parsed_json else ""
-
-        if vtype == "proposer_check":
-            body = ""
-            for p in proposals:
-                if not isinstance(p, dict):
-                    continue
-                verif = p.get("__verification", {})
-                verdict = verif.get("verdict", "unverifiable")
-                score = verif.get("verification_score", 0)
-                title = p.get("title", "?")
-
-                if verdict == "verified":
-                    icon = "  [green][✓ 已验证][/green]"
-                elif verdict == "partial":
-                    icon = "  [yellow][⚠ 部分匹配][/yellow]"
-                else:
-                    icon = "  [red][✗ 不存在][/red]"
-
-                body += f"{icon} [bold]{title}[/bold] (得分: {score:.0%})\n"
-                for loc in verif.get("hallucinated_locations", []):
-                    body += f"    [red]✗ 文件不存在: {loc}[/red]\n"
-                for loc in verif.get("verified_locations", []):
-                    body += f"    [dim]✓ {loc}[/dim]\n"
-                for loc in verif.get("partial_locations", []):
-                    body += f"    [yellow]⚠ {loc}[/yellow]\n"
-
-            title_text = "Verifier（事实核查 - Proposer 输出）"
-            console.print(Panel(body.strip() or summary[:500],
-                                title=f"[blue]{title_text}[/blue]",
-                                border_style="blue"))
-        return
-
-    if not parsed_json:
-        console.print(Panel(
-            f"[red]解析失败[/red]\n[dim]{raw_text[:300] if raw_text else '(无输出)'}[/dim]",
-            title=f"[{color}]{display_name}[/{color}]",
-            border_style=color,
-        ))
-        return
-
-    if role == "proposer":
-        analysis = parsed_json.get("analysis", {})
-        proposals = parsed_json.get("proposals", [])
-        body = f"[bold]根因分析：[/bold]{analysis.get('root_cause', 'N/A')}\n"
-        body += f"[bold]影响评估：[/bold]{analysis.get('impact_assessment', 'N/A')}\n\n"
-        for i, p in enumerate(proposals[:5], 1):
-            body += f"[bold]#{i} {p.get('title', '无标题')}[/bold] [{p.get('risk_level', '?')}风险]\n"
-            body += f"  {p.get('problem', '')[:120]}\n"
-            body += f"  [dim]位置: {p.get('location', '?')}[/dim]\n"
-        console.print(Panel(body.strip(), title=f"[{color}]{display_name}[/{color}] "
-                           f"（{len(proposals)} 条方案）", border_style=color))
-
-    elif role == "critique":
-        verdicts = parsed_json.get("verdicts", [])
-        assessment = parsed_json.get("overall_assessment", "")
-        body = ""
-        for v in verdicts:
-            icon = {"accept": "[接受]", "modify": "[需修改]", "reject": "[拒绝]"}.get(
-                v.get("verdict", ""), "[?]")
-            body += f"{icon} [bold]{v.get('proposal_title', '?')}[/bold]\n"
-            for concern in v.get("concerns", []):
-                body += f"   └ {concern}\n"
-            if v.get("suggested_modifications"):
-                body += f"   [dim]建议: {v['suggested_modifications']}[/dim]\n"
-        if assessment:
-            body += f"\n[dim]{assessment}[/dim]"
-        console.print(Panel(body.strip(), title=f"[{color}]{display_name}[/{color}]",
-                           border_style=color))
-
-    elif role == "judge":
-        decision = parsed_json.get("decision", "?")
-        reasoning = parsed_json.get("reasoning", "")
-        final = parsed_json.get("final_suggestions", [])
-        risk = parsed_json.get("risk_summary", "")
-        body = f"[bold]决策：[/bold]{decision}\n"
-        body += f"[bold]理由：[/bold]{reasoning}\n"
-        body += f"[bold]最终建议：[/bold]{len(final)} 条\n\n"
-        for i, s in enumerate(final[:5], 1):
-            prio = s.get("priority", 3)
-            body += f"[bold]#{i} {s.get('title', '?')}[/bold] [优先级:{prio}] [共识:{s.get('consensus', '?')}]\n"
-        if risk:
-            body += f"\n[bold red][!] 顶层风险：[/bold red]{risk}"
-        console.print(Panel(body.strip(), title=f"[{color}]{display_name}[/{color}] "
-                           f"（最终报告）", border_style=color))
+    display_diagnosis_results(console, result, fingerprint, None)
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Display helpers
 # ═══════════════════════════════════════════════════════════════════════
 
-def _display_fingerprint(fp: ProjectFingerprint):
+def display_fingerprint(console, fp: ProjectFingerprint):
     """Display project fingerprint in a table."""
     table = Table(title="Project Fingerprint (Phase 1 — zero LLM)", show_header=False)
     table.add_column("Property", style="cyan")
@@ -627,7 +534,7 @@ def _display_fingerprint(fp: ProjectFingerprint):
     console.print(table)
 
 
-def _display_project_understanding(understanding: Dict):
+def display_project_understanding(console, understanding: Dict):
     """Display LLM's understanding of the project."""
     console.print("\n[bold cyan]LLM Analysis:[/bold cyan]")
     console.print(f"  [bold]Summary:[/bold] {understanding.get('project_summary', 'N/A')}")
@@ -638,14 +545,14 @@ def _display_project_understanding(understanding: Dict):
     console.print(f"  [bold]Suggested Focus:[/bold] {understanding.get('suggested_diagnostic_focus', 'N/A')}")
 
 
-def _display_diagnosis_results(result: DebateResult, fp: ProjectFingerprint, graph=None):
+def display_diagnosis_results(console, result: DebateResult, fp: ProjectFingerprint, graph=None):
     """Display the final diagnosis report."""
     console.print(f"\n[bold]Diagnostic Report[/bold] ({result.duration_ms}ms, {result.iterations} debate rounds)")
 
     if not result.final_suggestions:
         console.print("  [yellow]No issues identified[/yellow]")
         if graph:
-            _display_graph_stats(graph, fp)
+            display_graph_stats(console, graph, fp)
         return
 
     console.print(f"\n[bold green]{len(result.final_suggestions)} findings:[/bold green]\n")
@@ -671,10 +578,10 @@ def _display_diagnosis_results(result: DebateResult, fp: ProjectFingerprint, gra
         ))
 
     if graph:
-        _display_graph_stats(graph, fp)
+        display_graph_stats(console, graph, fp)
 
 
-def _display_graph_stats(graph, fp: ProjectFingerprint):
+def display_graph_stats(console, graph, fp: ProjectFingerprint):
     """Show code graph statistics."""
     console.print(f"\n  [dim]Code graph: {graph.summary()}[/dim]")
 

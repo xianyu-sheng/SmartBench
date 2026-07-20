@@ -52,7 +52,7 @@ Repository = "https://github.com/xianyu-sheng/SmartBench"
 Issues = "https://github.com/xianyu-sheng/SmartBench/issues"
 
 [project.scripts]
-smartbench = "smartbench.cli:app"
+smartbench = "smartbench.cli.main:app"
 
 [build-system]
 requires = ["hatchling"]
