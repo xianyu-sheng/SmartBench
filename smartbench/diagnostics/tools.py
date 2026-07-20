@@ -233,6 +233,10 @@ class PythonDiagTool(DiagnosticTool):
         ProblemCategory.STARTUP_FAILURE, ProblemCategory.DEPENDENCY,
     ]
 
+    def is_available(self) -> bool:
+        """Always available — gives suggestions even without specific tools."""
+        return True
+
     def diagnose(self, target_path: str, category: ProblemCategory,
                  symptoms: Optional[List[str]] = None,
                  extra_args: Optional[Dict] = None) -> DiagnosisResult:
@@ -300,6 +304,10 @@ class CPPDiagTool(DiagnosticTool):
         ProblemCategory.PERFORMANCE,
     ]
 
+    def is_available(self) -> bool:
+        """Always available — gives suggestions even without specific tools."""
+        return True
+
     def diagnose(self, target_path: str, category: ProblemCategory,
                  symptoms: Optional[List[str]] = None,
                  extra_args: Optional[Dict] = None) -> DiagnosisResult:
@@ -365,6 +373,10 @@ class JavaDiagTool(DiagnosticTool):
         ProblemCategory.PERFORMANCE,
     ]
 
+    def is_available(self) -> bool:
+        """Always available — gives suggestions even without specific tools."""
+        return True
+
     def diagnose(self, target_path: str, category: ProblemCategory,
                  symptoms: Optional[List[str]] = None,
                  extra_args: Optional[Dict] = None) -> DiagnosisResult:
@@ -406,6 +418,10 @@ class StaticAnalysisTool(DiagnosticTool):
     name = "static_analysis"
     applicable_languages = list(Language)
     applicable_categories = [ProblemCategory.CODE_QUALITY, ProblemCategory.SECURITY]
+
+    def is_available(self) -> bool:
+        """Static analysis always available — returns suggestions, not binaries."""
+        return True
 
     _SUGGESTIONS = {
         Language.PYTHON: [

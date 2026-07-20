@@ -278,8 +278,21 @@ def run_diagnosis_with_graph(
     else:
         code_context = retriever.retrieve(concern)
 
+    # ── Execute diagnostic tools ──────────────────────────────────
+    tool_context = ""
+    if selected and selected != "auto":
+        try:
+            from smartbench.diagnostics.executor import run_tools_for_strategy
+            tool_context = run_tools_for_strategy(
+                console, project_path, fingerprint.primary_language, selected
+            )
+            if tool_context:
+                console.print("  [dim]诊断工具已执行[/dim]")
+        except Exception as e:
+            console.print(f"  [dim]工具执行跳过: {e}[/dim]")
+
     analysis_context = factory.build_analysis_context(
-        code_context=code_context,
+        code_context=code_context + tool_context,
         user_symptoms=concern,
     )
 
