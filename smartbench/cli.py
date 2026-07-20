@@ -40,6 +40,7 @@ from smartbench.llm.provider import (
     configure_api_keys,
     masked_input,
 )
+from smartbench.llm.client import call_llm, parse_json_safe as _parse_json_safe
 
 app = typer.Typer(
     name="smartbench",
@@ -163,7 +164,7 @@ def run_interactive_wizard():
         console.print("\n  [dim]Asking LLM to understand your project...[/dim]")
         factory = PromptFactory(fingerprint)
         prompt = factory.build_project_understanding_prompt(readme_content)
-        response = _call_llm(api_config, prompt)
+        response = call_llm(api_config, prompt)
         if response:
             understanding = _parse_json_safe(response)
             if understanding:
@@ -388,7 +389,7 @@ def run_diagnosis_with_graph(project_path: str, fingerprint: ProjectFingerprint,
         })
 
     strategy_prompt = factory.build_strategy_prompt(concern, strategies)
-    strategy_response = _call_llm(api_config, strategy_prompt)
+    strategy_response = call_llm(api_config, strategy_prompt)
     strategy = _parse_json_safe(strategy_response) if strategy_response else None
 
     if strategy:
@@ -433,7 +434,7 @@ def run_diagnosis_with_graph(project_path: str, fingerprint: ProjectFingerprint,
 
     # Build a single role-aware LLM caller: fn(prompt, role="proposer")
     def llm_fn(prompt: str, role: str = "") -> str:
-        return _call_llm(api_config, prompt, role=role) or ""
+        return call_llm(api_config, prompt, role=role) or ""
 
     debate_engine = DebateEngine(llm_fn, prompt_factory=factory, verifier=verifier)
     result = debate_engine.debate(analysis_context, target=concern,
@@ -489,7 +490,7 @@ def run_fallback_analysis(project_path: str, fingerprint: ProjectFingerprint,
 
     # Build a single role-aware LLM caller: fn(prompt, role="proposer")
     def llm_fn(prompt: str, role: str = "") -> str:
-        return _call_llm(api_config, prompt, role=role) or ""
+        return call_llm(api_config, prompt, role=role) or ""
 
     debate_engine = DebateEngine(llm_fn, prompt_factory=factory)
     result = debate_engine.debate(analysis_context, target=concern,
@@ -712,110 +713,3 @@ def resolve_project_path(input_path: str) -> Optional[str]:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-def _call_llm(api_config: Dict, prompt: str,
-              system: str = "你是一位资深软件工程师。请用中文回复。只返回要求的 JSON，不要其他内容。",
-              role: str = "") -> str:
-    """Call an LLM via OpenAI-compatible API.
-
-    Args:
-        api_config: {"models": [{"provider":..., "model":..., "api_key":..., "base_url":..., "role":...}, ...]}
-        prompt: The user prompt
-        system: System prompt
-        role: "proposer" / "critique" / "judge" — routes to the correct model in the config
-    """
-    import urllib.request
-    import urllib.error
-
-    models = api_config.get("models", [])
-
-    # Fallback: old format conversion
-    if not models and isinstance(api_config, dict):
-        for provider in ["deepseek", "openai", "anthropic", "glm", "doubao"]:
-            key = api_config.get(provider, "")
-            if key:
-                info = PROVIDER_REGISTRY.get(provider, {})
-                models.append({
-                    "provider": provider, "model": "auto",
-                    "api_key": key, "base_url": info.get("base_url", ""),
-                    "role": "all",
-                })
-
-    if not models:
-        return ""
-
-    # Route by role: prefer model assigned to this role, fallback to "all", then anything
-    ordered = sorted(models, key=lambda m: (
-        0 if m.get("role") == role else (1 if m.get("role") == "all" else 2)
-    ))
-
-    for m in ordered:
-        api_key = m.get("api_key", "")
-        if not api_key:
-            continue
-
-        base_url = m.get("base_url", "").rstrip("/")
-        model_name = m.get("model", "auto")
-        # If model is "auto", try to guess from provider
-        if model_name == "auto":
-            defaults = {"deepseek": "deepseek-chat", "openai": "gpt-4o",
-                       "glm": "glm-4-0520", "doubao": "doubao-seed-2.0-pro-260215",
-                       "anthropic": "claude-sonnet-4-20250514",
-                       "moonshot": "moonshot-v1-8k", "qwen": "qwen-max"}
-            model_name = defaults.get(m["provider"], "gpt-3.5-turbo")
-
-        url = f"{base_url}/chat/completions"
-
-        body = json.dumps({
-            "model": model_name,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.3,
-            "max_tokens": 4096,
-        }).encode("utf-8")
-
-        req = urllib.request.Request(url, data=body)
-        req.add_header("Content-Type", "application/json")
-        req.add_header("Authorization", f"Bearer {api_key}")
-
-        try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                return data["choices"][0]["message"]["content"]
-        except urllib.error.HTTPError as e:
-            error_body = e.read().decode("utf-8", errors="ignore")[:300]
-            console.print(f"  [dim]{m['provider']} HTTP {e.code}: {error_body}[/dim]")
-            continue
-        except Exception as e:
-            console.print(f"  [dim]{m['provider']} error: {e}[/dim]")
-            continue
-
-    return ""
-
-
-def _parse_json_safe(raw: str) -> Optional[Dict]:
-    """Safely parse JSON from LLM output."""
-    import re
-    if not raw:
-        return None
-
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```(?:json)?\s*\n?", "", cleaned)
-        cleaned = re.sub(r"\n?```\s*$", "", cleaned)
-
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        match = re.search(r"\{[\s\S]*\}", cleaned)
-        if match:
-            try:
-                return json.loads(match.group())
-            except json.JSONDecodeError:
-                pass
-    return None
-
-
-if __name__ == "__main__":
-    app()
