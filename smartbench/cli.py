@@ -18,7 +18,7 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.prompt import Prompt, Confirm
+from rich.prompt import Prompt
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich import print as rprint
 
@@ -33,6 +33,13 @@ from smartbench.graph.retriever import GraphRetriever
 from smartbench.diagnostics.registry import DiagnosticRegistry, ProblemCategory
 from smartbench.diagnostics.tools import ALL_TOOLS
 from smartbench.engine.debate import DebateEngine, DebateResult
+from smartbench.llm.provider import (
+    PROVIDER_REGISTRY,
+    detect_provider,
+    load_api_keys_from_env,
+    configure_api_keys,
+    masked_input,
+)
 
 app = typer.Typer(
     name="smartbench",
@@ -132,7 +139,7 @@ def run_interactive_wizard():
     console.print("\n[bold]Step 2/4[/bold] — Configure LLM API keys")
     console.print("  SmartBench needs at least one LLM API key to analyze your code.")
 
-    api_config = configure_api_keys()
+    api_config = configure_api_keys(console)
     if not api_config:
         console.print("[red]No API keys configured. SmartBench requires an LLM to function.[/red]")
         raise typer.Exit(1)
@@ -199,7 +206,7 @@ def run_quick_mode(project: Optional[str] = None, concern: Optional[str] = None)
         console.print(f"[red]Cannot access: {project}[/red]")
         raise typer.Exit(1)
 
-    api_config = _load_api_keys_from_env()
+    api_config = load_api_keys_from_env()
     if not api_config:
         console.print("[yellow]No API keys in environment — some features disabled[/yellow]")
 
@@ -226,7 +233,7 @@ def run_diagnose_mode(project: str, symptoms: Optional[str], performance: bool):
         console.print(f"[red]Cannot access: {project}[/red]")
         raise typer.Exit(1)
 
-    api_config = _load_api_keys_from_env()
+    api_config = load_api_keys_from_env()
     fingerprint = run_phase1_detection(project_path)
     _display_fingerprint(fingerprint)
 
@@ -705,288 +712,6 @@ def resolve_project_path(input_path: str) -> Optional[str]:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Provider Registry — auto-detects base URL + provider from model name
-# ═══════════════════════════════════════════════════════════════════════
-
-PROVIDER_REGISTRY = {
-    "deepseek": {
-        "base_url": "https://api.deepseek.com/v1",
-        "patterns": ["deepseek"],
-        "display": "DeepSeek",
-    },
-    "openai": {
-        "base_url": "https://api.openai.com/v1",
-        "patterns": ["gpt-", "o1-", "o3-", "o4-"],
-        "display": "OpenAI",
-    },
-    "anthropic": {
-        "base_url": "https://api.anthropic.com/v1",
-        "patterns": ["claude-"],
-        "display": "Anthropic",
-    },
-    "glm": {
-        "base_url": "https://open.bigmodel.cn/api/paas/v4",
-        "patterns": ["glm-", "chatglm", "cogview"],
-        "display": "Zhipu GLM",
-    },
-    "doubao": {
-        "base_url": "https://ark.cn-beijing.volces.com/api/v3",
-        "patterns": ["doubao-", "seed-"],
-        "display": "ByteDance Doubao",
-    },
-    "moonshot": {
-        "base_url": "https://api.moonshot.cn/v1",
-        "patterns": ["moonshot-", "kimi"],
-        "display": "Moonshot Kimi",
-    },
-    "qwen": {
-        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "patterns": ["qwen-", "qwq-"],
-        "display": "Alibaba Qwen",
-    },
-    "local": {
-        "base_url": "http://localhost:11434/v1",
-        "patterns": ["llama", "mistral", "qwen2", "codellama", "deepseek-r1"],
-        "display": "Local (Ollama-compatible)",
-    },
-}
-
-
-def _detect_provider(model_name: str) -> tuple:
-    """Given a model name, return (provider_key, base_url, display_name)."""
-    model_lower = model_name.lower().strip()
-    for key, info in PROVIDER_REGISTRY.items():
-        for pattern in info["patterns"]:
-            if model_lower.startswith(pattern):
-                return (key, info["base_url"], info["display"])
-    # Fallback: treat as OpenAI-compatible generic
-    return ("openai", "https://api.openai.com/v1", "OpenAI-compatible")
-
-
-def masked_input(prompt_text: str) -> str:
-    """Read a secret with * echo for each character typed.
-
-    Shows one * per character as the user types, then reveals last 4 chars
-    after submission so the user knows their input was registered.
-    """
-    import sys as _sys
-
-    console.print(f"  {prompt_text}: ", end="")
-
-    if _sys.platform == "win32":
-        import msvcrt
-        chars = []
-        while True:
-            ch = msvcrt.getwch()
-            if ch in ("\r", "\n"):
-                console.print()
-                break
-            if ch == "\x08":  # backspace
-                if chars:
-                    chars.pop()
-                    console.print("\b \b", end="")
-                continue
-            if ch == "\x03":  # Ctrl+C
-                raise KeyboardInterrupt
-            chars.append(ch)
-            console.print("*", end="")
-        value = "".join(chars)
-    else:
-        import termios
-        import tty
-        fd = _sys.stdin.fileno()
-        old = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            chars = []
-            while True:
-                ch = _sys.stdin.read(1)
-                if ch in ("\r", "\n"):
-                    console.print()
-                    break
-                if ch == "\x7f":  # backspace
-                    if chars:
-                        chars.pop()
-                        console.print("\b \b", end="")
-                    continue
-                if ch == "\x03":  # Ctrl+C
-                    raise KeyboardInterrupt
-                chars.append(ch)
-                console.print("*", end="")
-            value = "".join(chars)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old)
-
-    # Show masked confirmation
-    if value:
-        mask = value[:3] + "****" + value[-4:] if len(value) > 10 else "****"
-        console.print(f"    [dim]saved: {mask}[/dim]")
-    return value
-
-
-def configure_api_keys() -> Optional[Dict[str, str]]:
-    """Interactive model + API key configuration — role-aware.
-
-    User chooses:
-      [1] One model for all three roles (convenient)
-      [2] Different models for Proposer / Critique / Judge (credible debate)
-
-    Keys stored in memory only — never persisted to disk.
-    """
-    models_list = []
-
-    console.print("\n  [dim]Keys stored in memory only — restart terminal to reconfigure.[/dim]")
-
-    # ================================================================
-    # Step A: Environment variable quick-load
-    # ================================================================
-    env_providers = {
-        "deepseek": os.environ.get("DEEPSEEK_API_KEY", ""),
-        "openai": os.environ.get("OPENAI_API_KEY", ""),
-        "anthropic": os.environ.get("ANTHROPIC_API_KEY", ""),
-        "glm": os.environ.get("GLM_API_KEY", ""),
-        "doubao": os.environ.get("DOUBAO_API_KEY", ""),
-        "moonshot": os.environ.get("MOONSHOT_API_KEY", ""),
-        "qwen": os.environ.get("DASHSCOPE_API_KEY", ""),
-    }
-
-    env_count = 0
-    for provider, key in env_providers.items():
-        if key:
-            env_count += 1
-            info = PROVIDER_REGISTRY.get(provider, {})
-            display = info.get("display", provider)
-            if Confirm.ask(f"  Use ${provider.upper()}_API_KEY from env? ({display})", default=True):
-                models_list.append({
-                    "provider": provider,
-                    "model": "auto",
-                    "api_key": key,
-                    "base_url": info.get("base_url", ""),
-                    "role": "all",  # will be refined below if needed
-                })
-                console.print(f"    [green]OK[/green] {display}")
-
-    if len(models_list) >= 3:
-        # Already have 3+ models from env — assign to roles
-        ROLE_NAMES_CN = ["Proposer（方案提出者）", "Critique（交叉审查者）", "Judge（最终仲裁者）"]
-        for i, m in enumerate(models_list[:3]):
-            role_key = ["proposer", "critique", "judge"][i]
-            m["role"] = role_key
-            console.print(f"    [dim]{ROLE_NAMES_CN[i]} → {m.get('model', 'auto')}[/dim]")
-
-    # ================================================================
-    # Step B: Choose config mode
-    # ================================================================
-    console.print(f"\n  [bold]How to configure?[/bold]")
-    console.print(f"  [1] One model — all three roles share it (convenient)")
-    console.print(f"  [2] Three models — Proposer / Critique / Judge each use a different model (credible debate)")
-
-    choice = Prompt.ask("  Choice", default="1", choices=["1", "2"]).strip()
-
-    # ================================================================
-    # Step C: Collect model(s)
-    # ================================================================
-    ROLE_KEYS = ["proposer", "critique", "judge"]
-    ROLE_NAMES_CN = ["Proposer（方案提出者）", "Critique（交叉审查者）", "Judge（最终仲裁者）"]
-    ROLE_COLORS = ["cyan", "yellow", "green"]
-
-    if choice == "1":
-        # ── One model for all ──────────────────────────────────────
-        console.print(f"\n  [bold]Configure the model for all three roles:[/bold]")
-        console.print(f"  [dim]Examples: deepseek-chat | gpt-4o | claude-sonnet-4[/dim]")
-
-        model = _prompt_single_model()
-        if model:
-            model["role"] = "all"
-            models_list.append(model)
-            console.print(f"    [green]OK[/green] Proposer / Critique / Judge 共用 [{model['model']}]")
-    else:
-        # ── Three different models ─────────────────────────────────
-        console.print(f"\n  [bold]Configure one model per role:[/bold]")
-        console.print(f"  [dim]For maximum credibility, use different models for each role.[/dim]")
-
-        for i, (role_key, role_name, role_color) in enumerate(zip(ROLE_KEYS, ROLE_NAMES_CN, ROLE_COLORS)):
-            console.print(f"\n  [{role_color}]── {role_name} ──[/{role_color}]")
-            model = _prompt_single_model()
-            if not model:
-                console.print("    [yellow]Skipped — this role will use the first available model[/yellow]")
-                continue
-            model["role"] = role_key
-            models_list.append(model)
-
-    if not models_list:
-        return None
-
-    console.print(f"\n  [green]Ready![/green] {len(models_list)} model(s) configured.")
-    if any(m.get("role") == "all" for m in models_list):
-        console.print(f"  [dim]One model → all three debate roles share it.[/dim]")
-    else:
-        for m in models_list:
-            role = m.get("role", "?")
-            role_display = dict(zip(ROLE_KEYS, ROLE_NAMES_CN)).get(role, role)
-            console.print(f"  [dim]{role_display} → {m['model']} ({m.get('provider', '?')})[/dim]")
-
-    return {"models": models_list}
-
-
-def _prompt_single_model() -> Optional[Dict]:
-    """Prompt for a single model name + API key. Returns model dict or None."""
-    model = Prompt.ask("    Model name", default="").strip()
-    if not model:
-        return None
-
-    provider_key, base_url, display = _detect_provider(model)
-    console.print(f"      [dim]Provider: {display} → {base_url}[/dim]")
-    override = Prompt.ask("      Base URL (Enter to confirm)", default="").strip()
-    if override:
-        base_url = override
-
-    key = masked_input(f"      API key for {model}")
-    if not key:
-        return None
-
-    return {
-        "provider": provider_key,
-        "model": model,
-        "api_key": key,
-        "base_url": base_url,
-    }
-
-
-def _load_api_keys_from_env() -> Optional[Dict[str, str]]:
-    """Load API keys from environment variables (quick mode)."""
-    models = []
-    env_map = {
-        "DEEPSEEK_API_KEY": ("deepseek", "deepseek-chat"),
-        "OPENAI_API_KEY": ("openai", "gpt-4o"),
-        "ANTHROPIC_API_KEY": ("anthropic", "claude-sonnet-4-20250514"),
-        "GLM_API_KEY": ("glm", "glm-4-0520"),
-        "DOUBAO_API_KEY": ("doubao", "doubao-seed-2.0-pro-260215"),
-        "MOONSHOT_API_KEY": ("moonshot", "moonshot-v1-8k"),
-        "DASHSCOPE_API_KEY": ("qwen", "qwen-max"),
-    }
-    for env_var, (provider, default_model) in env_map.items():
-        key = os.environ.get(env_var, "")
-        if key:
-            info = PROVIDER_REGISTRY.get(provider, {})
-            models.append({
-                "provider": provider,
-                "model": default_model,
-                "api_key": key,
-                "base_url": info.get("base_url", ""),
-            })
-
-    # Assign roles: if 3+ models, one per role; otherwise "all"
-    if len(models) >= 3:
-        for i, role in enumerate(["proposer", "critique", "judge"]):
-            models[i]["role"] = role
-    else:
-        for m in models:
-            m["role"] = "all"
-
-    return {"models": models} if models else None
-
-
 def _call_llm(api_config: Dict, prompt: str,
               system: str = "你是一位资深软件工程师。请用中文回复。只返回要求的 JSON，不要其他内容。",
               role: str = "") -> str:
