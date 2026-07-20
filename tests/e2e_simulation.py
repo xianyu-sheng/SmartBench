@@ -3,6 +3,7 @@ End-to-end simulation of SmartBench with mock LLM.
 Tests the full pipeline: Phase 1→4→3→5.
 """
 import json
+import os
 from pathlib import Path
 from smartbench.detector import ProjectScanner
 from smartbench.prompts.factory import PromptFactory
@@ -11,7 +12,7 @@ from smartbench.engine.debate import DebateEngine
 
 print("=== 4. END-TO-END SIMULATION (MOCK LLM) ===\n")
 
-dir_path = "D:/SmartBench"
+dir_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Phase 1: Detection
 fp = ProjectScanner(dir_path).scan()

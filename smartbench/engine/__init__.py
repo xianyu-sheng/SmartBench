@@ -1,1 +1,1 @@
-"""引擎模块"""
+"""Engine module — multi-agent debate engine with evidence verification."""
