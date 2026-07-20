@@ -9,7 +9,7 @@ Adding a new language = adding a new parser class.
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Type
+from typing import Dict, List, Optional, Set, Type, Any, Tuple
 import re
 import time
 
@@ -263,7 +263,18 @@ class CodeGraphBuilder:
         """
         self.max_files = max_files
         self.use_treesitter = use_treesitter
-        self._treesitter_available = self._check_treesitter()
+        self._treesitter_available = False
+        self._ts_parser = None
+        if use_treesitter:
+            self._init_treesitter()
+
+    def _init_treesitter(self) -> None:
+        """Lazy-init tree-sitter. Called once per builder instance."""
+        try:
+            from smartbench.graph.tree_parser import is_available
+            self._treesitter_available = is_available()
+        except ImportError:
+            self._treesitter_available = False
 
     def build(self, project_path: str, language: Language,
               file_filter: Optional[List[str]] = None) -> CodeGraph:
@@ -292,8 +303,14 @@ class CodeGraphBuilder:
             return graph
 
         # 2. Parse each file → nodes + edges
+        # Try tree-sitter first for supported languages, fall back to regex
         patterns = _PATTERNS.get(language, {})
         all_functions: Dict[str, CodeNode] = {}  # name → node for call resolution
+
+        tree_parser = None
+        if self._treesitter_available:
+            from smartbench.graph.tree_parser import get_parser
+            tree_parser = get_parser(language.value)
 
         for file_path in source_files:
             rel_path = str(file_path.relative_to(root))
@@ -313,8 +330,20 @@ class CodeGraphBuilder:
             )
             graph.add_node(file_node)
 
-            # Functions
-            func_nodes = self._parse_functions(content, rel_path, language, patterns)
+            if tree_parser is not None:
+                # ── Tree-sitter path (precise AST) ──────────────────
+                func_nodes, class_nodes = self._parse_file_treesitter(
+                    tree_parser, content, rel_path, language
+                )
+            else:
+                # ── Regex path (fallback) ──────────────────────────
+                func_nodes = self._parse_functions(
+                    content, rel_path, language, patterns
+                )
+                class_nodes = self._parse_classes(
+                    content, rel_path, language, patterns
+                )
+
             for fn in func_nodes:
                 graph.add_node(fn)
                 graph.add_edge(CodeEdge(
@@ -324,8 +353,6 @@ class CodeGraphBuilder:
                 ))
                 all_functions[fn.name] = fn
 
-            # Classes
-            class_nodes = self._parse_classes(content, rel_path, language, patterns)
             for cn in class_nodes:
                 graph.add_node(cn)
                 graph.add_edge(CodeEdge(
@@ -335,6 +362,9 @@ class CodeGraphBuilder:
                 ))
 
         # 3. Resolve calls between functions
+        # Always use regex for call resolution — it's more robust than
+        # tree-sitter's call_expression traversal across languages.
+        # Tree-sitter is used for precise function/class extraction only.
         self._resolve_calls(graph, all_functions, patterns)
 
         # 4. Resolve imports
@@ -379,7 +409,53 @@ class CodeGraphBuilder:
         import fnmatch
         return fnmatch.fnmatch(name, pattern)
 
-    # ── Parsing ───────────────────────────────────────────────────────
+    # ── Tree-sitter based parsing ─────────────────────────────────────
+
+    def _parse_file_treesitter(
+        self, parser: Any, content: str, file_path: str, language: Language
+    ) -> Tuple[List[CodeNode], List[CodeNode]]:
+        """Parse a single file using tree-sitter AST.
+
+        Returns:
+            (function_nodes, class_nodes) tuple.
+        """
+        from smartbench.graph.tree_parser import extract_symbols
+
+        source_bytes = content.encode("utf-8")
+        symbols = extract_symbols(parser, source_bytes, file_path)
+
+        func_nodes = []
+        for fn in symbols["functions"]:
+            node = CodeNode(
+                id=CodeNode.make_id(
+                    file_path, fn["name"], NodeType.FUNCTION, fn["line"]
+                ),
+                node_type=NodeType.FUNCTION,
+                name=fn["name"],
+                file_path=file_path,
+                line_start=fn["line"],
+                language=language.value,
+                properties={"signature": fn.get("signature", "")},
+            )
+            func_nodes.append(node)
+
+        class_nodes = []
+        for cls in symbols["classes"]:
+            node = CodeNode(
+                id=CodeNode.make_id(
+                    file_path, cls["name"], NodeType.CLASS, cls["line"]
+                ),
+                node_type=NodeType.CLASS,
+                name=cls["name"],
+                file_path=file_path,
+                line_start=cls["line"],
+                language=language.value,
+            )
+            class_nodes.append(node)
+
+        return func_nodes, class_nodes
+
+    # ── Regex-based parsing (fallback) ──────────────────────────────────
 
     def _parse_functions(self, content: str, file_path: str,
                          language: Language, patterns: Dict) -> List[CodeNode]:
@@ -555,13 +631,13 @@ class CodeGraphBuilder:
                         edge_type=EdgeType.IMPORTS,
                     ))
 
-    # ── Tree-sitter check ──────────────────────────────────────────────
+    # ── Tree-sitter language mapping ───────────────────────────────────
 
     @staticmethod
     def _check_treesitter() -> bool:
-        """Check if tree-sitter is available."""
+        """Check if tree-sitter is available (kept for backward compat)."""
         try:
-            import tree_sitter  # noqa: F401
-            return True
+            from smartbench.graph.tree_parser import is_available
+            return is_available()
         except ImportError:
             return False
