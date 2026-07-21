@@ -6,6 +6,7 @@ project detection, and diagnosis execution.
 """
 
 from pathlib import Path
+from typing import Optional
 
 import typer
 from rich.console import Console
@@ -25,11 +26,11 @@ from smartbench.cli.phases import (
 )
 
 
-def run_interactive_wizard(console: Console) -> None:
+def run_interactive_wizard(console: Console) -> Optional[object]:
     """Full interactive setup wizard — 4-step guided workflow.
 
-    Args:
-        console: Rich Console instance for styled output.
+    Returns:
+        DebateResult if diagnosis completed, None otherwise.
     """
     console.print()
     console.print(Panel.fit(
@@ -114,7 +115,7 @@ def run_interactive_wizard(console: Console) -> None:
 
     if graph and len(graph.nodes) > 0:
         console.print(f"  [green]OK[/green] {graph.summary()}")
-        run_diagnosis_with_graph(
+        result = run_diagnosis_with_graph(
             console, project_path, fingerprint, graph, api_config,
             user_concern, hybrid_retriever=hybrid_retriever,
         )
@@ -123,9 +124,10 @@ def run_interactive_wizard(console: Console) -> None:
             "  [yellow]Could not build code graph "
             "(no source files found?)[/yellow]"
         )
-        run_fallback_analysis(
+        result = run_fallback_analysis(
             console, project_path, fingerprint, api_config, user_concern,
         )
 
     console.print("\n[bold green]Done![/bold green]")
     console.print("  Thanks for using SmartBench!\n")
+    return result

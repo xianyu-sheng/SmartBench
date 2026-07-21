@@ -41,22 +41,30 @@ def main(
     concern: Optional[str] = typer.Option(
         None, "--concern", "-c", help="What problem are you facing?"
     ),
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Save report to file (JSON format)"
+    ),
 ):
     """SmartBench — AI-powered universal code diagnosis tool."""
     if ctx.invoked_subcommand is None:
         if quick:
-            run_quick_mode(console, project=project, concern=concern)
+            result = run_quick_mode(console, project=project, concern=concern)
         else:
-            run_interactive_wizard(console)
+            result = run_interactive_wizard(console)
+        _maybe_save_output(result, output)
 
 
 @app.command()
 def quick(
     project: Optional[str] = typer.Option(None, "--project", "-p"),
     concern: Optional[str] = typer.Option(None, "--concern", "-c"),
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Save report to file (JSON)"
+    ),
 ):
     """Quick diagnosis — auto-detect everything, minimal prompts."""
-    run_quick_mode(console, project=project, concern=concern)
+    result = run_quick_mode(console, project=project, concern=concern)
+    _maybe_save_output(result, output)
 
 
 @app.command()
@@ -66,11 +74,15 @@ def diagnose(
     performance: bool = typer.Option(
         False, "--perf", help="Performance profiling mode"
     ),
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Save report to file (JSON)"
+    ),
 ):
     """Run diagnosis only (no benchmarking)."""
-    run_diagnose_mode(
+    result = run_diagnose_mode(
         console, project=project, symptoms=symptoms, performance=performance
     )
+    _maybe_save_output(result, output)
 
 
 @app.command()
@@ -102,3 +114,20 @@ def check():
 
 if __name__ == "__main__":
     app()
+
+
+def _maybe_save_output(result, output_path: Optional[str]) -> None:
+    """Save diagnosis result to a JSON file if --output is specified."""
+    if not output_path or result is None:
+        return
+
+    import json as _json
+    from dataclasses import is_dataclass, asdict
+
+    try:
+        data = asdict(result) if is_dataclass(result) else result
+        with open(output_path, "w", encoding="utf-8") as f:
+            _json.dump(data, f, ensure_ascii=False, indent=2)
+        console.print(f"[green]Report saved to: {output_path}[/green]")
+    except Exception as e:
+        console.print(f"[red]Failed to save output: {e}[/red]")

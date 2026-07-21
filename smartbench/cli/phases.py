@@ -215,14 +215,18 @@ def run_diagnosis_with_graph(
     concern: str,
     hybrid_retriever: object = None,
     enable_verify: bool = True,
-) -> None:
-    """Run the full graph-enhanced diagnosis pipeline with RAG + verification."""
+) -> Optional[object]:
+    """Run the full graph-enhanced diagnosis pipeline with RAG + verification.
+
+    Returns:
+        DebateResult or None.
+    """
     if not api_config:
         console.print(
             "[yellow]No LLM configured — showing graph stats only[/yellow]"
         )
         display_graph_stats(console, graph, fingerprint)
-        return
+        return None
 
     factory = PromptFactory(fingerprint)
 
@@ -342,6 +346,7 @@ def run_diagnosis_with_graph(
             pass
 
     display_diagnosis_results(console, result, fingerprint, graph)
+    return result
 
 
 def run_fallback_analysis(
@@ -350,8 +355,12 @@ def run_fallback_analysis(
     fingerprint: ProjectFingerprint,
     api_config: Optional[Dict],
     concern: str,
-) -> None:
-    """Fallback: file-based analysis when code graph can't be built."""
+) -> Optional[object]:
+    """Fallback: file-based analysis when code graph can't be built.
+
+    Returns:
+        DebateResult or None.
+    """
     if not api_config:
         console.print(
             "[yellow]No LLM configured — cannot perform analysis[/yellow]"
@@ -396,6 +405,7 @@ def run_fallback_analysis(
     result = debate_engine.debate(analysis_context, target=concern)
 
     display_diagnosis_results(console, result, fingerprint, None)
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -406,8 +416,12 @@ def run_quick_mode(
     console: Console,
     project: Optional[str] = None,
     concern: Optional[str] = None,
-) -> None:
-    """Minimal-interaction quick mode — auto-detect everything."""
+) -> Optional[object]:
+    """Minimal-interaction quick mode — auto-detect everything.
+
+    Returns:
+        DebateResult if diagnosis completed, None otherwise.
+    """
     console.print(Panel.fit(
         "[bold cyan]SmartBench Quick Mode[/bold cyan]", border_style="cyan"
     ))
@@ -434,16 +448,17 @@ def run_quick_mode(
 
     graph, hybrid_retriever = run_phase4_graph(console, project_path, fingerprint)
     if graph:
-        run_diagnosis_with_graph(
+        result = run_diagnosis_with_graph(
             console, project_path, fingerprint, graph, api_config,
             concern, hybrid_retriever=hybrid_retriever,
         )
     else:
-        run_fallback_analysis(
+        result = run_fallback_analysis(
             console, project_path, fingerprint, api_config, concern,
         )
 
     console.print("\n[bold green]Done![/bold green]\n")
+    return result
 
 
 def run_diagnose_mode(
