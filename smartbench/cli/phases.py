@@ -485,8 +485,12 @@ def run_diagnose_mode(
     project: str,
     symptoms: Optional[str],
     performance: bool,
-) -> None:
-    """Diagnosis-only mode — runs tools, shows results."""
+) -> Optional[Dict]:
+    """Diagnosis-only mode — runs tools, shows results.
+
+    Returns:
+        Dict with tool results for --output capture.
+    """
     project_path = resolve_project_path(console, project)
     if not project_path:
         console.print(f"[red]Cannot access: {project}[/red]")
@@ -535,3 +539,4 @@ def run_diagnose_mode(
             name, "[green]yes[/green]" if available else "[red]no[/red]"
         )
     console.print(table)
+    return {"tool_results": [r.to_dict() for r in results]}
