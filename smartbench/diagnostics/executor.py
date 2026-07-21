@@ -6,14 +6,14 @@ and formats their output for LLM consumption.
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from smartbench.detector.fingerprint import Language
 from smartbench.diagnostics.registry import (
-    DiagnosticRegistry, DiagnosticTool, DiagnosisResult,
+    DiagnosticRegistry, DiagnosisResult,
     ProblemCategory,
 )
 from smartbench.diagnostics.tools import ALL_TOOLS

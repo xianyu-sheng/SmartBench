@@ -1,6 +1,5 @@
 """Prompt factory — dynamic, context-aware prompt generation."""
 
-from smartbench.detector.fingerprint import ProjectFingerprint
 from smartbench.prompts.templates import (
     SYSTEM_ANALYSIS_TEMPLATE,
     DIAGNOSTIC_STRATEGY_TEMPLATE,

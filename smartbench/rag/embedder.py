@@ -146,7 +146,6 @@ class CodeEmbedder:
         if self._fallback_mode == "tfidf":
             if self._tfidf_vectorizer is not None:
                 # Use fitted vocabulary from index build (exact match)
-                import numpy as np
                 from sklearn.preprocessing import normalize
                 vec = self._tfidf_vectorizer.transform([text])
                 return normalize(vec, norm='l2').toarray()[0].tolist()
@@ -207,7 +206,6 @@ class CodeEmbedder:
 
         # All sentence-transformers failed. Try sklearn TF-IDF as last resort
         try:
-            from sklearn.feature_extraction.text import TfidfVectorizer
             logger.info("Using sklearn TF-IDF as fallback embedder")
             self._fallback_mode = "tfidf"
             self._dimension = self._tfidf_dim  # 256, consistent
@@ -240,7 +238,6 @@ class CodeEmbedder:
         Fit TF-IDF vectorizer on the chunk corpus. Called once during indexing.
         Saves the fitted vectorizer for consistent query transformations.
         """
-        import numpy as np
         from sklearn.feature_extraction.text import TfidfVectorizer
 
         logger.info(f"Fitting TF-IDF on {len(texts)} documents")
@@ -284,7 +281,6 @@ class CodeEmbedder:
         NOT for queries — use embed_query() which uses _embed_tfidf_fallback
         when no fitted vocabulary exists.
         """
-        import numpy as np
         from sklearn.preprocessing import normalize
 
         if self._tfidf_vectorizer is not None:

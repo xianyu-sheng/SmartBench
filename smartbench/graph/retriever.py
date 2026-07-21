@@ -8,10 +8,9 @@ This replaces the old "read entire key files" approach with
 targeted graph-based context retrieval.
 """
 
-from typing import List, Optional, Set, Tuple
-import re
+from typing import List, Optional, Tuple
 
-from smartbench.graph.schema import CodeGraph, CodeNode, CodeEdge, NodeType, EdgeType
+from smartbench.graph.schema import CodeGraph, CodeNode, NodeType, EdgeType
 
 
 class GraphRetriever:

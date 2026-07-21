@@ -8,7 +8,6 @@ from manifest files, directory conventions, build systems, and git history.
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 import subprocess
-import os
 
 from smartbench.detector.fingerprint import (
     ProjectFingerprint, Language, Framework, ProjectType,
@@ -260,7 +259,6 @@ class ProjectScanner:
 
     def _detect_project_type(self, fp: ProjectFingerprint) -> None:
         """Infer the project type from structure and dependencies."""
-        root_files = {f.name for f in self.root.iterdir() if f.is_file()}
         root_dirs = {d.name.lower() for d in self.root.iterdir() if d.is_dir()}
 
         # Strong signals from directory layout

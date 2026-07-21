@@ -8,7 +8,7 @@ The registry routes a diagnosis request to the right tools.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Set, Type
+from typing import Dict, List, Optional
 import subprocess
 import shutil
 

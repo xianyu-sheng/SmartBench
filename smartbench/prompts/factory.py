@@ -4,7 +4,7 @@ PromptFactory — 根据项目指纹动态生成所有 Prompt（全中文）。
 所有 Prompt 在运行时从 ProjectFingerprint 组装，零硬编码假设。
 """
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 from smartbench.detector.fingerprint import ProjectFingerprint, Language
 
 
@@ -26,7 +26,7 @@ class PromptFactory:
 
 ## 确定性信号（来自文件系统扫描）
 - **主要语言**：{lang}（置信度：{self.fp.language_confidence:.0%}）
-- **次要语言**：{[l.value for l in self.fp.secondary_languages] or '无'}
+- **次要语言**：{[lang.value for lang in self.fp.secondary_languages] or '无'}
 - **框架**：{fw}（置信度：{self.fp.framework_confidence:.0%}）
 - **项目类型**：{ptype}
 - **构建系统**：{self.fp.build_system or '未知'}

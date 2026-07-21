@@ -38,3 +38,4 @@ data/flamegraphs/
 # Sensitive
 .env
 *.key
+.mypy_cache/

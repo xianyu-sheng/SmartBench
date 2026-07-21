@@ -9,10 +9,10 @@ Key feature: cross-validates structural claims against actual source code.
 """
 
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 import logging
 
-from smartbench.graph.schema import CodeGraph, CodeNode, NodeType
+from smartbench.graph.schema import CodeGraph
 from smartbench.graph.retriever import GraphRetriever
 from smartbench.rag.store import VectorStore
 from smartbench.rag.embedder import CodeEmbedder

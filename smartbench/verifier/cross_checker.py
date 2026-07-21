@@ -9,12 +9,11 @@ Takes proposals from the debate engine, verifies each claim against:
 Returns proposals annotated with verification data.
 """
 
-from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Any
 import re
 import logging
 
-from smartbench.graph.schema import CodeGraph, NodeType
+from smartbench.graph.schema import CodeGraph
 from smartbench.graph.retriever import GraphRetriever
 from smartbench.verifier.location import LocationVerifier
 from smartbench.verifier.extractor import EvidenceExtractor

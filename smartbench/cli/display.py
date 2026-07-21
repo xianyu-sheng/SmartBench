@@ -5,7 +5,7 @@ All functions accept a rich.Console instance as first argument,
 decoupling presentation from business logic.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 
 from rich.console import Console
 from rich.panel import Panel
@@ -190,7 +190,7 @@ def display_fingerprint(console: Console, fp: ProjectFingerprint) -> None:
     )
     if fp.secondary_languages:
         table.add_row(
-            "Secondary", ", ".join(l.value for l in fp.secondary_languages)
+            "Secondary", ", ".join(lang.value for lang in fp.secondary_languages)
         )
     table.add_row(
         "Framework",

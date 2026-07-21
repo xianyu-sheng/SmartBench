@@ -9,7 +9,7 @@ Adding a new language = adding a new parser class.
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Type, Any, Tuple
+from typing import Dict, List, Optional, Set, Any, Tuple
 import re
 import time
 
@@ -515,14 +515,6 @@ class CodeGraphBuilder:
                 seen.add(name)
 
                 line_no = content[:match.start()].count("\n") + 1
-                # Map pattern name to NodeType
-                type_map = {
-                    "class": NodeType.CLASS,
-                    "struct": NodeType.CLASS,
-                    "interface": NodeType.CLASS,
-                    "trait": NodeType.CLASS,
-                    "impl": NodeType.CLASS,
-                }
                 node = CodeNode(
                     id=CodeNode.make_id(file_path, name, NodeType.CLASS, line_no),
                     node_type=NodeType.CLASS,

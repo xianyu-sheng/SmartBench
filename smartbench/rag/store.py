@@ -278,7 +278,6 @@ class VectorStore:
         import os
         if os.environ.get("SMARTBENCH_CHROMADB"):
             try:
-                import chromadb
                 self._ensure_chroma_client()
                 test_col = self._client.create_collection(
                     name=f"_test_{self.fingerprint_hash[:4]}",

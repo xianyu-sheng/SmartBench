@@ -119,7 +119,7 @@ def run_phase4_graph(
         if len(all_langs) == 1:
             lang_label = fingerprint.primary_language.value
         else:
-            lang_label = " + ".join(l.value for l in all_langs)
+            lang_label = " + ".join(lang.value for lang in all_langs)
 
         with Progress(
             SpinnerColumn(),
@@ -145,7 +145,7 @@ def run_phase4_graph(
             lang_counts[lang] = lang_counts.get(lang, 0) + 1
         if len(lang_counts) > 1:
             breakdown = ", ".join(
-                f"{l}:{c}" for l, c in sorted(lang_counts.items())
+                f"{lang}:{count}" for lang, count in sorted(lang_counts.items())
             )
             console.print(f"    [dim]语言分布: {breakdown}[/dim]")
 
@@ -458,7 +458,7 @@ def run_diagnose_mode(
         console.print(f"[red]Cannot access: {project}[/red]")
         return
 
-    api_config = load_api_keys_from_env()
+    load_api_keys_from_env()  # noqa: F841
     fingerprint = run_phase1_detection(console, project_path)
     display_fingerprint(console, fingerprint)
 

@@ -12,7 +12,7 @@ All modules are optional: SmartBench core runs without them.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any
 
 
 @dataclass
@@ -35,12 +35,12 @@ class Chunk:
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-# Lazy imports to avoid circular dependencies
-from smartbench.rag.chunker import CodeChunker
-from smartbench.rag.embedder import CodeEmbedder
-from smartbench.rag.store import VectorStore
-from smartbench.rag.indexer import IndexPipeline
-from smartbench.rag.retriever import HybridRetriever
+# Lazy imports to avoid circular dependencies  # noqa: E402
+from smartbench.rag.chunker import CodeChunker  # noqa: E402
+from smartbench.rag.embedder import CodeEmbedder  # noqa: E402
+from smartbench.rag.store import VectorStore  # noqa: E402
+from smartbench.rag.indexer import IndexPipeline  # noqa: E402
+from smartbench.rag.retriever import HybridRetriever  # noqa: E402
 
 __all__ = [
     "Chunk",

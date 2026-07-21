@@ -5,10 +5,10 @@ Provides concrete code snippets for verification and prompt injection.
 """
 
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 import logging
 
-from smartbench.graph.schema import CodeGraph, CodeNode, NodeType, EdgeType
+from smartbench.graph.schema import CodeGraph, NodeType
 
 logger = logging.getLogger(__name__)
 

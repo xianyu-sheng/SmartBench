@@ -87,7 +87,7 @@ def check():
         for name, available in health.items():
             tool = registry.get_tool(name)
             langs = (
-                ", ".join(l.value for l in tool.applicable_languages[:3])
+                ", ".join(lang.value for lang in tool.applicable_languages[:3])
                 if tool else ""
             )
             table.add_row(

@@ -14,7 +14,6 @@ import re
 
 from smartbench.rag import Chunk
 from smartbench.graph.schema import CodeGraph, CodeNode, NodeType
-from smartbench.detector.fingerprint import Language
 
 
 # Directories and files to skip during indexing

@@ -12,8 +12,8 @@ All verification is DETERMINISTIC (no LLM calls) — zero hallucination risk.
 """
 
 from enum import Enum
-from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from dataclasses import dataclass
+from typing import Optional, Dict
 
 
 class VerificationStatus(Enum):
@@ -53,12 +53,12 @@ class VerificationResult:
         }
 
 
-# Lazy imports to avoid circular dependencies
-from smartbench.verifier.location import LocationVerifier
-from smartbench.verifier.extractor import EvidenceExtractor
-from smartbench.verifier.cross_checker import CrossChecker
-from smartbench.verifier.scorer import VerdictScorer
-from smartbench.verifier.verifier import Verifier
+# Lazy imports to avoid circular dependencies  # noqa: E402
+from smartbench.verifier.location import LocationVerifier  # noqa: E402
+from smartbench.verifier.extractor import EvidenceExtractor  # noqa: E402
+from smartbench.verifier.cross_checker import CrossChecker  # noqa: E402
+from smartbench.verifier.scorer import VerdictScorer  # noqa: E402
+from smartbench.verifier.verifier import Verifier  # noqa: E402
 
 __all__ = [
     "VerificationStatus",

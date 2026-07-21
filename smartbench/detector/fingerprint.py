@@ -8,7 +8,7 @@ All fields are populated by ProjectScanner from deterministic file-system signal
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict
 from datetime import datetime
 
 
@@ -147,7 +147,7 @@ class ProjectFingerprint:
             "project_name": self.project_name,
             "project_path": str(self.project_path),
             "primary_language": self.primary_language.value,
-            "secondary_languages": [l.value for l in self.secondary_languages],
+            "secondary_languages": [lang.value for lang in self.secondary_languages],
             "language_confidence": self.language_confidence,
             "framework": self.framework.value,
             "framework_confidence": self.framework_confidence,

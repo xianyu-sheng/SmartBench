@@ -11,7 +11,6 @@ Scoring factors (weighted):
 from typing import List, Dict, Any, Optional
 import logging
 
-from smartbench.verifier import VerificationResult, VerificationStatus
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +146,6 @@ class VerdictScorer:
 
     def _compute_breakdown(self, verif: Dict) -> Dict:
         """Compute detailed score breakdown."""
-        score = verif.get("verification_score", 0)
         verified = len(verif.get("verified_locations", []))
         partial = len(verif.get("partial_locations", []))
         hallucinated = len(verif.get("hallucinated_locations", []))
