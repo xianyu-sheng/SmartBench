@@ -26,7 +26,9 @@ from smartbench.llm.provider import configure_api_keys
 from smartbench.prompts.factory import PromptFactory
 
 
-def run_interactive_wizard(console: Console) -> Optional[object]:
+def run_interactive_wizard(
+    console: Console, enable_sandbox: bool = False
+) -> Optional[object]:
     """Full interactive setup wizard — 4-step guided workflow.
 
     Returns:
@@ -118,6 +120,7 @@ def run_interactive_wizard(console: Console) -> Optional[object]:
         result = run_diagnosis_with_graph(
             console, project_path, fingerprint, graph, api_config,
             user_concern, hybrid_retriever=hybrid_retriever,
+            enable_sandbox=enable_sandbox,
         )
     else:
         console.print(

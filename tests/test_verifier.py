@@ -25,6 +25,7 @@ from smartbench.graph.schema import (
 from smartbench.verifier import VerificationResult, VerificationStatus
 from smartbench.verifier.cross_checker import CrossChecker
 from smartbench.verifier.location import LocationVerifier
+from smartbench.verifier.sandbox import SandboxVerifier
 from smartbench.verifier.scorer import VerdictScorer
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -462,3 +463,133 @@ class TestLevenshtein:
 
     def test_both_empty(self):
         assert LocationVerifier._levenshtein("", "") == 0
+
+
+# ======================================================================
+# Patch sandbox verifier
+# ======================================================================
+
+
+def _create_testable_python_project(tmp_path: Path, expected: int = 1) -> Path:
+    return _create_project(tmp_path, {
+        "pyproject.toml": "[project]\nname='sandbox-fixture'\nversion='0.0.0'\n",
+        "sample.py": "def value():\n    return 1\n",
+        "tests/test_sample.py": (
+            "from sample import value\n\n"
+            f"def test_value():\n    assert value() == {expected}\n"
+        ),
+    })
+
+
+class TestSandboxVerifier:
+    """Only explicit unified diffs may be reported as test-verified."""
+
+    def test_skips_natural_language_only_suggestion(self, tmp_path: Path):
+        project = _create_testable_python_project(tmp_path)
+        verifier = SandboxVerifier(str(project))
+
+        result = verifier.verify_fix(
+            "sample.py", 1, "Change the return value", patch=""
+        )
+
+        assert result["status"] == "skipped"
+        assert result["patch_applied"] is False
+        assert "unified diff" in result["error"]
+
+    def test_applies_patch_and_runs_tests(self, tmp_path: Path):
+        project = _create_testable_python_project(tmp_path)
+        patch = """--- a/sample.py
++++ b/sample.py
+@@ -1,2 +1,3 @@
+ def value():
++    \"\"\"Return the fixture value.\"\"\"
+     return 1
+"""
+        result = SandboxVerifier(str(project)).verify_fix(
+            "sample.py", 1, "Add documentation", patch=patch
+        )
+
+        assert result["status"] == "passed"
+        assert result["patch_applied"] is True
+        assert result["error"] is None
+        assert result["sandbox_path"]
+        assert not Path(result["sandbox_path"]).exists()
+
+    def test_reports_failure_after_patch(self, tmp_path: Path):
+        project = _create_testable_python_project(tmp_path)
+        patch = """--- a/sample.py
++++ b/sample.py
+@@ -1,2 +1,2 @@
+ def value():
+-    return 1
++    return 2
+"""
+        result = SandboxVerifier(str(project)).verify_fix(
+            "sample.py", 2, "Change behavior", patch=patch
+        )
+
+        assert result["status"] == "failed"
+        assert result["patch_applied"] is True
+        assert "1 failed" in result["test_output"]
+
+    def test_refuses_to_judge_when_baseline_fails(self, tmp_path: Path):
+        project = _create_testable_python_project(tmp_path, expected=2)
+        patch = """--- a/sample.py
++++ b/sample.py
+@@ -1,2 +1,3 @@
+ def value():
++    # proposed change
+     return 1
+"""
+        result = SandboxVerifier(str(project)).verify_fix(
+            "sample.py", 1, "Add comment", patch=patch
+        )
+
+        assert result["status"] == "baseline_failed"
+        assert result["patch_applied"] is False
+
+    def test_rejects_paths_outside_project(self, tmp_path: Path):
+        project = _create_testable_python_project(tmp_path)
+        (tmp_path / "outside.py").write_text("secret = True\n", encoding="utf-8")
+
+        result = SandboxVerifier(str(project)).verify_fix(
+            "../outside.py", 1, "Modify outside file", patch="not relevant"
+        )
+
+        assert result["status"] == "skipped"
+        assert "outside the project" in result["error"]
+
+    def test_rejects_traversal_in_patch_headers(self, tmp_path: Path):
+        project = _create_testable_python_project(tmp_path)
+        patch = """--- a/sample.py
++++ b/../outside.py
+@@ -1,2 +1,2 @@
+-old
++new
+"""
+        result = SandboxVerifier(str(project)).verify_fix(
+            "sample.py", 1, "Unsafe patch", patch=patch
+        )
+
+        assert result["status"] == "skipped"
+        assert "outside the project" in result["error"]
+
+    def test_rejects_shell_string_test_command(self, tmp_path: Path):
+        project = _create_testable_python_project(tmp_path)
+        patch = """--- a/sample.py
++++ b/sample.py
+@@ -1,2 +1,3 @@
+ def value():
++    # safe
+     return 1
+"""
+        result = SandboxVerifier(str(project)).verify_fix(
+            "sample.py",
+            1,
+            "Add comment",
+            patch=patch,
+            test_command="pytest || true",
+        )
+
+        assert result["status"] == "skipped"
+        assert "argument list" in result["error"]

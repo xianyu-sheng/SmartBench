@@ -10,7 +10,7 @@ import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 from smartbench.detector.fingerprint import Language
 
@@ -118,18 +118,26 @@ class DiagnosticTool(ABC):
         """
         ...
 
-    def _run_command(self, cmd: str, timeout: int = 30,
+    def _run_command(self, cmd: Sequence[str], timeout: int = 30,
                      cwd: Optional[str] = None) -> subprocess.CompletedProcess:
-        """Run a shell command and return the result."""
+        """Run an argument vector without invoking a shell."""
+        if isinstance(cmd, (str, bytes)):
+            return subprocess.CompletedProcess(
+                cmd, -1, "", "Command must be an argument list"
+            )
         try:
             return subprocess.run(
-                cmd, shell=True, capture_output=True, text=True,
+                list(cmd), shell=False, capture_output=True, text=True,
                 timeout=timeout, cwd=cwd,
             )
         except subprocess.TimeoutExpired:
-            return subprocess.CompletedProcess(cmd, -1, "", "TIMEOUT")
+            return subprocess.CompletedProcess(list(cmd), -1, "", "TIMEOUT")
+        except FileNotFoundError:
+            return subprocess.CompletedProcess(
+                list(cmd), -1, "", f"Command not found: {cmd[0]}"
+            )
         except Exception as e:
-            return subprocess.CompletedProcess(cmd, -1, "", str(e))
+            return subprocess.CompletedProcess(list(cmd), -1, "", str(e))
 
 
 class DiagnosticRegistry:

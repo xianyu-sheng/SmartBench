@@ -47,6 +47,16 @@ smartbench quick \
 smartbench --quick --project ./my-project --concern "检查安全风险"
 ```
 
+如需验证 Judge 给出的机器可应用补丁，可以仅对可信仓库显式开启：
+
+```bash
+smartbench quick --project ./my-project --sandbox
+```
+
+该选项先在临时副本中运行基线测试，再应用 unified diff 并复测。没有补丁、补丁无法
+应用或基线本身失败时都不会显示“验证通过”。临时副本只能避免修改原工作区，并不
+隔离测试进程；测试代码仍拥有当前用户权限。
+
 未配置模型时，快速模式仍会显示仓库指纹和代码图统计，但不会执行 LLM 审查。
 
 ### `smartbench check`

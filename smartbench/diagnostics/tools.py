@@ -8,6 +8,7 @@ Each tool inherits from DiagnosticTool and declares:
 """
 
 import re
+import sys
 from typing import Dict, List, Optional
 
 from smartbench.detector.fingerprint import Language
@@ -32,8 +33,8 @@ class DMesgTool(DiagnosticTool):
     def diagnose(self, target_path: str, category: ProblemCategory,
                  symptoms: Optional[List[str]] = None,
                  extra_args: Optional[Dict] = None) -> DiagnosisResult:
-        result = self._run_command("dmesg | tail -100", timeout=10)
-        evidence = result.stdout[-3000:] if result.stdout else ""
+        result = self._run_command(["dmesg"], timeout=10)
+        evidence = "\n".join(result.stdout.splitlines()[-100:])[-3000:]
         output = result.stdout + result.stderr
 
         findings = DiagnosisResult(
@@ -82,8 +83,8 @@ class ProcessTool(DiagnosticTool):
     def diagnose(self, target_path: str, category: ProblemCategory,
                  symptoms: Optional[List[str]] = None,
                  extra_args: Optional[Dict] = None) -> DiagnosisResult:
-        result = self._run_command("ps aux --sort=-%mem | head -20", timeout=10)
-        evidence = result.stdout[:2000]
+        result = self._run_command(["ps", "aux", "--sort=-%mem"], timeout=10)
+        evidence = "\n".join(result.stdout.splitlines()[:20])[:2000]
 
         findings = DiagnosisResult(
             tool_name=self.name,
@@ -127,7 +128,7 @@ class VMStatTool(DiagnosticTool):
     def diagnose(self, target_path: str, category: ProblemCategory,
                  symptoms: Optional[List[str]] = None,
                  extra_args: Optional[Dict] = None) -> DiagnosisResult:
-        result = self._run_command("vmstat 1 3", timeout=10)
+        result = self._run_command(["vmstat", "1", "3"], timeout=10)
         evidence = result.stdout[:2000]
 
         findings = DiagnosisResult(
@@ -174,7 +175,7 @@ class GoPProfTool(DiagnosticTool):
         )
 
         # Check if go toolchain is available
-        go_check = self._run_command("go version", timeout=5)
+        go_check = self._run_command(["go", "version"], timeout=5)
         if go_check.returncode != 0:
             findings.success = False
             findings.error = "Go toolchain not found"
@@ -183,10 +184,12 @@ class GoPProfTool(DiagnosticTool):
         if category == ProblemCategory.CONCURRENCY:
             # Race detector
             result = self._run_command(
-                f"cd {target_path} && go test -race ./... 2>&1 | head -50",
+                ["go", "test", "-race", "./..."],
                 timeout=120,
+                cwd=target_path,
             )
-            findings.evidence = result.stdout[:3000]
+            output = result.stdout + result.stderr
+            findings.evidence = "\n".join(output.splitlines()[:50])[:3000]
             findings.commands_used = ["go test -race ./..."]
             if "WARNING: DATA RACE" in result.stdout:
                 findings.symptoms.append("Data race detected")
@@ -196,10 +199,12 @@ class GoPProfTool(DiagnosticTool):
         elif category == ProblemCategory.PERFORMANCE:
             # Build and suggest pprof endpoints
             result = self._run_command(
-                f"cd {target_path} && go build -o /dev/null ./... 2>&1 | head -20",
+                ["go", "build", "./..."],
                 timeout=60,
+                cwd=target_path,
             )
-            findings.evidence = result.stderr[:2000] if result.stderr else "Build OK"
+            output = result.stdout + result.stderr
+            findings.evidence = "\n".join(output.splitlines()[:20])[:2000] or "Build OK"
             findings.commands_used = ["go build ./..."]
             findings.suggestions.append({
                 "title": "Run pprof CPU profile",
@@ -250,8 +255,9 @@ class PythonDiagTool(DiagnosticTool):
         if category == ProblemCategory.STARTUP_FAILURE:
             # Check imports
             result = self._run_command(
-                f"cd {target_path} && python -c 'import ast; print(\"syntax OK\")' 2>&1",
+                [sys.executable, "-c", "import ast; print('syntax OK')"],
                 timeout=30,
+                cwd=target_path,
             )
             findings.evidence = result.stdout + result.stderr
             findings.commands_used = ["python -c 'import ast'"]
@@ -263,8 +269,9 @@ class PythonDiagTool(DiagnosticTool):
         elif category == ProblemCategory.DEPENDENCY:
             # Check requirements
             result = self._run_command(
-                f"cd {target_path} && pip check 2>&1",
+                [sys.executable, "-m", "pip", "check"],
                 timeout=30,
+                cwd=target_path,
             )
             findings.evidence = result.stdout + result.stderr
             findings.commands_used = ["pip check"]
@@ -320,7 +327,7 @@ class CPPDiagTool(DiagnosticTool):
 
         if category == ProblemCategory.CRASH:
             # GDB check
-            gdb_check = self._run_command("gdb --version", timeout=5)
+            gdb_check = self._run_command(["gdb", "--version"], timeout=5)
             if gdb_check.returncode == 0:
                 findings.suggestions.append({
                     "title": "Analyze core dump with GDB",
@@ -342,7 +349,7 @@ class CPPDiagTool(DiagnosticTool):
             })
 
         elif category == ProblemCategory.MEMORY_LEAK:
-            valgrind_check = self._run_command("valgrind --version", timeout=5)
+            valgrind_check = self._run_command(["valgrind", "--version"], timeout=5)
             if valgrind_check.returncode == 0:
                 findings.suggestions.append({
                     "title": "Run Valgrind",
@@ -351,7 +358,7 @@ class CPPDiagTool(DiagnosticTool):
                 })
 
         elif category == ProblemCategory.PERFORMANCE:
-            perf_check = self._run_command("perf --version", timeout=5)
+            perf_check = self._run_command(["perf", "--version"], timeout=5)
             if perf_check.returncode == 0:
                 findings.suggestions.append({
                     "title": "CPU profiling with perf",

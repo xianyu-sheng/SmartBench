@@ -1,49 +1,27 @@
-"""
-Sandbox Verifier — applies suggested fixes in isolation and runs tests.
+"""Apply machine-readable patches in a temporary copy and run tests.
 
-Level 3 of the evidence verification pipeline:
-  Level 1: File existence + line accuracy (disk I/O)
-  Level 2: Call chain integrity (code graph verification)
-  Level 3: Fix correctness (sandbox apply + test execution)
-
-This is an opt-in, experimental feature. It creates temporary copies
-of files, applies suggested changes, and runs the project's test suite
-to verify fixes don't break existing functionality.
-
-Security: All operations happen in a temp directory. Original files
-are never modified.
+This verifier is deliberately opt-in.  A temporary directory protects the
+working tree from edits, but it is not an operating-system security sandbox:
+project tests still execute with the current user's permissions.  Callers must
+only enable it for repositories they trust.
 """
 
 import logging
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from pathlib import Path, PurePosixPath
+from typing import Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
 
 class SandboxVerifier:
-    """
-    Applies suggested code fixes in a sandbox and validates them.
-
-    Usage:
-        sv = SandboxVerifier("/path/to/project", timeout_seconds=60)
-        result = sv.verify_fix(
-            file_path="src/main.py",
-            original_line=42,
-            suggestion="Replace blocking call with async version"
-        )
-    """
+    """Apply a unified diff in a temporary project copy and validate tests."""
 
     def __init__(self, project_path: str, timeout_seconds: int = 60):
-        """
-        Args:
-            project_path: Root directory of the project.
-            timeout_seconds: Max time for test execution.
-        """
         self.project_path = Path(project_path).resolve()
         self.timeout = timeout_seconds
 
@@ -52,217 +30,276 @@ class SandboxVerifier:
         file_path: str,
         original_line: int,
         suggestion: str,
-        test_command: Optional[str] = None,
+        patch: str = "",
+        test_command: Optional[Sequence[str]] = None,
     ) -> Dict:
-        """
-        Verify a suggested fix by applying it in a sandbox and running tests.
+        """Apply *patch* in a temporary copy and compare test results.
 
-        Args:
-            file_path: Relative path to the file to modify.
-            original_line: Line number where the fix should be applied.
-            suggestion: Description of the fix (used for logging).
-            test_command: Override the auto-detected test command.
-
-        Returns:
-            {
-                "status": "passed" | "failed" | "timeout" | "skipped",
-                "test_output": str,
-                "sandbox_path": str,
-                "error": str or None,
-            }
+        ``suggestion`` and ``original_line`` are retained as explanatory
+        metadata; natural-language suggestions are never treated as code.
+        ``test_command`` must be an argument sequence, never a shell string.
         """
         result = {
             "status": "skipped",
+            "baseline_output": "",
             "test_output": "",
+            "patch_applied": False,
             "sandbox_path": "",
             "error": None,
         }
 
-        # Validate the target file exists
-        target = self.project_path / file_path
-        if not target.exists():
-            result["error"] = f"File not found: {file_path}"
+        target, error = self._resolve_project_file(file_path)
+        if error:
+            result["error"] = error
+            return result
+        if not patch or not patch.strip():
+            result["error"] = "No machine-applicable unified diff was provided"
             return result
 
-        # Detect test command
-        if not test_command:
-            test_command = self._detect_test_command()
-        if not test_command:
+        patch_error = self._validate_patch_paths(patch)
+        if patch_error:
+            result["error"] = patch_error
+            return result
+
+        if isinstance(test_command, (str, bytes)):
+            result["error"] = "test_command must be an argument list, not a shell string"
+            return result
+        command = list(test_command) if test_command else self._detect_test_command()
+        if not command:
             result["error"] = "No test command detected for this project"
             return result
 
-        # Create sandbox
+        sandbox_root: Optional[Path] = None
         try:
-            sandbox = Path(tempfile.mkdtemp(prefix="smartbench_sandbox_"))
-            result["sandbox_path"] = str(sandbox)
+            sandbox_root = Path(tempfile.mkdtemp(prefix="smartbench_sandbox_"))
+            result["sandbox_path"] = str(sandbox_root)
+            baseline_sandbox = sandbox_root / "baseline"
+            patched_sandbox = sandbox_root / "patched"
+            baseline_sandbox.mkdir()
+            patched_sandbox.mkdir()
+            self._copy_project(baseline_sandbox)
+            self._copy_project(patched_sandbox)
 
-            # Copy entire project to sandbox (shallow, skip .git/node_modules)
-            self._copy_project(sandbox)
-
-            # Apply the fix to the target file in sandbox
-            sandbox_target = sandbox / file_path
-            if not sandbox_target.exists():
+            sandbox_target = patched_sandbox / target.relative_to(self.project_path)
+            if not sandbox_target.is_file():
                 result["error"] = f"File missing in sandbox: {file_path}"
-                shutil.rmtree(sandbox, ignore_errors=True)
                 return result
 
-            # Run tests in sandbox (baseline)
-            baseline = self._run_tests(sandbox, test_command)
-            logger.info("Sandbox baseline: %s", baseline["status"])
+            baseline = self._run_tests(baseline_sandbox, command)
+            result["baseline_output"] = baseline.get("output", "")[:2000]
+            if baseline["status"] != "passed":
+                result["status"] = "baseline_failed"
+                result["error"] = (
+                    "Baseline tests did not pass; the proposed patch cannot be evaluated"
+                )
+                if baseline.get("error"):
+                    result["error"] += f": {baseline['error']}"
+                return result
 
-            # Run tests in sandbox again (should be idempotent)
-            after = self._run_tests(sandbox, test_command)
-            result["test_output"] = after.get("output", "")[:2000]
-
-            if after["status"] == "passed":
-                result["status"] = "passed"
-            elif after["status"] == "failed":
+            applied = self._apply_patch(patched_sandbox, patch)
+            if applied["status"] != "passed":
                 result["status"] = "failed"
-                result["error"] = "Tests failed in sandbox (may be pre-existing)"
-            else:
-                result["status"] = after["status"]
-                result["error"] = after.get("error", "Unknown sandbox error")
+                result["error"] = applied.get("error") or "Patch could not be applied"
+                result["test_output"] = applied.get("output", "")[:2000]
+                return result
+            result["patch_applied"] = True
 
-        except Exception as e:
+            after = self._run_tests(patched_sandbox, command)
+            result["test_output"] = after.get("output", "")[:2000]
+            result["status"] = after["status"]
+            if after["status"] != "passed":
+                result["error"] = after.get("error") or "Tests failed after applying patch"
+            return result
+        except Exception as exc:
             result["status"] = "error"
-            result["error"] = str(e)
+            result["error"] = str(exc)
+            return result
         finally:
-            # Cleanup sandbox
-            if result["sandbox_path"]:
-                shutil.rmtree(result["sandbox_path"], ignore_errors=True)
+            if sandbox_root is not None:
+                shutil.rmtree(sandbox_root, ignore_errors=True)
 
-        return result
-
-    def verify_all_proposals(
-        self, proposals: List[Dict]
-    ) -> List[Dict]:
-        """
-        Verify all proposals from a debate result.
-
-        Args:
-            proposals: List of proposal dicts with location/implementation fields.
-
-        Returns:
-            Proposals with added "__sandbox_verification" field.
-        """
-        for p in proposals:
-            if not isinstance(p, dict):
+    def verify_all_proposals(self, proposals: List[Dict]) -> List[Dict]:
+        """Annotate proposals that contain an explicit unified diff."""
+        for proposal in proposals:
+            if not isinstance(proposal, dict):
                 continue
 
-            location = p.get("location", "")
+            location = proposal.get("location", "")
             file_path, line = self._parse_location(location)
-
             if not file_path:
-                p["__sandbox_verification"] = {
+                proposal["__sandbox_verification"] = {
                     "status": "skipped",
-                    "reason": "No file location in proposal",
+                    "error": "No file location in proposal",
                 }
                 continue
 
-            implementation = p.get("implementation", "") or p.get("solution", "")
-            result = self.verify_fix(
+            proposal["__sandbox_verification"] = self.verify_fix(
                 file_path=file_path,
                 original_line=line or 1,
-                suggestion=implementation,
+                suggestion=(
+                    proposal.get("implementation", "")
+                    or proposal.get("solution", "")
+                ),
+                patch=proposal.get("patch", "") or "",
             )
-            p["__sandbox_verification"] = result
-
         return proposals
 
-    # ── Internals ───────────────────────────────────────────────────────
+    def _resolve_project_file(self, file_path: str) -> Tuple[Optional[Path], Optional[str]]:
+        """Resolve a proposal path and reject absolute/traversing/symlink paths."""
+        raw = Path(file_path)
+        if raw.is_absolute():
+            return None, f"Absolute paths are not allowed: {file_path}"
+        try:
+            target = (self.project_path / raw).resolve(strict=True)
+            target.relative_to(self.project_path)
+        except (FileNotFoundError, ValueError):
+            return None, f"File is missing or outside the project: {file_path}"
+        if not target.is_file():
+            return None, f"Not a regular file: {file_path}"
+        if (self.project_path / raw).is_symlink():
+            return None, f"Symlink targets are not allowed: {file_path}"
+        return target, None
+
+    def _validate_patch_paths(self, patch: str) -> Optional[str]:
+        """Reject absolute and parent-traversing paths before invoking git."""
+        paths = []
+        for line in patch.splitlines():
+            if not line.startswith(("--- ", "+++ ")):
+                continue
+            value = line[4:].split("\t", 1)[0].strip()
+            if value == "/dev/null":
+                continue
+            if value.startswith(("a/", "b/")):
+                value = value[2:]
+            paths.append(value)
+
+        if not paths:
+            return "Patch has no unified-diff file headers"
+        for value in paths:
+            path = PurePosixPath(value)
+            if path.is_absolute() or ".." in path.parts or not value:
+                return f"Patch path is outside the project: {value}"
+        return None
 
     def _copy_project(self, sandbox: Path) -> None:
-        """Copy project to sandbox, skipping large/generated directories."""
+        """Copy regular project files, excluding generated dirs and symlinks."""
         skip_dirs = {
             ".git", "node_modules", "__pycache__", ".venv", "venv",
             "target", "build", "dist", ".smartbench", ".pytest_cache",
-            "legacy", ".mypy_cache",
+            "legacy", ".mypy_cache", ".ruff_cache",
         }
-        skip_suffixes = {
-            ".pyc", ".pyo", ".so", ".o", ".a", ".whl", ".egg",
-        }
+        skip_suffixes = {".pyc", ".pyo", ".so", ".o", ".a", ".whl", ".egg"}
+
+        def ignore_unsafe(directory: str, names: List[str]) -> set[str]:
+            base = Path(directory)
+            ignored = set()
+            for name in names:
+                candidate = base / name
+                if name in skip_dirs or candidate.is_symlink():
+                    ignored.add(name)
+                elif candidate.is_file() and candidate.suffix in skip_suffixes:
+                    ignored.add(name)
+            return ignored
 
         for item in self.project_path.iterdir():
-            if item.name in skip_dirs:
+            if item.name in skip_dirs or item.is_symlink():
                 continue
+            destination = sandbox / item.name
             if item.is_dir():
-                try:
-                    shutil.copytree(
-                        item, sandbox / item.name,
-                        ignore=shutil.ignore_patterns(
-                            *skip_dirs, "*.pyc", "__pycache__"
-                        ),
-                        symlinks=True,
-                    )
-                except Exception as e:
-                    logger.debug("Skip %s: %s", item.name, e)
-            elif item.suffix not in skip_suffixes:
-                try:
-                    shutil.copy2(item, sandbox / item.name)
-                except Exception as e:
-                    logger.debug("Skip file %s: %s", item.name, e)
+                shutil.copytree(item, destination, ignore=ignore_unsafe)
+            elif item.is_file() and item.suffix not in skip_suffixes:
+                shutil.copy2(item, destination)
 
-    def _detect_test_command(self) -> Optional[str]:
-        """Auto-detect the project's test command."""
-        root_files = {f.name for f in self.project_path.iterdir() if f.is_file()}
-
-        # Python
-        if "pyproject.toml" in root_files or "setup.py" in root_files:
-            return "python -m pytest tests/ -x --timeout=30 2>&1 || true"
-        # Go
+    def _detect_test_command(self) -> Optional[List[str]]:
+        """Return a shell-free test command for a recognized project."""
+        root_files = {item.name for item in self.project_path.iterdir() if item.is_file()}
+        if (
+            ("pyproject.toml" in root_files or "setup.py" in root_files)
+            and (self.project_path / "tests").is_dir()
+        ):
+            return [sys.executable, "-m", "pytest", "tests", "-x"]
         if "go.mod" in root_files:
-            return "go test ./... -timeout 30s 2>&1 || true"
-        # Rust
+            return ["go", "test", "./...", "-timeout", "30s"]
         if "Cargo.toml" in root_files:
-            return "cargo test 2>&1 || true"
-        # Node
+            return ["cargo", "test"]
         if "package.json" in root_files:
-            return "npm test 2>&1 || true"
-        # Make
+            return ["npm", "test"]
         if "Makefile" in root_files:
-            return "make test 2>&1 || true"
-
+            return ["make", "test"]
         return None
 
-    def _run_tests(self, sandbox: Path, command: str) -> Dict:
-        """Run the test command in the sandbox directory."""
+    def _apply_patch(self, sandbox: Path, patch: str) -> Dict:
+        """Validate and apply a unified diff with git, without a shell."""
+        if shutil.which("git") is None:
+            return {
+                "status": "skipped",
+                "output": "",
+                "error": "git is required to apply a unified diff",
+            }
+        check = self._run_process(
+            ["git", "apply", "--check", "--recount", "-"], sandbox, input_text=patch
+        )
+        if check["status"] != "passed":
+            check["error"] = "Patch validation failed"
+            return check
+        applied = self._run_process(
+            ["git", "apply", "--recount", "-"], sandbox, input_text=patch
+        )
+        if applied["status"] != "passed":
+            applied["error"] = "Patch application failed"
+        return applied
+
+    def _run_tests(self, sandbox: Path, command: Sequence[str]) -> Dict:
+        return self._run_process(list(command), sandbox)
+
+    def _run_process(
+        self,
+        command: List[str],
+        cwd: Path,
+        input_text: Optional[str] = None,
+    ) -> Dict:
         try:
             proc = subprocess.run(
                 command,
-                shell=True,
-                cwd=str(sandbox),
+                cwd=str(cwd),
+                input=input_text,
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
+                shell=False,
             )
-            output = proc.stdout[-3000:] + "\n" + proc.stderr[-1000:]
+            output = (proc.stdout[-3000:] + "\n" + proc.stderr[-1000:]).strip()
             return {
                 "status": "passed" if proc.returncode == 0 else "failed",
-                "output": output.strip(),
+                "output": output,
                 "exit_code": proc.returncode,
                 "error": None,
             }
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
+            output = ""
+            if isinstance(exc.stdout, str):
+                output += exc.stdout[-2000:]
+            if isinstance(exc.stderr, str):
+                output += exc.stderr[-1000:]
             return {
                 "status": "timeout",
-                "output": "",
+                "output": output,
                 "exit_code": -1,
                 "error": f"Test execution timed out after {self.timeout}s",
             }
-        except Exception as e:
+        except Exception as exc:
             return {
                 "status": "error",
                 "output": "",
                 "exit_code": -1,
-                "error": str(e),
+                "error": str(exc),
             }
 
     @staticmethod
     def _parse_location(location: str) -> Tuple[Optional[str], Optional[int]]:
-        """Parse 'file:line' format."""
         if not location:
             return None, None
-        match = re.search(r'^(.+?):(\d+)(?:-\d+)?$', location.strip())
+        match = re.search(r"^(.+?):(\d+)(?:-\d+)?$", location.strip())
         if match:
             return match.group(1), int(match.group(2))
         return location.strip(), None

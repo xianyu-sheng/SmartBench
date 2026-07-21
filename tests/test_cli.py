@@ -36,7 +36,9 @@ class TestCLIHelp:
     def test_quick_help(self, runner):
         result = runner.invoke(app, ["quick", "--help"])
         assert result.exit_code == 0
-        assert "--project" in plain_output(result)
+        output = plain_output(result)
+        assert "--project" in output
+        assert "--sandbox" in output
 
     def test_diagnose_help(self, runner):
         result = runner.invoke(app, ["diagnose", "--help"])

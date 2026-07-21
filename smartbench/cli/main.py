@@ -44,13 +44,23 @@ def main(
     output: Optional[str] = typer.Option(
         None, "--output", "-o", help="Save report to file (JSON format)"
     ),
+    sandbox: bool = typer.Option(
+        False,
+        "--sandbox",
+        help="Apply proposed patches and run tests in a temp copy (trusted repos only)",
+    ),
 ):
     """SmartBench — AI-powered universal code diagnosis tool."""
     if ctx.invoked_subcommand is None:
         if quick:
-            result = run_quick_mode(console, project=project, concern=concern)
+            result = run_quick_mode(
+                console,
+                project=project,
+                concern=concern,
+                enable_sandbox=sandbox,
+            )
         else:
-            result = run_interactive_wizard(console)
+            result = run_interactive_wizard(console, enable_sandbox=sandbox)
         _maybe_save_output(result, output)
 
 
@@ -61,9 +71,19 @@ def quick(
     output: Optional[str] = typer.Option(
         None, "--output", "-o", help="Save report to file (JSON)"
     ),
+    sandbox: bool = typer.Option(
+        False,
+        "--sandbox",
+        help="Apply proposed patches and run tests in a temp copy (trusted repos only)",
+    ),
 ):
     """Quick diagnosis — auto-detect everything, minimal prompts."""
-    result = run_quick_mode(console, project=project, concern=concern)
+    result = run_quick_mode(
+        console,
+        project=project,
+        concern=concern,
+        enable_sandbox=sandbox,
+    )
     _maybe_save_output(result, output)
 
 

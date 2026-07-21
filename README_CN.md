@@ -92,6 +92,11 @@ smartbench check
 smartbench diagnose --project . --perf --output diagnostics.json
 ```
 
+对于可信仓库，可以使用 `smartbench quick --project . --sandbox`：Judge 会尝试
+提供 unified diff，SmartBench 只在临时副本中应用有效补丁，先确认基线测试通过，
+再运行补丁后的同一组测试。只有自然语言建议、没有补丁时会标记为“跳过”，不会误报
+为“已验证”。
+
 支持的 OpenAI 兼容凭证环境变量包括 `DEEPSEEK_API_KEY`、`OPENAI_API_KEY`、`GLM_API_KEY`、`DOUBAO_API_KEY`、`MOONSHOT_API_KEY` 和 `DASHSCOPE_API_KEY`。向导输入的 Key 只保存在当前进程内存中。现有 Anthropic 注册项尚未实现原生 Messages API，因此当前不把它列为正式支持能力。
 
 ## 可选 RAG
@@ -107,6 +112,7 @@ python -m pip install -e ".[rag]"
 - 常规诊断流程不会编辑被分析仓库的源文件。
 - Git URL 会被克隆到临时目录。
 - 策略选择可能执行本机已安装的诊断探针，只应分析你信任的仓库和环境。
+- `--sandbox` 必须显式开启。它能保护工作区不被修改，但不是操作系统安全边界；仓库测试仍拥有当前用户权限。
 - 证据状态只描述“引用是否有依据”，不等价于漏洞或修复已被形式化证明。
 
 ## 项目结构
@@ -143,9 +149,9 @@ CI 会在 Python 3.10、3.11、3.12 上执行 lint、编译检查和测试，单
 SmartBench 的定位是诊断工作台，不替代编译器、Linter、安全扫描器、Profiler 或人工审查。接下来的质量里程碑是：
 
 1. 在带标签样例上发布检索与诊断精度数据。
-2. 为每个外部诊断命令增加安全、显式的执行策略。
-3. 输出 SARIF 等标准机器可读审查格式。
-4. 仅在存在机器可应用补丁时验证代码修改效果。
+2. 输出 SARIF 等标准机器可读审查格式。
+3. 为可选仓库测试执行增加更强的进程隔离。
+4. 扩展机器可应用补丁覆盖率和语言专项验证。
 
 ## 许可证
 

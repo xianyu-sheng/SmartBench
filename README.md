@@ -92,6 +92,12 @@ smartbench check
 smartbench diagnose --project . --perf --output diagnostics.json
 ```
 
+For a trusted repository, `smartbench quick --project . --sandbox` asks the
+Judge for unified diffs, applies only valid patches to a temporary copy, checks
+that baseline tests pass, and then runs the same tests after the patch. A
+natural-language suggestion without a patch is reported as skipped, never as
+verified.
+
 Supported OpenAI-compatible credential variables are `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `GLM_API_KEY`, `DOUBAO_API_KEY`, `MOONSHOT_API_KEY`, and `DASHSCOPE_API_KEY`. The wizard keeps entered keys in process memory. The current Anthropic registry entry is not yet a native Messages API adapter and is therefore not advertised as supported.
 
 ## Optional RAG
@@ -107,6 +113,7 @@ SmartBench uses graph-only retrieval when the optional RAG stack is unavailable.
 - Source files in the analyzed repository are not edited by the normal diagnosis pipeline.
 - Git URLs are cloned into a temporary directory.
 - Strategy selection can execute installed diagnostic probes. Use SmartBench only on repositories and local environments you trust.
+- `--sandbox` is explicit opt-in. It protects the working tree, but it is not an OS security boundary: repository tests still run with your user permissions.
 - Evidence status describes whether a reference is grounded, not whether a vulnerability or fix has been formally proven.
 
 ## Project layout
@@ -143,9 +150,9 @@ CI runs lint, compilation, and tests on Python 3.10, 3.11, and 3.12; separately 
 SmartBench is a diagnostic workbench, not a replacement for compilers, linters, security scanners, profilers, or human review. The next quality milestones are:
 
 1. Publish measured retrieval and diagnostic precision against labeled cases.
-2. Add safe, explicit execution policies for every external diagnostic command.
-3. Export a standard machine-readable review format such as SARIF.
-4. Validate proposed code changes only when a machine-applicable patch is available.
+2. Export a standard machine-readable review format such as SARIF.
+3. Add stronger process isolation for optional repository test execution.
+4. Expand machine-applicable patch coverage and language-specific validation.
 
 ## License
 

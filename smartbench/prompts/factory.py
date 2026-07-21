@@ -316,6 +316,7 @@ class PromptFactory:
       "description": "问题分析 + 解决方案描述（中文）",
       "implementation": "具体实施步骤（中文）",
       "location": "文件:行号（如适用，确保引用真实存在的文件）",
+      "patch": "可直接应用的完整 unified diff；仅在有充分把握时提供，否则返回空字符串",
       "evidence_status": "该建议的证据验证状态",
       "priority": 1至5,
       "risk_level": "low/medium/high",

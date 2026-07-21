@@ -215,6 +215,7 @@ def run_diagnosis_with_graph(
     concern: str,
     hybrid_retriever: object = None,
     enable_verify: bool = True,
+    enable_sandbox: bool = False,
 ) -> Optional[object]:
     """Run the full graph-enhanced diagnosis pipeline with RAG + verification.
 
@@ -348,22 +349,32 @@ def run_diagnosis_with_graph(
 
     display_diagnosis_results(console, result, fingerprint, graph)
 
-    # ── Sandbox verification (Level 3, opt-in) ────────────────────
-    if enable_verify and result.final_suggestions:
+    # ── Patch verification (Level 3, explicit opt-in) ─────────────
+    if enable_sandbox and result.final_suggestions:
         try:
+            from collections import Counter
+
             from smartbench.verifier.sandbox import SandboxVerifier
+
+            console.print(
+                "  [yellow]Running repository tests for proposed patches in a "
+                "temporary copy (not an OS security sandbox)...[/yellow]"
+            )
             sv = SandboxVerifier(project_path, timeout_seconds=30)
             sandboxed = sv.verify_all_proposals(result.final_suggestions)
-            passed = sum(
-                1 for s in sandboxed
-                if isinstance(s, dict) and s.get("__sandbox_verification", {}).get("status") == "passed"
+            statuses = Counter(
+                s.get("__sandbox_verification", {}).get("status", "skipped")
+                for s in sandboxed if isinstance(s, dict)
             )
-            if passed > 0:
-                console.print(
-                    f"  [dim]沙箱验证: {passed}/{len(sandboxed)} 方案测试通过[/dim]"
-                )
-        except Exception:
-            pass  # Sandbox is optional — graceful degradation
+            console.print(
+                "  [dim]补丁验证: "
+                f"{statuses['passed']} 通过, {statuses['failed']} 失败, "
+                f"{statuses['baseline_failed']} 基线失败, "
+                f"{statuses['timeout']} 超时, {statuses['error']} 错误, "
+                f"{statuses['skipped']} 跳过[/dim]"
+            )
+        except Exception as exc:
+            console.print(f"  [yellow]补丁验证未完成: {exc}[/yellow]")
 
     return result
 
@@ -435,6 +446,7 @@ def run_quick_mode(
     console: Console,
     project: Optional[str] = None,
     concern: Optional[str] = None,
+    enable_sandbox: bool = False,
 ) -> Optional[object]:
     """Minimal-interaction quick mode — auto-detect everything.
 
@@ -470,6 +482,7 @@ def run_quick_mode(
         result = run_diagnosis_with_graph(
             console, project_path, fingerprint, graph, api_config,
             concern, hybrid_retriever=hybrid_retriever,
+            enable_sandbox=enable_sandbox,
         )
     else:
         result = run_fallback_analysis(
