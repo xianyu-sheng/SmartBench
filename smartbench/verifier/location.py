@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from smartbench.path_safety import is_project_file, resolve_project_file
 from smartbench.verifier import VerificationResult, VerificationStatus
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ class LocationVerifier:
         Args:
             project_path: Root directory of the project
         """
-        self.project_path = Path(project_path)
+        self.project_path = Path(project_path).resolve()
         self._file_cache: Dict[str, List[str]] = {}  # path -> lines
         self._file_index: Optional[Dict[str, str]] = None  # filename -> full path
 
@@ -58,9 +59,11 @@ class LocationVerifier:
         )
 
         # Try exact match first
-        full_path = self.project_path / file_path
-        if full_path.exists() and full_path.is_file():
-            result.resolved_file = file_path
+        full_path = resolve_project_file(self.project_path, file_path)
+        if full_path is not None:
+            result.resolved_file = str(
+                full_path.relative_to(self.project_path)
+            ).replace("\\", "/")
             return self._verify_line(result, full_path, line, function_name)
 
         # Fuzzy resolution
@@ -71,8 +74,9 @@ class LocationVerifier:
             result.detail = (
                 f"文件路径已修正: '{file_path}' -> '{resolved}'"
             )
-            full_path = self.project_path / resolved
-            return self._verify_line(result, full_path, line, function_name)
+            full_path = resolve_project_file(self.project_path, resolved)
+            if full_path is not None:
+                return self._verify_line(result, full_path, line, function_name)
 
         # Not found
         result.status = VerificationStatus.HALLUCINATED
@@ -169,9 +173,9 @@ class LocationVerifier:
                      'build', '.venv', 'venv', 'dist', '.smartbench'}
 
         for path in self.project_path.rglob('*'):
-            if not path.is_file():
+            if not is_project_file(self.project_path, path):
                 continue
-            if set(path.parts) & excluded:
+            if set(path.relative_to(self.project_path).parts[:-1]) & excluded:
                 continue
             try:
                 rel = str(path.relative_to(self.project_path)).replace('\\', '/')

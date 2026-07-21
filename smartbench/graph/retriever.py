@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from smartbench.graph.schema import CodeGraph, CodeNode, EdgeType, NodeType
+from smartbench.path_safety import resolve_project_file
 
 
 class GraphRetriever:
@@ -99,8 +100,9 @@ class GraphRetriever:
         """
         Retrieve context from a specific file, optionally focused on a line range.
         """
-        import os
-        full_path = os.path.join(self.project_path, file_path)
+        full_path = resolve_project_file(self.project_path, file_path)
+        if full_path is None:
+            return f"/* Could not read file: {file_path} */"
         try:
             with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
                 lines = f.readlines()
@@ -254,8 +256,6 @@ class GraphRetriever:
 
     def _format_context(self, nodes: List[CodeNode]) -> str:
         """Read actual source code for nodes and format for LLM."""
-        import os
-
         # Group by file for efficient reading
         by_file: dict = {}
         for node in nodes:
@@ -265,7 +265,9 @@ class GraphRetriever:
         total_chars = 0
 
         for file_path, file_nodes in by_file.items():
-            full_path = os.path.join(self.project_path, file_path)
+            full_path = resolve_project_file(self.project_path, file_path)
+            if full_path is None:
+                continue
             try:
                 with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
                     all_lines = f.readlines()

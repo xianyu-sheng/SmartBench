@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from smartbench.graph.schema import CodeGraph, NodeType
+from smartbench.path_safety import resolve_project_file
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ class EvidenceExtractor:
             project_path: Root directory of project
             graph: Optional CodeGraph for call chain extraction
         """
-        self.project_path = Path(project_path)
+        self.project_path = Path(project_path).resolve()
         self.graph = graph
         self._file_cache: Dict[str, List[str]] = {}
 
@@ -48,8 +49,8 @@ class EvidenceExtractor:
         Returns:
             Code string or None if file missing
         """
-        full_path = self.project_path / file_path
-        if not full_path.exists():
+        full_path = resolve_project_file(self.project_path, file_path)
+        if full_path is None:
             return None
 
         lines = self._read_file(full_path)

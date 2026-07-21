@@ -5,7 +5,6 @@ Guides the user through project selection, API key configuration,
 project detection, and diagnosis execution.
 """
 
-from pathlib import Path
 from typing import Optional
 
 import typer
@@ -23,6 +22,7 @@ from smartbench.cli.phases import (
 )
 from smartbench.llm.client import call_llm, parse_json_safe
 from smartbench.llm.provider import configure_api_keys
+from smartbench.path_safety import resolve_project_file
 from smartbench.prompts.factory import PromptFactory
 
 
@@ -78,10 +78,13 @@ def run_interactive_wizard(
     readme_content = ""
     if fingerprint.has_readme:
         try:
-            readme_content = (
-                (Path(project_path) / fingerprint.readme_path)
-                .read_text(encoding="utf-8", errors="ignore")
-            )[:4000]
+            readme_path = resolve_project_file(
+                project_path, fingerprint.readme_path
+            )
+            if readme_path is not None:
+                readme_content = readme_path.read_text(
+                    encoding="utf-8", errors="ignore"
+                )[:4000]
         except Exception:
             pass
 

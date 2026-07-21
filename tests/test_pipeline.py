@@ -386,6 +386,40 @@ class TestPhaseOrchestration:
         )
         assert result is None
 
+    def test_failed_git_clone_is_noninteractive_cleaned_and_redacted(
+        self, monkeypatch, null_console, tmp_path
+    ):
+        import subprocess
+
+        import smartbench.cli.phases as phases
+
+        clone_dir = tmp_path / "clone"
+        captured = {}
+
+        def fake_mkdtemp(prefix):
+            captured["prefix"] = prefix
+            clone_dir.mkdir()
+            return str(clone_dir)
+
+        def fake_run(command, **kwargs):
+            captured.update(command=command, kwargs=kwargs)
+            return subprocess.CompletedProcess(
+                command, 128, "", "fatal: token-secret"
+            )
+
+        monkeypatch.setattr(phases.tempfile, "mkdtemp", fake_mkdtemp)
+        monkeypatch.setattr(phases.subprocess, "run", fake_run)
+
+        result = phases.resolve_project_path(
+            null_console, "https://token-secret@example.com/repo.git"
+        )
+
+        assert result is None
+        assert captured["prefix"] == "smartbench_clone_"
+        assert captured["kwargs"]["env"]["GIT_TERMINAL_PROMPT"] == "0"
+        assert not clone_dir.exists()
+        assert "token-secret" not in null_console.file.getvalue()
+
     @pytest.mark.parametrize(
         ("concern", "expected"),
         [

@@ -127,7 +127,7 @@ smartbench eval-rag \
 
 ## 本地产物
 
-启用 RAG 时，SmartBench 会在目标仓库创建 `.smartbench/vector_store/`。常规流程不会编辑源文件，但建议将 `.smartbench/` 加入目标仓库的 `.gitignore`。
+启用 RAG 时，SmartBench 会在目标仓库创建 `.smartbench/vector_store/`。常规流程不会编辑源文件，但建议将 `.smartbench/` 加入目标仓库的 `.gitignore`。扫描、检索和证据验证只读取项目根目录内的常规文件，指向仓库外部的符号链接与 `../` 越界路径会被忽略。
 
 ## 开发者验证
 

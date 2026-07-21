@@ -9,10 +9,11 @@ Orchestrates the 5-phase pipeline:
   5. Multi-Agent Debate with Verification
 """
 
+import atexit
 import os
+import shutil
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -41,6 +42,7 @@ from smartbench.graph.builder import CodeGraphBuilder
 from smartbench.graph.retriever import GraphRetriever
 from smartbench.llm.client import call_llm, parse_json_safe
 from smartbench.llm.provider import load_api_keys_from_env
+from smartbench.path_safety import resolve_project_file
 from smartbench.prompts.factory import PromptFactory
 
 
@@ -81,19 +83,22 @@ def resolve_project_path(console: Console, input_path: str) -> Optional[str]:
     # Git URL
     if input_path.startswith(("http://", "https://", "git@", "ssh://")):
         console.print("  [dim]Cloning repository...[/dim]")
-        tmpdir = os.path.join(
-            tempfile.gettempdir(), f"smartbench_{int(time.time())}"
-        )
+        tmpdir = tempfile.mkdtemp(prefix="smartbench_clone_")
         try:
             result = subprocess.run(
                 ["git", "clone", "--depth", "1", input_path, tmpdir],
                 capture_output=True, text=True, timeout=120,
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
             )
             if result.returncode == 0:
+                atexit.register(shutil.rmtree, tmpdir, ignore_errors=True)
                 return tmpdir
-            console.print(f"  [red]Clone failed: {result.stderr[:200]}[/red]")
+            console.print(
+                f"  [red]Clone failed (git exit {result.returncode})[/red]"
+            )
         except Exception as e:
-            console.print(f"  [red]Clone error: {e}[/red]")
+            console.print(f"  [red]Clone error: {type(e).__name__}[/red]")
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
     return None
 
@@ -443,20 +448,22 @@ def run_fallback_analysis(
     code_context = ""
     for entry_file in fingerprint.entry_points[:3]:
         try:
-            content = (
-                (Path(project_path) / entry_file)
-                .read_text(encoding="utf-8", errors="ignore")
-            )
+            entry_path = resolve_project_file(project_path, entry_file)
+            if entry_path is None:
+                continue
+            content = entry_path.read_text(encoding="utf-8", errors="ignore")
             code_context += f"\n// {entry_file}\n{content[:2000]}\n"
         except Exception:
             pass
 
     if fingerprint.has_readme:
         try:
-            readme = (
-                (Path(project_path) / fingerprint.readme_path)
-                .read_text(encoding="utf-8", errors="ignore")
+            readme_path = resolve_project_file(
+                project_path, fingerprint.readme_path
             )
+            if readme_path is None:
+                raise OSError("README escaped project boundary")
+            readme = readme_path.read_text(encoding="utf-8", errors="ignore")
             code_context = (
                 f"// {fingerprint.readme_path}\n{readme[:2000]}\n"
                 + code_context

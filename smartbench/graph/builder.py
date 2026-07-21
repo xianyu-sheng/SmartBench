@@ -21,6 +21,7 @@ from smartbench.graph.schema import (
     EdgeType,
     NodeType,
 )
+from smartbench.path_safety import is_project_file, resolve_project_file
 
 # ── Regex patterns per language ──────────────────────────────────────
 
@@ -385,15 +386,22 @@ class CodeGraphBuilder:
                         file_filter: Optional[List[str]] = None) -> List[Path]:
         """Find all source files for the given language."""
         if file_filter:
-            return [root / f for f in file_filter if (root / f).exists()]
+            filtered = []
+            for requested in file_filter:
+                resolved = resolve_project_file(root, requested)
+                if resolved is not None:
+                    filtered.append(resolved)
+            return sorted(set(filtered))[:self.max_files]
 
         extensions = _LANG_EXTENSIONS.get(language, [])
         files = []
 
         for ext in extensions:
             for f in root.rglob(f"*{ext}"):
+                if not is_project_file(root, f):
+                    continue
                 # Check excluded dirs
-                parts = set(p.name for p in f.parents)
+                parts = set(f.relative_to(root).parts[:-1])
                 if parts & self.EXCLUDED_DIRS:
                     continue
                 # Check excluded patterns
@@ -405,7 +413,7 @@ class CodeGraphBuilder:
             if len(files) >= self.max_files:
                 break
 
-        return files
+        return sorted(files)
 
     @staticmethod
     def _match_pattern(name: str, pattern: str) -> bool:

@@ -113,7 +113,8 @@ SmartBench uses graph-only retrieval when the optional RAG stack is unavailable.
 ## Safety boundary
 
 - Source files in the analyzed repository are not edited by the normal diagnosis pipeline.
-- Git URLs are cloned into a temporary directory.
+- Git URLs are cloned non-interactively into a temporary directory that is removed when SmartBench exits.
+- Scanning, retrieval, and evidence verification read only regular files resolved inside the project root; external symlinks and `../` escapes are ignored.
 - Project-scoped diagnostics can execute installed compilers or analyzers inside the target path. Use SmartBench only on repositories you trust.
 - Host process, memory, and kernel probes (`ps`, `vmstat`, and `dmesg`) are disabled by default. `diagnose --system-probes` explicitly enables them and their output may expose host information.
 - `--sandbox` is explicit opt-in. It protects the working tree, but it is not an OS security boundary: repository tests still run with your user permissions.

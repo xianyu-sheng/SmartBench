@@ -15,6 +15,7 @@ from smartbench.detector.fingerprint import (
     ProjectFingerprint,
     ProjectType,
 )
+from smartbench.path_safety import is_project_file, resolve_project_file
 
 _EXCLUDED_DIRS = {
     ".git", "node_modules", "__pycache__", "target", "build", "vendor",
@@ -174,7 +175,8 @@ class ProjectScanner:
             try:
                 count = sum(
                     1 for path in self.root.rglob(f"*{ext}")
-                    if path.is_file() and not _is_excluded(self.root, path)
+                    if is_project_file(self.root, path)
+                    and not _is_excluded(self.root, path)
                 )
                 if count > 0:
                     counts[lang] = counts.get(lang, 0) + count
@@ -213,7 +215,7 @@ class ProjectScanner:
                 continue
             for manifest_name, (lang, _) in _MANIFEST_MAP.items():
                 candidate = d / manifest_name
-                if candidate.exists() and candidate.is_file():
+                if is_project_file(self.root, candidate):
                     fp.manifest_files.append(str(candidate.relative_to(self.root)))
 
                     # If language wasn't detected from extensions, use manifest signal
@@ -232,7 +234,9 @@ class ProjectScanner:
             return
 
         for manifest_rel in fp.manifest_files:
-            manifest_path = self.root / manifest_rel
+            manifest_path = resolve_project_file(self.root, manifest_rel)
+            if manifest_path is None:
+                continue
             manifest_name = manifest_path.name
 
             signals = _FRAMEWORK_SIGNALS.get(manifest_name, [])
@@ -341,7 +345,7 @@ class ProjectScanner:
             # Filter out common non-source dirs
             files = []
             for f in all_files:
-                if f.is_file() and not _is_excluded(self.root, f):
+                if is_project_file(self.root, f) and not _is_excluded(self.root, f):
                     files.append(f)
 
             fp.total_files = len(files)
@@ -374,7 +378,7 @@ class ProjectScanner:
                           "README.txt", "README.org", "README_CN.md", "README_zh.md"]
         for pattern in readme_patterns:
             candidate = self.root / pattern
-            if candidate.exists():
+            if resolve_project_file(self.root, pattern) is not None:
                 fp.has_readme = True
                 fp.readme_path = str(candidate.relative_to(self.root))
                 return
@@ -395,10 +399,15 @@ class ProjectScanner:
             if "*" in pattern:
                 candidates = list(self.root.glob(pattern))
                 for c in candidates[:5]:
-                    fp.config_files.append(str(c.relative_to(self.root)))
+                    if is_project_file(self.root, c):
+                        fp.config_files.append(str(c.relative_to(self.root)))
             else:
                 candidate = self.root / pattern
-                if candidate.exists():
+                if (
+                    not candidate.is_symlink()
+                    and candidate.exists()
+                    and candidate.resolve().is_relative_to(self.root)
+                ):
                     fp.config_files.append(pattern)
 
         fp.config_files = sorted(set(fp.config_files))
@@ -406,20 +415,20 @@ class ProjectScanner:
     def _detect_entry_points(self, fp: ProjectFingerprint) -> None:
         """Identify entry-point files."""
         for pattern, _ in _ENTRY_POINT_PATTERNS.items():
-            candidate = self.root / pattern
-            if candidate.exists():
+            if resolve_project_file(self.root, pattern) is not None:
                 fp.entry_points.append(pattern)
 
         # Language-specific entry points
         if fp.primary_language == Language.GO:
             for f in self.root.glob("**/main.go"):
-                fp.entry_points.append(str(f.relative_to(self.root)))
+                if is_project_file(self.root, f):
+                    fp.entry_points.append(str(f.relative_to(self.root)))
         elif fp.primary_language == Language.PYTHON:
             for name in ["main.py", "app.py", "server.py", "cli.py", "run.py"]:
-                if (self.root / name).exists():
+                if resolve_project_file(self.root, name) is not None:
                     fp.entry_points.append(name)
         elif fp.primary_language == Language.RUST:
-            if (self.root / "src" / "main.rs").exists():
+            if resolve_project_file(self.root, "src/main.rs") is not None:
                 fp.entry_points.append("src/main.rs")
 
         fp.entry_points = sorted(set(fp.entry_points))[:10]
@@ -474,8 +483,8 @@ class ProjectScanner:
     def _detect_dependencies(self, fp: ProjectFingerprint) -> None:
         """Extract dependency names from manifests."""
         # Go: go.mod
-        go_mod = self.root / "go.mod"
-        if go_mod.exists():
+        go_mod = resolve_project_file(self.root, "go.mod")
+        if go_mod is not None:
             try:
                 content = go_mod.read_text(encoding="utf-8", errors="ignore")
                 for line in content.split("\n"):
@@ -493,8 +502,8 @@ class ProjectScanner:
                 pass
 
         # Python: requirements.txt
-        req_file = self.root / "requirements.txt"
-        if req_file.exists():
+        req_file = resolve_project_file(self.root, "requirements.txt")
+        if req_file is not None:
             try:
                 content = req_file.read_text(encoding="utf-8", errors="ignore")
                 for line in content.split("\n"):

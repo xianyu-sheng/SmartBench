@@ -14,6 +14,7 @@ from typing import Dict, List, Optional
 
 from smartbench.graph.retriever import GraphRetriever
 from smartbench.graph.schema import CodeGraph
+from smartbench.path_safety import is_project_file, resolve_project_file
 from smartbench.rag.embedder import CodeEmbedder
 from smartbench.rag.store import VectorStore
 
@@ -171,19 +172,22 @@ class HybridRetriever:
         }
 
         # Try exact match
-        full_path = Path(self.project_path) / file_path
-        if full_path.exists():
+        root = Path(self.project_path).resolve()
+        full_path = resolve_project_file(root, file_path)
+        if full_path is not None:
             result["exists"] = True
-            result["resolved_path"] = file_path
+            result["resolved_path"] = str(full_path.relative_to(root)).replace(
+                "\\", "/"
+            )
         else:
             # Fuzzy search
             resolved = self._fuzzy_resolve_path(file_path)
             if resolved:
                 result["exists"] = True
                 result["resolved_path"] = resolved
-                full_path = Path(self.project_path) / resolved
+                full_path = resolve_project_file(root, resolved)
 
-        if result["exists"] and line is not None and full_path:
+        if result["exists"] and line is not None and full_path is not None:
             try:
                 lines = full_path.read_text(
                     encoding='utf-8', errors='ignore'
@@ -316,10 +320,10 @@ class HybridRetriever:
         claimed_suffix = Path(claimed).suffix
 
         candidates = []
-        root = Path(self.project_path)
+        root = Path(self.project_path).resolve()
 
         for f in root.rglob('*'):
-            if not f.is_file():
+            if not is_project_file(root, f):
                 continue
 
             try:

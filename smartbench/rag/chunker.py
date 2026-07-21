@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 from smartbench.graph.schema import CodeGraph, CodeNode, NodeType
+from smartbench.path_safety import is_project_file
 from smartbench.rag import Chunk
 
 # Directories and files to skip during indexing
@@ -123,7 +124,7 @@ class CodeChunker:
             List of Chunk objects ready for embedding
         """
         chunks: List[Chunk] = []
-        root = Path(project_path)
+        root = Path(project_path).resolve()
 
         # Build a lookup of file_path -> list of function/class nodes
         file_nodes: Dict[str, List[CodeNode]] = {}
@@ -192,13 +193,13 @@ class CodeChunker:
         """
         files = []
         for path in root.rglob('*'):
-            if path.is_file() and _should_index(path):
+            if is_project_file(root, path) and _should_index(path):
                 try:
                     rel = path.relative_to(root)
                     files.append((str(rel).replace('\\', '/'), path))
                 except ValueError:
                     pass
-        return files
+        return sorted(files)
 
     # ── Chunking strategies ─────────────────────────────────────────────
 

@@ -19,6 +19,7 @@ from smartbench.diagnostics.registry import (
     ProblemCategory,
     Severity,
 )
+from smartbench.path_safety import is_project_file
 
 # ── Linux / Unix system tools ─────────────────────────────────────────
 
@@ -290,7 +291,7 @@ class PythonDiagTool(DiagnosticTool):
         )
 
         if category == ProblemCategory.STARTUP_FAILURE:
-            root = Path(target_path)
+            root = Path(target_path).resolve()
             excluded = {
                 ".git", ".venv", "venv", "__pycache__", "build", "dist",
                 "node_modules", "legacy",
@@ -298,6 +299,8 @@ class PythonDiagTool(DiagnosticTool):
             checked = 0
             syntax_errors = []
             for path in root.rglob("*.py"):
+                if not is_project_file(root, path):
+                    continue
                 if set(path.relative_to(root).parts[:-1]) & excluded:
                     continue
                 try:
