@@ -40,7 +40,8 @@ class HybridRetriever:
                  vector_store: Optional[VectorStore] = None,
                  embedder: Optional[CodeEmbedder] = None,
                  graph_weight: float = 0.4,
-                 vector_weight: float = 0.6):
+                 vector_weight: float = 0.6,
+                 min_score: float = 0.15):
         """
         Args:
             graph: The code graph for structural retrieval
@@ -49,6 +50,7 @@ class HybridRetriever:
             embedder: Optional embedder for query vectorization
             graph_weight: Weight for graph-based scores (0.0-1.0)
             vector_weight: Weight for vector-based scores (0.0-1.0)
+            min_score: Minimum similarity score to include a result (0.0-1.0)
         """
         self.graph = graph
         self.project_path = project_path
@@ -59,13 +61,22 @@ class HybridRetriever:
         )
         self.graph_weight = graph_weight
         self.vector_weight = vector_weight
+        self.min_score = min_score
         self.max_chars = 6000  # ~2000 tokens, generous for dual-source context
 
     # ── Public API ──────────────────────────────────────────────────────
 
     def retrieve(self, query: str, n_results: int = 15) -> str:
         """
-        Hybrid retrieval: merge graph + vector results into formatted context.
+        Hybrid retrieval with re-ranking, dedup, and confidence filtering.
+
+        Pipeline:
+          1. Query graph for structural context
+          2. Query vector store for semantic similarity
+          3. Filter low-confidence results (score < min_score)
+          4. Re-rank: prioritize higher scores
+          5. Deduplicate by file (keep highest-scoring chunk per file)
+          6. Merge and format for LLM consumption
 
         Args:
             query: Natural language query (user concern or proposal text)
@@ -85,6 +96,18 @@ class HybridRetriever:
                 vector_results = self.vector_store.search_by_text(
                     query, self.embedder, n_results=n_results
                 )
+                # ── Filter low-confidence results ──
+                vector_results = [
+                    r for r in vector_results
+                    if r.get("score", 0) >= self.min_score
+                ]
+                # ── Re-rank: sort by score descending ──
+                vector_results.sort(
+                    key=lambda r: r.get("score", 0), reverse=True
+                )
+                # ── Deduplicate by file: keep highest score per file ──
+                vector_results = self._deduplicate_by_file(vector_results)
+
                 vector_blocks = self._format_vector_results(
                     vector_results, already_in_graph=graph_had_results
                 )
@@ -111,6 +134,18 @@ class HybridRetriever:
             combined = combined[:self.max_chars] + "\n// ... (context truncated)"
 
         return combined
+
+    def _deduplicate_by_file(self, results: List[Dict]) -> List[Dict]:
+        """Deduplicate vector results: keep only the highest-scoring chunk per file."""
+        seen_files: Dict[str, Dict] = {}
+        for r in results:
+            meta = r.get("metadata", {})
+            file_path = meta.get("file_path", "")
+            if not file_path:
+                continue
+            if file_path not in seen_files or r.get("score", 0) > seen_files[file_path].get("score", 0):
+                seen_files[file_path] = r
+        return list(seen_files.values())
 
     def verify_location(self, file_path: str,
                         line: Optional[int] = None) -> Dict:

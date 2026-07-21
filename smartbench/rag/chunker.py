@@ -21,7 +21,7 @@ from smartbench.detector.fingerprint import Language
 EXCLUDED_DIRS: Set[str] = {
     '.git', 'node_modules', '__pycache__', 'target', 'build',
     'vendor', '.venv', 'venv', 'dist', '.idea', '.vscode', 'obj',
-    '.smartbench', '.claude',
+    '.smartbench', '.claude', '.pytest_cache', 'legacy',
 }
 
 EXCLUDED_SUFFIXES: Set[str] = {

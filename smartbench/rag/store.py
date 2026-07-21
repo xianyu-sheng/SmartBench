@@ -221,22 +221,37 @@ class VectorStore:
 
     def exists(self) -> bool:
         """Check if the index already exists (uses SimpleVectorStore check)."""
-        # Check SimpleVectorStore first (safe, no C deps)
         svs = SimpleVectorStore(str(self.project_path), self.fingerprint_hash)
-        if svs.exists():
-            return True
-        # Fallback: check ChromaDB (only if env var set)
-        import os
-        if os.environ.get("SMARTBENCH_CHROMADB"):
-            try:
-                self._ensure_chroma_client()
-                self._collection = self._client.get_collection(
-                    self.collection_name, embedding_function=None
-                )
-                return True
-            except Exception:
-                pass
-        return False
+        return svs.exists()
+
+    def save_tfidf_vocab(self, vectorizer) -> None:
+        """Persist TF-IDF vectorizer vocabulary for later reload."""
+        import pickle
+        try:
+            self.store_path.mkdir(parents=True, exist_ok=True)
+            vocab_path = self.store_path / f"tfidf_vocab_{self.fingerprint_hash[:8]}.pkl"
+            with open(vocab_path, 'wb') as f:
+                pickle.dump({
+                    'vocabulary': vectorizer.vocabulary_,
+                    'idf': vectorizer.idf_.tolist() if hasattr(vectorizer, 'idf_') else [],
+                    'max_features': getattr(vectorizer, 'max_features', 256),
+                }, f)
+            logger.info("Saved TF-IDF vocab to %s", vocab_path)
+        except Exception as e:
+            logger.warning("Failed to save TF-IDF vocab: %s", e)
+
+    def load_tfidf_vocab(self) -> Optional[Dict]:
+        """Load persisted TF-IDF vocabulary for query embedding."""
+        import pickle
+        vocab_path = self.store_path / f"tfidf_vocab_{self.fingerprint_hash[:8]}.pkl"
+        if not vocab_path.exists():
+            return None
+        try:
+            with open(vocab_path, 'rb') as f:
+                return pickle.load(f)
+        except Exception as e:
+            logger.warning("Failed to load TF-IDF vocab: %s", e)
+            return None
 
     # ── Backend initialization ──────────────────────────────────────────
 

@@ -88,6 +88,10 @@ class IndexPipeline:
         store = VectorStore(self.project_path, self.fingerprint_hash)
         stored = store.index_chunks(embedded, self.embedder.dimension)
 
+        # Persist TF-IDF vocabulary for later query reuse
+        if self.embedder._fallback_mode == "tfidf" and self.embedder._tfidf_vectorizer:
+            store.save_tfidf_vocab(self.embedder._tfidf_vectorizer)
+
         elapsed = time.time() - start
         logger.info(f"Indexing complete: {stored} chunks in {elapsed:.1f}s")
 
@@ -106,6 +110,10 @@ class IndexPipeline:
         if not force and store.exists():
             if not self._needs_rebuild(store, graph):
                 logger.info("Using existing vector index (up-to-date)")
+                # Reload TF-IDF vocabulary if using fallback mode
+                tfidf_data = store.load_tfidf_vocab()
+                if tfidf_data:
+                    self.embedder._load_tfidf_vocab(tfidf_data)
                 return store, self.embedder
             logger.info("Vector index stale, rebuilding...")
 

@@ -10,7 +10,7 @@ Uses intfloat/multilingual-e5-small by default:
 Falls back to all-MiniLM-L6-v2 if E5 download fails.
 """
 
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 import logging
 
 from smartbench.rag import Chunk
@@ -251,6 +251,30 @@ class CodeEmbedder:
         )
         self._tfidf_vectorizer.fit(texts)
         self._dimension = self._tfidf_dim
+
+    def _load_tfidf_vocab(self, vocab_data: Dict) -> None:
+        """Reload TF-IDF vocabulary from persisted data (for query reuse)."""
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        import numpy as np
+
+        vocabulary = vocab_data.get('vocabulary', {})
+        if not vocabulary:
+            return
+
+        max_features = vocab_data.get('max_features', self._tfidf_dim)
+        self._tfidf_vectorizer = TfidfVectorizer(
+            max_features=max_features,
+            analyzer='char_wb',
+            ngram_range=(2, 4),
+            vocabulary=vocabulary,
+        )
+        # Set idf_ manually if available
+        idf_list = vocab_data.get('idf', [])
+        if idf_list:
+            self._tfidf_vectorizer.idf_ = np.array(idf_list)
+        self._dimension = max_features
+        self._fallback_mode = 'tfidf'
+        logger.info("Loaded TF-IDF vocab: %d terms", len(vocabulary))
 
     def _embed_tfidf(self, texts: List[str]) -> List[List[float]]:
         """

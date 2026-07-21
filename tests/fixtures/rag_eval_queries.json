@@ -1,0 +1,74 @@
+[
+  {
+    "query": "How does the debate engine work?",
+    "expected_file": "smartbench/engine/debate.py",
+    "expected_line": 40,
+    "description": "Core multi-agent debate orchestration"
+  },
+  {
+    "query": "Where is the project fingerprint detection?",
+    "expected_file": "smartbench/detector/scanner.py",
+    "expected_line": 60,
+    "description": "Zero-LLM project language/framework detection"
+  },
+  {
+    "query": "How does evidence verification prevent hallucinations?",
+    "expected_file": "smartbench/verifier/verifier.py",
+    "expected_line": 1,
+    "description": "Top-level verifier that checks file existence and line numbers"
+  },
+  {
+    "query": "Where is the RAG code chunker?",
+    "expected_file": "smartbench/rag/chunker.py",
+    "expected_line": 1,
+    "description": "Language-aware code splitting into semantic chunks"
+  },
+  {
+    "query": "How does the code graph builder parse source files?",
+    "expected_file": "smartbench/graph/builder.py",
+    "expected_line": 1,
+    "description": "AST-based code graph construction"
+  },
+  {
+    "query": "Where are the LLM prompts generated?",
+    "expected_file": "smartbench/prompts/factory.py",
+    "expected_line": 1,
+    "description": "Dynamic prompt generation based on project fingerprint"
+  },
+  {
+    "query": "How does the interactive wizard guide users?",
+    "expected_file": "smartbench/cli/wizard.py",
+    "expected_line": 1,
+    "description": "4-step interactive setup wizard"
+  },
+  {
+    "query": "Where is the provider registry for LLM models?",
+    "expected_file": "smartbench/llm/provider.py",
+    "expected_line": 1,
+    "description": "Auto-detection of LLM provider from model name"
+  },
+  {
+    "query": "How does tree-sitter parse Python code?",
+    "expected_file": "smartbench/graph/tree_parser.py",
+    "expected_line": 1,
+    "description": "Tree-sitter based AST extraction"
+  },
+  {
+    "query": "Where are diagnostic tools defined?",
+    "expected_file": "smartbench/diagnostics/tools.py",
+    "expected_line": 1,
+    "description": "Concrete tool implementations for each language"
+  },
+  {
+    "query": "How does the vector store persist embeddings?",
+    "expected_file": "smartbench/rag/store.py",
+    "expected_line": 1,
+    "description": "Vector storage with ChromaDB and SimpleVectorStore backends"
+  },
+  {
+    "query": "Where is the cross-checker for debate claims?",
+    "expected_file": "smartbench/verifier/cross_checker.py",
+    "expected_line": 1,
+    "description": "Cross-validates proposals against code graph and source"
+  }
+]
