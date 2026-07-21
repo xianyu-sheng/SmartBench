@@ -6,20 +6,18 @@ All scanning is deterministic (zero LLM calls).  These tests use
 tmp_path to create minimal project directories on the fly.
 """
 
-from pathlib import Path
 import subprocess
-import sys
+from pathlib import Path
 
 import pytest
 
-from smartbench.detector.scanner import ProjectScanner
 from smartbench.detector.fingerprint import (
-    ProjectFingerprint,
-    Language,
     Framework,
+    Language,
+    ProjectFingerprint,
     ProjectType,
 )
-
+from smartbench.detector.scanner import ProjectScanner
 
 # ── Helper factories ────────────────────────────────────────────────────────
 

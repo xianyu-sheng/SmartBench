@@ -496,7 +496,6 @@ def run_diagnose_mode(
         console.print(f"[red]Cannot access: {project}[/red]")
         return
 
-    load_api_keys_from_env()  # noqa: F841
     fingerprint = run_phase1_detection(console, project_path)
     display_fingerprint(console, fingerprint)
 
@@ -508,7 +507,10 @@ def run_diagnose_mode(
         registry.register(tool)
 
     results = registry.diagnose(
-        fingerprint.primary_language, category, str(project_path)
+        fingerprint.primary_language,
+        category,
+        str(project_path),
+        symptoms=[symptoms] if symptoms else None,
     )
 
     console.print("\n[bold]Diagnostic Results:[/bold]")

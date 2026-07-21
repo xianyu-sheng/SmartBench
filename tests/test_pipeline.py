@@ -6,19 +6,18 @@ Tests the full SmartBench pipeline with mock LLM responses:
 """
 
 import json
-import pytest
-from pathlib import Path
 from io import StringIO
+from pathlib import Path
 
+import pytest
 from rich.console import Console
 
-from smartbench.detector.scanner import ProjectScanner
 from smartbench.detector.fingerprint import Language
+from smartbench.detector.scanner import ProjectScanner
+from smartbench.engine.debate import DebateEngine, DebateResult
 from smartbench.graph.builder import CodeGraphBuilder
 from smartbench.graph.retriever import GraphRetriever
 from smartbench.prompts.factory import PromptFactory
-from smartbench.engine.debate import DebateEngine, DebateResult
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Mock LLM responses
@@ -276,8 +275,8 @@ class TestFullDebatePipeline:
         self, fingerprint, code_graph, project_path, mock_llm_factory
     ):
         """Test debate with evidence verifier enabled."""
-        from smartbench.verifier.verifier import Verifier
         from smartbench.graph.retriever import GraphRetriever
+        from smartbench.verifier.verifier import Verifier
 
         factory = PromptFactory(fingerprint)
         llm = mock_llm_factory([
@@ -333,15 +332,8 @@ class TestFullDebatePipeline:
         self, fingerprint, code_graph, project_path, mock_llm_factory
     ):
         """Verifier should annotate proposals with verification data."""
-        from smartbench.verifier.verifier import Verifier
         from smartbench.graph.retriever import GraphRetriever
-
-        factory = PromptFactory(fingerprint)
-        llm = mock_llm_factory([
-            PROPOSER_RESPONSE,
-            CRITIQUE_RESPONSE,
-            JUDGE_RESPONSE,
-        ])
+        from smartbench.verifier.verifier import Verifier
 
         retriever = GraphRetriever(
             code_graph, project_path, max_tokens_estimate=4000
@@ -422,8 +414,8 @@ class TestToolExecution:
         return str(Path(__file__).parent.parent.resolve())
 
     def test_tools_run_for_python(self, null_console, project_path):
-        from smartbench.diagnostics.executor import run_tools_for_strategy
         from smartbench.detector.fingerprint import Language
+        from smartbench.diagnostics.executor import run_tools_for_strategy
 
         result = run_tools_for_strategy(
             null_console, project_path,
@@ -433,8 +425,8 @@ class TestToolExecution:
         assert "建议" in result or "diagnostic" in result.lower() or "tool" in result.lower()
 
     def test_tools_empty_for_unknown_strategy(self, null_console, project_path):
-        from smartbench.diagnostics.executor import run_tools_for_strategy
         from smartbench.detector.fingerprint import Language
+        from smartbench.diagnostics.executor import run_tools_for_strategy
 
         result = run_tools_for_strategy(
             null_console, project_path,
@@ -443,8 +435,8 @@ class TestToolExecution:
         assert result == ""
 
     def test_all_strategies_produce_output(self, null_console, project_path):
-        from smartbench.diagnostics.executor import run_tools_for_strategy
         from smartbench.detector.fingerprint import Language
+        from smartbench.diagnostics.executor import run_tools_for_strategy
 
         for strategy in [
             "performance_analysis", "correctness_audit",
@@ -464,6 +456,27 @@ class TestToolExecution:
 class TestRAGPipeline:
     """Test the RAG pipeline end-to-end."""
 
+    def test_embedder_hash_fallback_without_optional_ml_dependencies(
+        self, monkeypatch
+    ):
+        """A core install must index and query without sklearn or torch."""
+        import sys
+
+        from smartbench.rag.embedder import CodeEmbedder
+
+        monkeypatch.setitem(sys.modules, "torch", None)
+        monkeypatch.setitem(sys.modules, "sklearn", None)
+
+        embedder = CodeEmbedder()
+        vectors = embedder.embed(["debate engine", "vector store"])
+        query = embedder.embed_query("debate engine")
+
+        assert embedder._fallback_mode == "hash"
+        assert len(vectors) == 2
+        assert len(vectors[0]) == embedder.dimension == 256
+        assert len(query) == 256
+        assert any(value != 0 for value in query)
+
     def test_index_and_retrieve(self, code_graph, fingerprint):
         from smartbench.rag.indexer import IndexPipeline
         from smartbench.rag.retriever import HybridRetriever
@@ -481,8 +494,9 @@ class TestRAGPipeline:
         assert len(context) > 100, "Should retrieve relevant context"
 
     def test_evaluator_loads_queries(self):
-        from smartbench.rag.evaluator import RAGEvaluator
         import os
+
+        from smartbench.rag.evaluator import RAGEvaluator
 
         queries_path = os.path.join(
             os.path.dirname(__file__), "fixtures", "rag_eval_queries.json"

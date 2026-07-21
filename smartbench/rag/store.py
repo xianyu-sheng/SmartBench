@@ -3,7 +3,7 @@ VectorStore — persistent vector storage with multiple backends.
 
 Backends (tried in order):
   1. ChromaDB — full-featured vector DB
-  2. SimpleVectorStore — numpy + json fallback (zero extra deps)
+  2. SimpleVectorStore — numpy + json fallback (core dependencies only)
 
 Persisted to: <project_path>/.smartbench/vector_store/
 """
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class SimpleVectorStore:
     """
-    Minimal numpy + json vector store — zero problematic dependencies.
+    Minimal numpy + json vector store using only core dependencies.
     Used as fallback when ChromaDB can't be initialized.
     """
 
@@ -260,14 +260,14 @@ class VectorStore:
         Initialize the storage backend.
 
         Uses SimpleVectorStore (numpy+json) as the DEFAULT because it:
-          - Has zero C-extension dependencies (no segfault risk)
+          - Avoids a database service and optional vector-store dependencies
           - Works reliably on all Python versions
           - Is fast enough for projects up to ~10K chunks
 
         ChromaDB is available as an optional upgrade via
         prefer_chromadb=True (set at init or via env var).
         """
-        # Use SimpleVectorStore by default (safest, zero C deps)
+        # Use SimpleVectorStore by default (small and deterministic)
         self._backend = "simple"
         self._simple_store = SimpleVectorStore(
             str(self.project_path), self.fingerprint_hash

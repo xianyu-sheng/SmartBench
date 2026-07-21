@@ -9,25 +9,23 @@ Focuses on pure I/O verification (no LLM involvement):
 """
 
 from pathlib import Path
-from typing import Optional
 
 import pytest
 
-from smartbench.verifier import VerificationStatus, VerificationResult
-from smartbench.verifier.location import LocationVerifier
-from smartbench.verifier.cross_checker import CrossChecker
-from smartbench.verifier.scorer import VerdictScorer
+from smartbench.graph.retriever import GraphRetriever
 
 # Re-use graph types for the mock CodeGraph
 from smartbench.graph.schema import (
+    CodeEdge,
     CodeGraph,
     CodeNode,
-    CodeEdge,
-    NodeType,
     EdgeType,
+    NodeType,
 )
-from smartbench.graph.retriever import GraphRetriever
-
+from smartbench.verifier import VerificationResult, VerificationStatus
+from smartbench.verifier.cross_checker import CrossChecker
+from smartbench.verifier.location import LocationVerifier
+from smartbench.verifier.scorer import VerdictScorer
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 

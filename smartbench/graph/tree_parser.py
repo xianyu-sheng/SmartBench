@@ -66,18 +66,19 @@ def _try_load_language(lang: str) -> Optional[Any]:
     from tree_sitter import Language, Parser
 
     lang_packages = {
-        "python": "tree_sitter_python",
-        "go": "tree_sitter_go",
-        "javascript": "tree_sitter_javascript",
-        "typescript": "tree_sitter_typescript",
-        "rust": "tree_sitter_rust",
+        "python": ("tree_sitter_python", "language"),
+        "go": ("tree_sitter_go", "language"),
+        "javascript": ("tree_sitter_javascript", "language"),
+        "typescript": ("tree_sitter_typescript", "language_typescript"),
+        "rust": ("tree_sitter_rust", "language"),
     }
 
-    pkg_name = lang_packages.get(lang)
-    if pkg_name:
+    package = lang_packages.get(lang)
+    if package:
+        pkg_name, language_factory = package
         try:
-            mod = __import__(pkg_name, fromlist=["language"])
-            ts_lang = Language(mod.language())
+            mod = __import__(pkg_name, fromlist=[language_factory])
+            ts_lang = Language(getattr(mod, language_factory)())
             parser = Parser(ts_lang)
             logger.info("tree-sitter loaded: %s via %s", lang, pkg_name)
             return parser
@@ -94,6 +95,7 @@ def _try_load_language(lang: str) -> Optional[Any]:
 _FUNC_NODE_TYPES = {
     "function_definition",      # Python, Rust
     "function_declaration",     # Go, JS/TS
+    "function_item",            # Rust
     "method_definition",        # Python (methods with @)
     "method_declaration",       # Go, JS/TS methods
 }

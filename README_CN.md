@@ -1,153 +1,152 @@
 # SmartBench
 
-**通用 AI 代码诊断平台** — 多 Agent 辩论 + 证据验证 + 工具执行 = 可信任的诊断报告。
+[![CI](https://github.com/xianyu-sheng/SmartBench/actions/workflows/ci.yml/badge.svg)](https://github.com/xianyu-sheng/SmartBench/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Status: Beta](https://img.shields.io/badge/status-beta-orange.svg)](#项目状态)
 
-[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-266%20passed-brightgreen.svg)]()
-[![Ruff](https://img.shields.io/badge/ruff-clean-cyan.svg)]()
+面向本地代码仓库、强调证据可追溯的代码诊断工作台。
 
-**SmartBench 从不修改你的代码。** 只分析、诊断、建议 — 你始终在掌控之中。
+[English](README.md) · [使用指南](docs/USAGE_GUIDE.md)
 
----
+SmartBench 将确定性仓库指纹、代码结构解析、可选 RAG 检索、三角色 LLM 审查、本地诊断探针和磁盘证据核验组合在一起。它不会编辑目标仓库的源文件；启用 RAG 时会在 `<project>/.smartbench/` 下写入索引缓存。
 
-## SmartBench 是什么？
+> SmartBench 目前处于 Beta 阶段。证据核验能够确认引用的文件、行号、符号以及部分调用关系，可减少虚构引用，但不能证明每条诊断在语义上必然正确。
 
-SmartBench 是一个 **LLM 驱动的代码诊断工具**，通过结构化的多 Agent 辩论来分析任意代码库，并以**零幻觉证据验证**保障每个诊断结论的可信度。
+## 当前已经实现
 
-AI 的每一条声称都必须引用精确的文件路径和行号 — 这些声明在到达最终报告之前会经过磁盘验证。
+- 确定性识别语言、框架、构建系统、入口、依赖和 Git 信号。
+- 安装 `graph` 可选依赖后，对 Python、Go、JavaScript、TypeScript 和 Rust 使用 tree-sitter 提取符号。
+- 其他语言使用正则启发式回退，并提取近似调用关系。
+- Proposer、Critique、Judge 三个审查角色，可共用模型，也可分别配置模型。
+- 对引用路径、行号、符号和部分调用链做确定性核验；模糊路径修正会明确标记为“部分可信”。
+- 可选代码图与本地向量混合检索，并带有标注过的检索评测样例。
+- 按策略执行 Python、Go、C/C++、Java/Kotlin 及通用系统诊断探针或生成工具建议。
+- 支持输出 JSON 报告，便于非交互流程使用。
 
+## 工作流程
+
+```text
+代码仓库
+   │
+   ├─ 确定性指纹 ── 语言 / 框架 / 构建 / Git 信号
+   │
+   ├─ 代码结构图 ── tree-sitter 符号 + 启发式回退
+   │              │
+   │              └─ 可选本地 RAG 索引
+   │
+   ├─ 按策略选择的本地诊断探针
+   │
+   └─ Proposer → 证据核验 → Critique → 证据核验 → Judge
+                                             │
+                                             └─ 带位置和评分的诊断结果
 ```
-$ smartbench
-╔══════════════════════════════════════════════╗
-║ SmartBench — Universal Code Diagnosis       ║
-║ AI-powered analysis for any codebase        ║
-╚══════════════════════════════════════════════╝
 
-Step 1/4 — 项目在哪？
-Step 2/4 — 配置 LLM API Key
-Step 3/4 — 分析项目中...
-Step 4/4 — 你想诊断什么？
+缺失文件或非法行号会被标记为虚构引用；模糊匹配到的路径只会得到部分可信结论。语义正确性仍需要测试、编译器或 Linter 输出、性能数据或人工审查确认。
 
-[Proposer] → [Verifier] → [Critique] → [Judge] → 报告
-```
+## 语言覆盖
+
+仓库指纹可识别 Python、Go、Rust、C、C++、Java、Kotlin、JavaScript、TypeScript、Ruby、Swift、C# 和 Zig，也能识别混合语言项目。
+
+可选 tree-sitter 后端目前覆盖 Python、Go、JavaScript、TypeScript 和 Rust。其他语言使用启发式结构解析；C 目前只有文件级发现。回退图适合上下文检索，但不是编译器级分析。
 
 ## 快速开始
 
+要求 Python 3.10 或更高版本，并安装 Git。
+
 ```bash
-pip install -e .
-export DEEPSEEK_API_KEY=sk-your-key
-
-smartbench              # 交互式 4 步向导
-smartbench --quick      # 自动检测一切
-smartbench check        # 查看可用诊断工具
+git clone https://github.com/xianyu-sheng/SmartBench.git
+cd SmartBench
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
+smartbench --help
 ```
 
-### CLI 命令
+安装五种语言的 tree-sitter 精确解析器：
 
-| 命令 | 说明 |
-|---|---|
-| `smartbench` | 交互式向导：项目 → API Key → 检测 → 诊断 |
-| `smartbench --quick` | 非交互模式，使用环境变量中的 API Key |
-| `smartbench quick --project ./my-repo` | 对指定项目快速诊断 |
-| `smartbench diagnose --project ./my-repo --symptoms "响应慢"` | 针对性诊断 |
-| `smartbench diagnose --project ./my-repo --output report.json` | 导出 JSON 报告 |
-| `smartbench check` | 查看当前目录可用的诊断工具 |
-
-## 核心原理
-
-### 五阶段流水线
-
-```
-Phase 1: 项目指纹（零 LLM）→ 语言/框架/构建系统检测
-Phase 2: LLM 理解 README → 高层次项目认知
-Phase 3: 策略选择 → 从 5 种策略中自动选择
-Phase 4: 代码图 + RAG 索引 → AST 解析 + 向量化
-Phase 5: 多 Agent 辩论 → Proposer → Critique → Judge → 最终报告
+```bash
+python -m pip install -e ".[graph]"
 ```
 
-### 反幻觉保障
+启动交互式向导：
 
-每条诊断结论经过**三层验证**：
-
-1. **文件存在性** — 声明的文件路径在磁盘上检查
-2. **行号准确性** — 引用的行号必须匹配实际源码
-3. **调用链完整性** — 函数调用关系通过代码图验证
-
-验证失败的声明会被**标记并降级**，不会进入最终报告。
-
-### 多 Agent 辩论引擎
-
-| 角色 | 职责 |
-|---|---|
-| **Proposer（方案提出者）** | 分析代码上下文，提出带精确文件路径和行号的修复方案 |
-| **Critique（交叉审查者）** | 对抗性审查 — 寻找反例、遗漏上下文、误报 |
-| **Judge（最终仲裁者）** | 综合辩论记录，产出带共识评分的最终报告 |
-
-## 技术架构
-
+```bash
+smartbench
 ```
+
+通过环境变量配置模型，运行快速诊断并保存报告：
+
+```bash
+export DEEPSEEK_API_KEY="your-key"
+smartbench quick \
+  --project . \
+  --concern "检查正确性和并发风险" \
+  --output report.json
+```
+
+检查本机探针，或跳过 LLM 辩论执行诊断路径：
+
+```bash
+smartbench check
+smartbench diagnose --project . --perf --output diagnostics.json
+```
+
+支持的 OpenAI 兼容凭证环境变量包括 `DEEPSEEK_API_KEY`、`OPENAI_API_KEY`、`GLM_API_KEY`、`DOUBAO_API_KEY`、`MOONSHOT_API_KEY` 和 `DASHSCOPE_API_KEY`。向导输入的 Key 只保存在当前进程内存中。现有 Anthropic 注册项尚未实现原生 Messages API，因此当前不把它列为正式支持能力。
+
+## 可选 RAG
+
+```bash
+python -m pip install -e ".[rag]"
+```
+
+未安装可选依赖时，SmartBench 会使用仅代码图检索。启用后，本地向量存储会在被分析仓库的 `.smartbench/` 目录中写入索引；如有需要，请将该目录加入目标仓库的忽略规则。
+
+## 安全边界
+
+- 常规诊断流程不会编辑被分析仓库的源文件。
+- Git URL 会被克隆到临时目录。
+- 策略选择可能执行本机已安装的诊断探针，只应分析你信任的仓库和环境。
+- 证据状态只描述“引用是否有依据”，不等价于漏洞或修复已被形式化证明。
+
+## 项目结构
+
+```text
 smartbench/
-├── cli/             # CLI（104 行 main + wizard/phases/display）
-├── llm/             # Provider 注册 + API 客户端（8 个 provider，重试逻辑）
-├── detector/        # 零 LLM 项目指纹识别
-├── graph/           # AST 代码图（tree-sitter + 正则），14 语言
-├── rag/             # 向量索引（3 层：transformers → TF-IDF → 字符哈希）
-├── verifier/        # 证据验证（磁盘 I/O，零 LLM）
-├── engine/          # 多 Agent 辩论引擎
-├── diagnostics/     # 30+ 可插拔诊断工具
-└── prompts/         # 动态 Prompt 工厂（语言专项指导）
+├── cli/             命令、交互向导、诊断阶段与展示
+├── detector/        确定性仓库指纹
+├── graph/           tree-sitter 适配、回退结构图与图检索
+├── rag/             可选分块、嵌入、向量检索与评测
+├── engine/          Proposer / Critique / Judge 编排
+├── verifier/        文件、行号、符号和调用链核验
+├── diagnostics/     本地诊断工具注册表与策略执行器
+├── llm/             供应商配置与模型调用
+└── prompts/         上下文感知结构化提示词
 ```
 
-## 支持的语言和框架
+早期面向 Raft 的实现保存在 `legacy/` 中，仅供历史参考，并已从发布包中排除。
 
-**14 种语言**：Python · Go · Rust · C · C++ · Java · Kotlin · JavaScript · TypeScript · Ruby · Swift · C# · Zig · 混合项目
-
-**Tree-sitter 精确解析**：Python、Go、JavaScript、TypeScript、Rust（其他语言正则兜底）
-
-**20+ 框架自动检测**：FastAPI · Flask · Django · Gin · Echo · Fiber · Express · NestJS · Next.js · React · Vue · Spring Boot · Axum · Actix · gRPC 等
-
-## 5 种诊断策略
-
-| 策略 | 关注点 | 触发工具 |
-|---|---|---|
-| `performance_analysis` | CPU、内存、I/O 分析 | py-spy、pprof、perf |
-| `correctness_audit` | Bug 检测、边界情况 | ruff、mypy、go vet |
-| `architecture_review` | 设计模式、耦合度 | 代码图循环依赖检测 |
-| `security_scan` | 注入、密钥暴露 | bandit、gosec、npm audit |
-| `hotspot_analysis` | 高变更文件、复杂度 | git log + 代码图 |
-
-## 8 个 LLM Provider
-
-从模型名自动检测。支持角色级路由：不同模型分别担任 Proposer / Critique / Judge。
-
-DeepSeek · OpenAI · Anthropic · GLM · 豆包 · Moonshot · 通义千问 · Ollama（本地）
-
-## 可选依赖
+## 开发与验证
 
 ```bash
-pip install -e ".[dev]"     # pytest, ruff
-pip install -e ".[graph]"   # tree-sitter（精确 AST 解析）
-pip install -e ".[rag]"     # sentence-transformers + ChromaDB
+python -m pip install -e ".[dev,graph]"
+ruff check smartbench tests
+pytest -q
+python -m compileall -q smartbench
+python -m build
 ```
 
-## 常见问题
+CI 会在 Python 3.10、3.11、3.12 上执行 lint、编译检查和测试，单独验证五种 tree-sitter 适配器，并构建 wheel 与源码包。
 
-**Q: SmartBench 会修改我的代码吗？**
-不会。只读分析。输出写入独立报告文件。
+## 项目状态
 
-**Q: 如何防止 AI 幻觉？**
-LLM 声称的每个文件路径和行号都经过零 LLM 验证器在磁盘上确认。幻觉声明会被标记和降级。
+SmartBench 的定位是诊断工作台，不替代编译器、Linter、安全扫描器、Profiler 或人工审查。接下来的质量里程碑是：
 
-**Q: 能在 CI 中使用吗？**
-支持非交互模式：`smartbench quick --project . --output report.json`
+1. 在带标签样例上发布检索与诊断精度数据。
+2. 为每个外部诊断命令增加安全、显式的执行策略。
+3. 输出 SARIF 等标准机器可读审查格式。
+4. 仅在存在机器可应用补丁时验证代码修改效果。
 
-**Q: 需要 GPU 吗？**
-不需要。嵌入引擎自动降级（sentence-transformers → TF-IDF → 字符哈希）。LLM 调用走远程 API。完全 CPU 兼容。
+## 许可证
 
-**Q: 成本多少？**
-取决于 LLM provider。本地（Ollama）：免费。DeepSeek：约 $0.01/次。一次典型诊断产生 4 次 LLM 调用（策略选择 + 3 轮辩论）。
-
-## License
-
-[MIT](LICENSE) © Xianyu Sheng
+[MIT](LICENSE)

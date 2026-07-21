@@ -1,26 +1,19 @@
-name: SmartBench CI
+name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - run: pip install ruff
-      - run: ruff check smartbench/
-
-  test:
-    needs: lint
+  quality:
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
@@ -28,6 +21,40 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: pip install -e ".[dev]"
-      - run: pip install pytest
-      - run: python -m pytest tests/ -v --tb=short
+          cache: pip
+      - name: Install project
+        run: python -m pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check smartbench tests
+      - name: Compile
+        run: python -m compileall -q smartbench
+      - name: Test
+        run: pytest -q
+
+  graph:
+    name: Tree-sitter adapters
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install graph dependencies
+        run: python -m pip install -e ".[dev,graph]"
+      - name: Test parser adapters
+        run: pytest -q tests/test_tree_parser.py
+        env:
+          SMARTBENCH_REQUIRE_TREE_SITTER: "1"
+
+  package:
+    name: Build package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install build
+      - run: python -m build

@@ -1,59 +1,36 @@
-# Agent Manifest — SmartBench 的自描述清单
-# 此文件供 Agent-hub 只读，配置变更请手动编辑。
-
 name: smartbench
-display_name: 代码诊断引擎
+display_name: 证据驱动代码诊断工作台
 description: |
-  多 Agent 协同的通用代码诊断平台。核心流水线：项目指纹识别 → AST 代码图构建 →
-  RAG 向量索引 → 多模型 LLM 辩论（提议-批判-裁决）→ 证据验证 → 优化建议排序。
-  支持 12 种编程语言、8 个 LLM 供应商。可对分布式 KV 存储进行性能基准测试。
+  确定性仓库指纹、代码结构图、可选 RAG 检索、三角色 LLM 审查与本地证据核验
+  组成的代码诊断工作台。证据核验确认引用位置，不承诺语义零误报。
 protocol: cli
-version: "1.0"
+version: "0.6.0"
 
 capabilities:
   tasks:
     - name: diagnose_code
-      description: |
-        对项目进行全面诊断：检测性能瓶颈、安全漏洞、架构问题、代码质量问题。
-        输出带置信度评分和证据验证的优化建议列表。
+      description: 对项目执行多角色代码审查，并核验结果引用的文件、行号与调用关系。
       input:
-        project_path: "string — 项目路径"
-        concern: "string — 关注领域：performance/security/architecture/all"
+        project_path: "string — 本地项目路径或 Git URL"
+        concern: "string — 希望重点检查的问题"
       output:
-        report: "string — Markdown 诊断报告"
-        suggestions: "list — [{title, description, pseudocode, priority, risk, confidence, verified}]"
-        metrics:
-          files_analyzed: "int"
-          issues_found: "int"
-          verified: "int"
-          hallucinated: "int"
-
-    - name: benchmark_performance
-      description: 对分布式 KV 存储等系统执行性能基准测试（QPS 探索、延迟分布）
-      input:
-        target: "string — 目标系统路径"
-        target_qps: "int — 目标 QPS（可选）"
-      output:
-        qps: "float"
-        avg_latency_ms: "float"
-        p50_ms: "float"
-        p99_ms: "float"
-        error_rate: "float"
+        suggestions: "list — 带证据状态的诊断建议"
 
     - name: fingerprint_project
-      description: 项目指纹识别：检测语言、框架、构建系统、规模
+      description: 不调用 LLM，识别项目语言、框架、构建系统、规模和 Git 信号。
       input:
-        project_path: "string — 项目路径"
+        project_path: "string — 本地项目路径"
       output:
-        language: "string"
-        framework: "list"
-        build_system: "string"
-        files: "int"
-        loc_estimate: "int"
+        fingerprint: "object — 确定性项目指纹"
 
-  models: [deepseek, openai, anthropic, glm, doubao, moonshot, qwen, ollama]
-  constraints:
-    requires_env: ["API keys for configured LLM providers"]
+  providers:
+    - deepseek
+    - openai
+    - glm
+    - doubao
+    - moonshot
+    - qwen
+    - openai_compatible_local
 
 interface:
-  command: cd D:/SmartBench && smartbench --quick --project {project} --concern "{goal}"
+  command: smartbench quick --project "{project_path}" --concern "{goal}" --output report.json

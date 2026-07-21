@@ -22,6 +22,7 @@ Thumbs.db
 dist/
 build/
 *.egg-info/
+uv.lock
 
 # Claude Code
 .claude/

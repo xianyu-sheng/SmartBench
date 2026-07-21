@@ -46,7 +46,7 @@ class CodeEmbedder:
         self._dimension = None
         self._load_attempted = False
         self._load_failed = False
-        self._fallback_mode = None  # "tfidf" if using sklearn fallback
+        self._fallback_mode = None  # "tfidf" or dependency-light "hash"
         self._tfidf_vectorizer = None  # fitted TF-IDF vectorizer
         self._tfidf_dim = 256  # fixed dimension for TF-IDF
 
@@ -81,6 +81,9 @@ class CodeEmbedder:
         # TF-IDF fallback mode
         if self._fallback_mode == "tfidf":
             return self._embed_tfidf(texts)
+
+        if self._fallback_mode == "hash":
+            return self._embed_hash(texts)
 
         # No model available
         if self._load_failed or self._model is None:
@@ -151,7 +154,10 @@ class CodeEmbedder:
                 return normalize(vec, norm='l2').toarray()[0].tolist()
             else:
                 # No fitted vocab — use stable char hashing (ALWAYS _tfidf_dim)
-                return self._embed_tfidf_fallback([text])[0]
+                return self._embed_hash([text])[0]
+
+        if self._fallback_mode == "hash":
+            return self._embed_hash([text])[0]
 
         # Standard sentence-transformers path
         if self._load_failed or self._model is None:
@@ -204,8 +210,11 @@ class CodeEmbedder:
                     errors.append(f"{self.FALLBACK_MODEL}: {e}")
                     logger.warning(f"Fallback also failed: {e}")
 
-        # All sentence-transformers failed. Try sklearn TF-IDF as last resort
+        # All sentence-transformers failed. Prefer sklearn TF-IDF when it is
+        # actually importable, otherwise use the deterministic hash backend.
         try:
+            from sklearn.feature_extraction.text import TfidfVectorizer  # noqa: F401
+
             logger.info("Using sklearn TF-IDF as fallback embedder")
             self._fallback_mode = "tfidf"
             self._dimension = self._tfidf_dim  # 256, consistent
@@ -213,12 +222,10 @@ class CodeEmbedder:
         except Exception as e:
             errors.append(f"sklearn TF-IDF: {e}")
 
-        # Nothing works
-        self._load_failed = True
-        self._dimension = 384
-        raise RuntimeError(
-            f"Failed to load any embedding backend. Errors: {'; '.join(errors)}"
-        ) from None
+        logger.info("Using deterministic character-hash fallback embedder")
+        self._fallback_mode = "hash"
+        self._dimension = self._tfidf_dim
+        return
 
     def is_available(self) -> bool:
         """Check if the embedder can be initialized."""
@@ -306,10 +313,13 @@ class CodeEmbedder:
             logger.error(f"TF-IDF embedding failed: {e}")
             return [[0.0] * max(1, matrix.shape[1]) for _ in texts]
 
-    def _embed_tfidf_fallback(self, texts: List[str]) -> List[List[float]]:
+    def _embed_hash(self, texts: List[str]) -> List[List[float]]:
         """
-        Character n-gram embedding without pre-fitted vocabulary.
-        Used for ad-hoc queries when no index has been built.
+        Deterministic character embedding with no ML-model dependency.
+
+        This is the final fallback for both indexing and querying, so a clean
+        core installation remains functional without scikit-learn or model
+        downloads.
         """
         import numpy as np
 

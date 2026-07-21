@@ -4,11 +4,11 @@ Tests the full pipeline: Phase 1→4→3→5.
 """
 import json
 import os
-from pathlib import Path
+
 from smartbench.detector import ProjectScanner
-from smartbench.prompts.factory import PromptFactory
-from smartbench.graph import CodeGraphBuilder, GraphRetriever
 from smartbench.engine.debate import DebateEngine
+from smartbench.graph import CodeGraphBuilder, GraphRetriever
+from smartbench.prompts.factory import PromptFactory
 
 print("=== 4. END-TO-END SIMULATION (MOCK LLM) ===\n")
 
@@ -157,7 +157,7 @@ print(f"[Phase 3] Analysis context: {len(analysis_context)} chars")
 engine = DebateEngine(mock_llm, prompt_factory=factory)
 result = engine.debate(analysis_context, target="General code quality review")
 
-print(f"\n[Phase 5] Debate completed:")
+print("\n[Phase 5] Debate completed:")
 print(f"          Rounds: {result.iterations}")
 print(f"          Est. tokens: ~{result.total_tokens_used}")
 print(f"          Duration: {result.duration_ms}ms")
@@ -175,10 +175,10 @@ for i, sug in enumerate(result.final_suggestions, 1):
     print(f"  Fix:         {sug['implementation'][:120]}...")
 
 # Debate trace
-print(f"\n  --- Debate Trace ---")
+print("\n  --- Debate Trace ---")
 for entry in result.debate_log:
     print(f"  [{entry['role']:9s}] prompt={len(entry['input']):4d} chars  response={len(entry['output']):4d} chars")
 
 print(f"\n{'='*60}")
-print(f"END-TO-END SIMULATION: ALL PHASES PASSED")
+print("END-TO-END SIMULATION: ALL PHASES PASSED")
 print(f"{'='*60}")

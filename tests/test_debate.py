@@ -6,19 +6,19 @@ prompt construction, and JSON parsing logic.
 """
 
 import json
-import pytest
-from pathlib import Path
 from dataclasses import replace
+from pathlib import Path
 
-from smartbench.engine.debate import DebateEngine, DebateResult, ModelResponse
+import pytest
+
 from smartbench.detector.fingerprint import (
-    ProjectFingerprint,
-    Language,
     Framework,
+    Language,
+    ProjectFingerprint,
     ProjectType,
 )
+from smartbench.engine.debate import DebateEngine, DebateResult, ModelResponse
 from smartbench.prompts.factory import PromptFactory
-
 
 # ===========================================================================
 # Shared test data — realistic mock LLM outputs for each debate role
@@ -223,7 +223,9 @@ class TestModelResponse:
 
 class TestDebateEngineInit:
     def test_stores_llm_call_fn(self, sample_factory):
-        llm = lambda p: "ok"
+        def llm(_prompt):
+            return "ok"
+
         engine = DebateEngine(llm_call_fn=llm, prompt_factory=sample_factory)
         assert engine.llm_call is llm
 

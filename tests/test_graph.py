@@ -8,17 +8,21 @@ Tests cover:
 """
 
 import json
-import tempfile
 import shutil
-import pytest
+import tempfile
 from pathlib import Path
 
-from smartbench.graph.schema import (
-    CodeNode, CodeEdge, CodeGraph, NodeType, EdgeType,
-)
-from smartbench.graph.builder import CodeGraphBuilder
-from smartbench.detector.fingerprint import Language
+import pytest
 
+from smartbench.detector.fingerprint import Language
+from smartbench.graph.builder import CodeGraphBuilder
+from smartbench.graph.schema import (
+    CodeEdge,
+    CodeGraph,
+    CodeNode,
+    EdgeType,
+    NodeType,
+)
 
 # ===========================================================================
 # NodeType enum

@@ -112,10 +112,6 @@ def check():
         console.print(f"[red]Error: {e}[/red]")
 
 
-if __name__ == "__main__":
-    app()
-
-
 def _maybe_save_output(result, output_path: Optional[str]) -> None:
     """Save diagnosis result to a JSON file if --output is specified."""
     if not output_path or result is None:
@@ -131,3 +127,7 @@ def _maybe_save_output(result, output_path: Optional[str]) -> None:
         console.print(f"[green]Report saved to: {output_path}[/green]")
     except Exception as e:
         console.print(f"[red]Failed to save output: {e}[/red]")
+
+
+if __name__ == "__main__":
+    app()
