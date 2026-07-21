@@ -8,16 +8,19 @@ Architecture: language-specific parsers register with the builder.
 Adding a new language = adding a new parser class.
 """
 
-from pathlib import Path
-from typing import Dict, List, Optional, Set, Any, Tuple
 import re
 import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set, Tuple
 
-from smartbench.graph.schema import (
-    CodeGraph, CodeNode, CodeEdge, NodeType, EdgeType,
-)
 from smartbench.detector.fingerprint import Language
-
+from smartbench.graph.schema import (
+    CodeEdge,
+    CodeGraph,
+    CodeNode,
+    EdgeType,
+    NodeType,
+)
 
 # ── Regex patterns per language ──────────────────────────────────────
 

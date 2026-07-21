@@ -8,12 +8,12 @@ Handles LLM-hallucinated paths through fuzzy resolution:
   4. Levenshtein distance on filename stem (for near-miss typos)
 """
 
-from pathlib import Path
-from typing import List, Optional, Dict, Tuple
-import re
 import logging
+import re
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
-from smartbench.verifier import VerificationStatus, VerificationResult
+from smartbench.verifier import VerificationResult, VerificationStatus
 
 logger = logging.getLogger(__name__)
 

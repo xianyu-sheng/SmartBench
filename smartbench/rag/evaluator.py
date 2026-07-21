@@ -16,8 +16,8 @@ Usage:
 import json
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 
 @dataclass

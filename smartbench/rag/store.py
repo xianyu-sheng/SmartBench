@@ -8,10 +8,10 @@ Backends (tried in order):
 Persisted to: <project_path>/.smartbench/vector_store/
 """
 
-from pathlib import Path
-from typing import List, Dict, Optional, Tuple
 import json
 import logging
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 from smartbench.rag import Chunk
 

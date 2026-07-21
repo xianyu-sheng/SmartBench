@@ -8,13 +8,12 @@ Strategy:
   4. For files without parseable functions: line-count chunking with overlap
 """
 
-from pathlib import Path
-from typing import List, Dict, Optional, Set
 import re
+from pathlib import Path
+from typing import Dict, List, Optional, Set
 
-from smartbench.rag import Chunk
 from smartbench.graph.schema import CodeGraph, CodeNode, NodeType
-
+from smartbench.rag import Chunk
 
 # Directories and files to skip during indexing
 EXCLUDED_DIRS: Set[str] = {

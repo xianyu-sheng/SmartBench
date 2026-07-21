@@ -5,12 +5,15 @@ Walks the filesystem once and populates a ProjectFingerprint
 from manifest files, directory conventions, build systems, and git history.
 """
 
-from pathlib import Path
-from typing import Optional, Dict, List, Tuple
 import subprocess
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 from smartbench.detector.fingerprint import (
-    ProjectFingerprint, Language, Framework, ProjectType,
+    Framework,
+    Language,
+    ProjectFingerprint,
+    ProjectType,
 )
 
 # ── Language detection: extension → Language ──────────────────────────
@@ -185,7 +188,7 @@ class ProjectScanner:
         search_dirs = [self.root] + list(self.root.glob("*"))[:20]
 
         # Manifest files that should NOT override language (too generic)
-        GENERIC_MANIFESTS = {"Makefile"}
+        GENERIC_MANIFESTS = {"Makefile"}  # noqa: N806
 
         for d in search_dirs:
             if not d.is_dir():
@@ -236,7 +239,7 @@ class ProjectScanner:
         manifest_names = {Path(m).name for m in fp.manifest_files}
 
         # Map manifest file name → build system name + default commands
-        BUILD_MAP = {
+        BUILD_MAP = {  # noqa: N806
             "go.mod": ("go_modules", ["go build ./...", "go test ./..."]),
             "Cargo.toml": ("cargo", ["cargo build --release", "cargo test"]),
             "CMakeLists.txt": ("cmake", ["cmake -B build && cmake --build build"]),

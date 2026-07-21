@@ -8,9 +8,8 @@ Scoring factors (weighted):
   4. Source match (10%): actual code matches description
 """
 
-from typing import List, Dict, Any, Optional
 import logging
-
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

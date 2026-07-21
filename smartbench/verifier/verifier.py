@@ -11,14 +11,14 @@ It coordinates all verification layers:
 All verification is ZERO-LLM (deterministic I/O only).
 """
 
-from typing import List, Dict, Optional, Any
 import logging
+from typing import Any, Dict, List, Optional
 
-from smartbench.graph.schema import CodeGraph
 from smartbench.graph.retriever import GraphRetriever
-from smartbench.verifier.location import LocationVerifier
-from smartbench.verifier.extractor import EvidenceExtractor
+from smartbench.graph.schema import CodeGraph
 from smartbench.verifier.cross_checker import CrossChecker
+from smartbench.verifier.extractor import EvidenceExtractor
+from smartbench.verifier.location import LocationVerifier
 from smartbench.verifier.scorer import VerdictScorer
 
 logger = logging.getLogger(__name__)

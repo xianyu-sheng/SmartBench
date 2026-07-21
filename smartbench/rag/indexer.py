@@ -7,11 +7,11 @@ Usage:
     store = pipeline.index_if_needed(graph)  # Incremental, skip if fresh
 """
 
-from pathlib import Path
-from typing import Optional
 import hashlib
 import logging
 import time
+from pathlib import Path
+from typing import Optional
 
 from smartbench.detector.fingerprint import ProjectFingerprint
 from smartbench.graph.schema import CodeGraph

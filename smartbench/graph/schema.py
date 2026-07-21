@@ -8,11 +8,11 @@ This schema is intentionally generic. Language-specific details are
 captured in node/edge properties, not in the graph structure itself.
 """
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set
-import json
-import hashlib
 
 
 class NodeType(Enum):

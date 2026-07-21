@@ -10,8 +10,8 @@ Uses intfloat/multilingual-e5-small by default:
 Falls back to all-MiniLM-L6-v2 if E5 download fails.
 """
 
-from typing import List, Tuple, Optional, Dict
 import logging
+from typing import Dict, List, Optional, Tuple
 
 from smartbench.rag import Chunk
 
@@ -251,8 +251,8 @@ class CodeEmbedder:
 
     def _load_tfidf_vocab(self, vocab_data: Dict) -> None:
         """Reload TF-IDF vocabulary from persisted data (for query reuse)."""
-        from sklearn.feature_extraction.text import TfidfVectorizer
         import numpy as np
+        from sklearn.feature_extraction.text import TfidfVectorizer
 
         vocabulary = vocab_data.get('vocabulary', {})
         if not vocabulary:

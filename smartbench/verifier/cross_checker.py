@@ -9,15 +9,15 @@ Takes proposals from the debate engine, verifies each claim against:
 Returns proposals annotated with verification data.
 """
 
-from typing import List, Dict, Any
-import re
 import logging
+import re
+from typing import Any, Dict, List
 
-from smartbench.graph.schema import CodeGraph
 from smartbench.graph.retriever import GraphRetriever
-from smartbench.verifier.location import LocationVerifier
+from smartbench.graph.schema import CodeGraph
+from smartbench.verifier import VerificationResult, VerificationStatus
 from smartbench.verifier.extractor import EvidenceExtractor
-from smartbench.verifier import VerificationStatus, VerificationResult
+from smartbench.verifier.location import LocationVerifier
 
 logger = logging.getLogger(__name__)
 

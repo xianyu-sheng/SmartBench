@@ -10,34 +10,34 @@ Orchestrates the 5-phase pipeline:
 """
 
 import os
-import time
 import subprocess
 import tempfile
+import time
 from pathlib import Path
-from typing import Optional, Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
-from rich.prompt import Prompt
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.prompt import Prompt
+from rich.table import Table
 
-from smartbench.detector.scanner import ProjectScanner
+from smartbench.cli.display import (
+    display_diagnosis_results,
+    display_fingerprint,
+    display_graph_stats,
+    show_debate_round,
+)
 from smartbench.detector.fingerprint import ProjectFingerprint
-from smartbench.prompts.factory import PromptFactory
-from smartbench.graph.builder import CodeGraphBuilder
-from smartbench.graph.retriever import GraphRetriever
+from smartbench.detector.scanner import ProjectScanner
 from smartbench.diagnostics.registry import DiagnosticRegistry, ProblemCategory
 from smartbench.diagnostics.tools import ALL_TOOLS
 from smartbench.engine.debate import DebateEngine
+from smartbench.graph.builder import CodeGraphBuilder
+from smartbench.graph.retriever import GraphRetriever
 from smartbench.llm.client import call_llm, parse_json_safe
 from smartbench.llm.provider import load_api_keys_from_env
-from smartbench.cli.display import (
-    show_debate_round,
-    display_fingerprint,
-    display_graph_stats,
-    display_diagnosis_results,
-)
+from smartbench.prompts.factory import PromptFactory
 
 
 def resolve_project_path(console: Console, input_path: str) -> Optional[str]:
@@ -331,6 +331,7 @@ def run_diagnosis_with_graph(
 
     result = debate_engine.debate(
         analysis_context, target=concern, on_progress=on_progress,
+        strategy=selected,
     )
 
     # Verification stats
@@ -346,6 +347,24 @@ def run_diagnosis_with_graph(
             pass
 
     display_diagnosis_results(console, result, fingerprint, graph)
+
+    # ── Sandbox verification (Level 3, opt-in) ────────────────────
+    if enable_verify and result.final_suggestions:
+        try:
+            from smartbench.verifier.sandbox import SandboxVerifier
+            sv = SandboxVerifier(project_path, timeout_seconds=30)
+            sandboxed = sv.verify_all_proposals(result.final_suggestions)
+            passed = sum(
+                1 for s in sandboxed
+                if isinstance(s, dict) and s.get("__sandbox_verification", {}).get("status") == "passed"
+            )
+            if passed > 0:
+                console.print(
+                    f"  [dim]沙箱验证: {passed}/{len(sandboxed)} 方案测试通过[/dim]"
+                )
+        except Exception:
+            pass  # Sandbox is optional — graceful degradation
+
     return result
 
 

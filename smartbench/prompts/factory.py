@@ -4,8 +4,9 @@ PromptFactory — 根据项目指纹动态生成所有 Prompt（全中文）。
 所有 Prompt 在运行时从 ProjectFingerprint 组装，零硬编码假设。
 """
 
-from typing import Optional, List, Dict
-from smartbench.detector.fingerprint import ProjectFingerprint, Language
+from typing import Dict, List, Optional
+
+from smartbench.detector.fingerprint import Language, ProjectFingerprint
 
 
 class PromptFactory:
@@ -142,12 +143,14 @@ class PromptFactory:
         return "\n".join(parts)
 
     def build_proposer_prompt(self, analysis_context: str,
-                               target_improvement: str = "找出并修复最严重的问题") -> str:
-        """为特定语言/项目生成 Proposer（方案提出者）Prompt。"""
+                               target_improvement: str = "找出并修复最严重的问题",
+                               strategy: str = "") -> str:
+        """为特定语言/项目/策略生成 Proposer Prompt。"""
         lang = self.fp.primary_language.value
         ptype = self.fp.project_type.value
 
         lang_guidance = self._language_specific_guidance()
+        strategy_guidance = self._strategy_specific_guidance(strategy)
 
         return f"""你是一位 {lang} {ptype} 诊断专家（Proposer / 方案提出者）。
 请用中文输出所有分析内容。
@@ -161,6 +164,9 @@ class PromptFactory:
 
 ## {lang} 语言专项指导
 {lang_guidance}
+
+## 当前策略专项指导
+{strategy_guidance}
 
 ## 输出要求
 返回 JSON 对象，包含你的分析和方案。**每条方案必须附带 evidence_claims（可验证证据声明）。**
@@ -464,3 +470,45 @@ class PromptFactory:
 
         return guidance.get(lang, "- 使用该语言的通用分析工具\n"
                             "- 检查常见的并发和内存问题")
+
+    # ── 策略专项诊断指导 ─────────────────────────────────────────────
+
+    def _strategy_specific_guidance(self, strategy: str) -> str:
+        """Return strategy-specific diagnostic guidance for the Proposer."""
+        if not strategy:
+            return "- 全面分析项目，关注代码质量、性能和安全性"
+
+        guidance = {
+            "performance_analysis": (
+                "- **性能是你的首要关注点**：识别 CPU 热点、内存分配热点、I/O 瓶颈\n"
+                "- 关注：不必要的内存分配、阻塞 I/O、锁竞争、N+1 查询\n"
+                "- 检查：缓存策略是否合理、批处理是否充分、连接池配置\n"
+                "- 参考下方「自动诊断工具执行结果」中的真实性能数据\n"
+                "- 每条方案必须量化预期性能提升（如：延迟降低 X%、QPS 提升 Y%）"
+            ),
+            "correctness_audit": (
+                "- **正确性是首要关注点**：识别逻辑错误、边界情况、异常处理缺失\n"
+                "- 关注：空指针/nil 引用、数组越界、整数溢出、类型错误\n"
+                "- 检查：错误是否被静默吞掉、重试逻辑是否正确、超时设置是否合理\n"
+                "- 每条方案必须指出具体的错误场景和触发条件"
+            ),
+            "architecture_review": (
+                "- **架构合理性是首要关注点**：识别循环依赖、层次违反、过度耦合\n"
+                "- 关注：模块边界是否清晰、接口设计是否合理、依赖方向是否正确\n"
+                "- 检查：是否存在上帝类/上帝函数、是否违反单一职责原则\n"
+                "- 每条方案必须指出具体的架构问题和重构方向"
+            ),
+            "security_scan": (
+                "- **安全性是首要关注点**：识别注入漏洞、敏感信息泄露、权限问题\n"
+                "- 关注：SQL 注入、命令注入、XSS、硬编码密钥、不安全加密算法\n"
+                "- 检查：输入验证是否充分、输出编码是否正确、认证授权是否完备\n"
+                "- 每条方案必须指出具体的安全风险和攻击向量"
+            ),
+            "hotspot_analysis": (
+                "- **变更热点是首要关注点**：识别高频变更文件的潜在问题\n"
+                "- 关注：代码重复、过长函数、过高复杂度、缺乏测试覆盖\n"
+                "- 检查：git 历史中频繁变更的文件是否存在技术债务积累\n"
+                "- 每条方案必须引用具体的热点文件和变更频率数据"
+            ),
+        }
+        return guidance.get(strategy, "- 全面分析项目，关注代码质量、性能和安全性")

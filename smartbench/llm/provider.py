@@ -10,7 +10,7 @@ import sys as _sys
 from typing import Dict, List, Optional, Tuple
 
 from rich.console import Console
-from rich.prompt import Prompt, Confirm
+from rich.prompt import Confirm, Prompt
 
 # ═══════════════════════════════════════════════════════════════════════
 # Provider Registry

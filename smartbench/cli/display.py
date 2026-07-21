@@ -5,7 +5,7 @@ All functions accept a rich.Console instance as first argument,
 decoupling presentation from business logic.
 """
 
-from typing import Dict, Optional, Any
+from typing import Any, Dict, Optional
 
 from rich.console import Console
 from rich.panel import Panel

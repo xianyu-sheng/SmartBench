@@ -1,11 +1,14 @@
 """Pluggable diagnostic tool registry — language-agnostic diagnostics."""
 
+from smartbench.diagnostics.executor import run_tools_for_strategy
 from smartbench.diagnostics.registry import (
-    DiagnosticRegistry, DiagnosticTool, DiagnosisResult,
-    ProblemCategory, Severity,
+    DiagnosisResult,
+    DiagnosticRegistry,
+    DiagnosticTool,
+    ProblemCategory,
+    Severity,
 )
 from smartbench.diagnostics.tools import ALL_TOOLS
-from smartbench.diagnostics.executor import run_tools_for_strategy
 
 __all__ = ["DiagnosticRegistry", "DiagnosticTool", "DiagnosisResult",
            "ProblemCategory", "Severity", "ALL_TOOLS",

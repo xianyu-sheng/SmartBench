@@ -10,11 +10,13 @@ Each tool inherits from DiagnosticTool and declares:
 import re
 from typing import Dict, List, Optional
 
-from smartbench.diagnostics.registry import (
-    DiagnosticTool, DiagnosisResult, ProblemCategory, Severity,
-)
 from smartbench.detector.fingerprint import Language
-
+from smartbench.diagnostics.registry import (
+    DiagnosisResult,
+    DiagnosticTool,
+    ProblemCategory,
+    Severity,
+)
 
 # ── Linux / Unix system tools ─────────────────────────────────────────
 

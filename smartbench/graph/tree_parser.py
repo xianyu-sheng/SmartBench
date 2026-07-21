@@ -14,7 +14,7 @@ Supported languages via tree-sitter:
 """
 
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

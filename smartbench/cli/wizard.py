@@ -13,17 +13,17 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 
-from smartbench.prompts.factory import PromptFactory
-from smartbench.llm.client import call_llm, parse_json_safe
-from smartbench.llm.provider import configure_api_keys
 from smartbench.cli.display import display_fingerprint, display_project_understanding
 from smartbench.cli.phases import (
     resolve_project_path,
-    run_phase1_detection,
-    run_phase4_graph,
     run_diagnosis_with_graph,
     run_fallback_analysis,
+    run_phase1_detection,
+    run_phase4_graph,
 )
+from smartbench.llm.client import call_llm, parse_json_safe
+from smartbench.llm.provider import configure_api_keys
+from smartbench.prompts.factory import PromptFactory
 
 
 def run_interactive_wizard(console: Console) -> Optional[object]:

@@ -12,7 +12,7 @@ All modules are optional: SmartBench core runs without them.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, Any
+from typing import Any, Dict
 
 
 @dataclass
@@ -38,9 +38,9 @@ class Chunk:
 # Lazy imports to avoid circular dependencies  # noqa: E402
 from smartbench.rag.chunker import CodeChunker  # noqa: E402
 from smartbench.rag.embedder import CodeEmbedder  # noqa: E402
-from smartbench.rag.store import VectorStore  # noqa: E402
 from smartbench.rag.indexer import IndexPipeline  # noqa: E402
 from smartbench.rag.retriever import HybridRetriever  # noqa: E402
+from smartbench.rag.store import VectorStore  # noqa: E402
 
 __all__ = [
     "Chunk",

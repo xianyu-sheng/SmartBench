@@ -8,14 +8,14 @@ Merges results from:
 Key feature: cross-validates structural claims against actual source code.
 """
 
-from pathlib import Path
-from typing import List, Dict, Optional
 import logging
+from pathlib import Path
+from typing import Dict, List, Optional
 
-from smartbench.graph.schema import CodeGraph
 from smartbench.graph.retriever import GraphRetriever
-from smartbench.rag.store import VectorStore
+from smartbench.graph.schema import CodeGraph
 from smartbench.rag.embedder import CodeEmbedder
+from smartbench.rag.store import VectorStore
 
 logger = logging.getLogger(__name__)
 

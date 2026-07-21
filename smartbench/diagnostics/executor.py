@@ -13,7 +13,8 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from smartbench.detector.fingerprint import Language
 from smartbench.diagnostics.registry import (
-    DiagnosticRegistry, DiagnosisResult,
+    DiagnosisResult,
+    DiagnosticRegistry,
     ProblemCategory,
 )
 from smartbench.diagnostics.tools import ALL_TOOLS

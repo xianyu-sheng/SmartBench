@@ -4,9 +4,9 @@ EvidenceExtractor — read actual source code at claimed locations.
 Provides concrete code snippets for verification and prompt injection.
 """
 
-from pathlib import Path
-from typing import List, Optional, Dict
 import logging
+from pathlib import Path
+from typing import Dict, List, Optional
 
 from smartbench.graph.schema import CodeGraph, NodeType
 

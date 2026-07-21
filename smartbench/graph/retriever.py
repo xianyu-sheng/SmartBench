@@ -10,7 +10,7 @@ targeted graph-based context retrieval.
 
 from typing import List, Optional, Tuple
 
-from smartbench.graph.schema import CodeGraph, CodeNode, NodeType, EdgeType
+from smartbench.graph.schema import CodeGraph, CodeNode, EdgeType, NodeType
 
 
 class GraphRetriever:

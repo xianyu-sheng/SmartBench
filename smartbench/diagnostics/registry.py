@@ -5,12 +5,12 @@ Tools register themselves with applicable languages and problem types.
 The registry routes a diagnosis request to the right tools.
 """
 
+import shutil
+import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional
-import subprocess
-import shutil
 
 from smartbench.detector.fingerprint import Language
 

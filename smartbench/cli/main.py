@@ -15,11 +15,11 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from smartbench.cli.phases import run_diagnose_mode, run_quick_mode
+from smartbench.cli.wizard import run_interactive_wizard
 from smartbench.detector.scanner import ProjectScanner
 from smartbench.diagnostics.registry import DiagnosticRegistry
 from smartbench.diagnostics.tools import ALL_TOOLS
-from smartbench.cli.wizard import run_interactive_wizard
-from smartbench.cli.phases import run_quick_mode, run_diagnose_mode
 
 app = typer.Typer(
     name="smartbench",
@@ -122,7 +122,7 @@ def _maybe_save_output(result, output_path: Optional[str]) -> None:
         return
 
     import json as _json
-    from dataclasses import is_dataclass, asdict
+    from dataclasses import asdict, is_dataclass
 
     try:
         data = asdict(result) if is_dataclass(result) else result

@@ -9,10 +9,10 @@ Supports:
 """
 
 import json
+import logging
 import re
 import time
-import logging
-from typing import Dict, List, Optional, Callable
+from typing import Callable, Dict, List, Optional
 
 from smartbench.llm.provider import PROVIDER_REGISTRY
 
@@ -55,8 +55,8 @@ def call_llm(
     Returns:
         LLM response text, or "" if all models failed.
     """
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     models = api_config.get("models", [])
 

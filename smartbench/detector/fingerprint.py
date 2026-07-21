@@ -6,10 +6,10 @@ All fields are populated by ProjectScanner from deterministic file-system signal
 """
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import List, Dict
-from datetime import datetime
+from typing import Dict, List
 
 
 class Language(Enum):
