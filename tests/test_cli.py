@@ -5,6 +5,7 @@ Tests SmartBench CLI commands via typer's CliRunner.
 """
 
 import pytest
+from rich.text import Text
 from typer.testing import CliRunner
 
 from smartbench.cli.main import app
@@ -16,26 +17,33 @@ def runner():
     return CliRunner()
 
 
+def plain_output(result) -> str:
+    """Normalize Rich ANSI styling before asserting help text."""
+    return Text.from_ansi(result.output).plain
+
+
 class TestCLIHelp:
     """Test --help for all commands."""
 
     def test_main_help(self, runner):
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        assert "quick" in result.output
-        assert "diagnose" in result.output
-        assert "check" in result.output
+        output = plain_output(result)
+        assert "quick" in output
+        assert "diagnose" in output
+        assert "check" in output
 
     def test_quick_help(self, runner):
         result = runner.invoke(app, ["quick", "--help"])
         assert result.exit_code == 0
-        assert "--project" in result.output
+        assert "--project" in plain_output(result)
 
     def test_diagnose_help(self, runner):
         result = runner.invoke(app, ["diagnose", "--help"])
         assert result.exit_code == 0
-        assert "--project" in result.output
-        assert "--symptoms" in result.output
+        output = plain_output(result)
+        assert "--project" in output
+        assert "--symptoms" in output
 
     def test_check_help(self, runner):
         result = runner.invoke(app, ["check", "--help"])
