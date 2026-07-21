@@ -164,6 +164,11 @@ class PromptFactory:
 
 ## 输出要求
 返回 JSON 对象，包含你的分析和方案。**每条方案必须附带 evidence_claims（可验证证据声明）。**
+
+**重要**: 至少提供 2 种类型的 evidence_claims:
+1. `file_location` - 问题所在的文件路径和行号
+2. `call_chain` - 涉及的函数调用链（从代码上下文中找真实存在的函数名）
+
 ```json
 {{
   "analysis": {{
@@ -202,7 +207,8 @@ class PromptFactory:
 }}
 ```
 **重要**：evidence_claims 是必须提供的！每条方案至少提供 2 个 evidence_claims。
-file_location 的 target 字段必须使用上面提供的「代码上下文」中真实存在的文件路径和行号。
+- file_location 的 target 字段必须使用上面提供的「代码上下文」中真实存在的文件路径和行号。
+- call_chain 的 target 字段使用 "funcA -> funcB -> funcC" 格式，函数名必须来自代码图中真实存在的函数。
 只能引用代码上下文中实际列出的文件，不要凭借猜测编造路径。
 只返回 JSON，不要其他文字。"""
 
