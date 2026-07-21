@@ -54,7 +54,7 @@ PROVIDER_REGISTRY: Dict[str, dict] = {
     },
     "local": {
         "base_url": "http://localhost:11434/v1",
-        "patterns": ["llama", "mistral", "qwen2", "codellama", "deepseek-r1"],
+        "patterns": ["llama", "mistral", "codellama"],
         "display": "Local (Ollama-compatible)",
     },
 }
@@ -116,7 +116,9 @@ def load_api_keys_from_env() -> Optional[Dict]:
             info = PROVIDER_REGISTRY.get(provider, {})
             models.append({
                 "provider": provider,
-                "model": default_model,
+                "model": os.environ.get(
+                    f"SMARTBENCH_{provider.upper()}_MODEL", default_model
+                ),
                 "api_key": key,
                 "base_url": info.get("base_url", ""),
             })
@@ -132,8 +134,8 @@ def _assign_roles(models: List[Dict]) -> None:
     Otherwise: all models get role="all".
     """
     if len(models) >= 3:
-        for i, role in enumerate(ROLE_KEYS):
-            models[i]["role"] = role
+        for index, model in enumerate(models):
+            model["role"] = ROLE_KEYS[index] if index < len(ROLE_KEYS) else "all"
     else:
         for m in models:
             m["role"] = "all"
@@ -175,7 +177,10 @@ def configure_api_keys(console: Console) -> Optional[Dict]:
             ):
                 models_list.append({
                     "provider": ENV_PROVIDER_MAP[provider][0],
-                    "model": "auto",
+                    "model": os.environ.get(
+                        f"SMARTBENCH_{ENV_PROVIDER_MAP[provider][0].upper()}_MODEL",
+                        ENV_PROVIDER_MAP[provider][1],
+                    ),
                     "api_key": key,
                     "base_url": info.get("base_url", ""),
                     "role": "all",

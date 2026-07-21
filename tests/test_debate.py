@@ -245,11 +245,11 @@ class TestDebateEngineInit:
         engine = DebateEngine(llm_call_fn=lambda p: "ok")
         assert engine.factory is None
 
-    def test_default_max_iterations(self, sample_factory):
+    def test_default_max_call_attempts(self, sample_factory):
         engine = DebateEngine(
             llm_call_fn=lambda p: "ok", prompt_factory=sample_factory
         )
-        assert engine.max_iterations == 2
+        assert engine.max_call_attempts == 2
 
     def test_default_timeout(self, sample_factory):
         engine = DebateEngine(
@@ -257,13 +257,13 @@ class TestDebateEngineInit:
         )
         assert engine.timeout == 60
 
-    def test_custom_max_iterations(self, sample_factory):
+    def test_custom_max_call_attempts(self, sample_factory):
         engine = DebateEngine(
             llm_call_fn=lambda p: "ok",
             prompt_factory=sample_factory,
-            max_iterations=5,
+            max_call_attempts=5,
         )
-        assert engine.max_iterations == 5
+        assert engine.max_call_attempts == 5
 
     def test_custom_timeout(self, sample_factory):
         engine = DebateEngine(
@@ -272,6 +272,28 @@ class TestDebateEngineInit:
             timeout_per_call=120,
         )
         assert engine.timeout == 120
+
+    def test_timeout_is_forwarded_to_aware_callable(self, sample_factory):
+        captured = {}
+
+        def llm(prompt, role="", timeout_seconds=0):
+            captured.update(
+                prompt=prompt, role=role, timeout_seconds=timeout_seconds
+            )
+            return "{}"
+
+        engine = DebateEngine(
+            llm_call_fn=llm,
+            prompt_factory=sample_factory,
+            timeout_per_call=17,
+        )
+
+        assert engine._safe_call("prompt", "model", role="judge") == "{}"
+        assert captured == {
+            "prompt": "prompt",
+            "role": "judge",
+            "timeout_seconds": 17,
+        }
 
     def test_stores_verifier(self, sample_factory):
         verifier = object()
@@ -580,9 +602,8 @@ class TestDebateErrorHandling:
         assert result.final_suggestions == []
         assert result.duration_ms >= 0
 
-    def test_llm_exception_still_runs_all_three_phases(self, sample_factory, sample_analysis_context):
-        """When the LLM raises on every call, _safe_call catches each
-        individually so all 3 phases are attempted."""
+    def test_llm_exception_retries_then_stops(self, sample_factory, sample_analysis_context):
+        """A failed proposer is retried, then the debate stops without false consensus."""
         counter = [0]
 
         def llm_fn(prompt, role=""):
@@ -592,8 +613,24 @@ class TestDebateErrorHandling:
         engine = DebateEngine(llm_call_fn=llm_fn, prompt_factory=sample_factory)
         result = engine.debate(sample_analysis_context)
 
-        assert counter[0] == 3
-        assert len(result.debate_log) == 3
+        assert counter[0] == engine.max_call_attempts == 2
+        assert len(result.debate_log) == 1
+        assert result.consensus_reached is False
+        assert "Error on call 2" in result.debate_log[0]["error"]
+
+    def test_error_payload_is_not_treated_as_consensus(
+        self, sample_factory, sample_analysis_context
+    ):
+        engine = DebateEngine(
+            llm_call_fn=lambda prompt, role="": '{"error": "upstream failed"}',
+            prompt_factory=sample_factory,
+        )
+
+        result = engine.debate(sample_analysis_context)
+
+        assert result.consensus_reached is False
+        assert result.final_suggestions == []
+        assert len(result.debate_log) == 1
 
     def test_missing_factory_raises(self, sample_analysis_context):
         """debate() raises RuntimeError when no factory or fingerprint is configured."""

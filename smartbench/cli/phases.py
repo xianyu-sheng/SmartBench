@@ -322,8 +322,15 @@ def run_diagnosis_with_graph(
     if verifier:
         console.print("  [dim]证据核查已启用[/dim]")
 
-    def llm_fn(prompt: str, role: str = "") -> str:
-        return call_llm(api_config, prompt, role=role) or ""
+    def llm_fn(
+        prompt: str, role: str = "", timeout_seconds: float = 120
+    ) -> str:
+        return call_llm(
+            api_config,
+            prompt,
+            role=role,
+            timeout_seconds=timeout_seconds,
+        ) or ""
 
     debate_engine = DebateEngine(llm_fn, prompt_factory=factory, verifier=verifier)
 
@@ -428,8 +435,15 @@ def run_fallback_analysis(
         user_symptoms=concern,
     )
 
-    def llm_fn(prompt: str, role: str = "") -> str:
-        return call_llm(api_config, prompt, role=role) or ""
+    def llm_fn(
+        prompt: str, role: str = "", timeout_seconds: float = 120
+    ) -> str:
+        return call_llm(
+            api_config,
+            prompt,
+            role=role,
+            timeout_seconds=timeout_seconds,
+        ) or ""
 
     debate_engine = DebateEngine(llm_fn, prompt_factory=factory)
     result = debate_engine.debate(analysis_context, target=concern)

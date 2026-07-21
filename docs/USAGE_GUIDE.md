@@ -81,18 +81,19 @@ smartbench diagnose --project ./my-project --perf --output diagnostics.json
 
 ## 模型凭证
 
-快速模式当前支持以下 OpenAI 兼容凭证：
+快速模式当前支持以下凭证：
 
 | 环境变量 | 供应商 |
 | --- | --- |
 | `DEEPSEEK_API_KEY` | DeepSeek |
 | `OPENAI_API_KEY` | OpenAI |
+| `ANTHROPIC_API_KEY` | Anthropic（原生 Messages API） |
 | `GLM_API_KEY` | 智谱 GLM |
 | `DOUBAO_API_KEY` | 豆包 |
 | `MOONSHOT_API_KEY` | Moonshot / Kimi |
 | `DASHSCOPE_API_KEY` | 通义千问 |
 
-不要把 Key 写进 Git、README、命令输出或诊断报告。Anthropic 注册项尚未接入原生 Messages API，因此当前不列为正式支持项。
+不要把 Key 写进 Git、README、命令输出或诊断报告。可以使用 `SMARTBENCH_<PROVIDER>_MODEL` 覆盖快速模式的默认模型，例如 `SMARTBENCH_DEEPSEEK_MODEL` 或 `SMARTBENCH_ANTHROPIC_MODEL`。
 
 ## 输出报告
 

@@ -56,7 +56,7 @@ class DebateEngine:
         llm_call_fn: Callable[[str], str],
         prompt_factory: Optional[PromptFactory] = None,
         fingerprint: Optional[ProjectFingerprint] = None,
-        max_iterations: int = 2,
+        max_call_attempts: int = 2,
         timeout_per_call: int = 60,
         verifier: Optional[Any] = None,
     ):
@@ -65,8 +65,8 @@ class DebateEngine:
             llm_call_fn: Function that takes a prompt string and returns response text
             prompt_factory: PromptFactory instance (created from fingerprint)
             fingerprint: ProjectFingerprint (used to create factory if not provided)
-            max_iterations: Maximum debate rounds
-            timeout_per_call: Timeout per LLM call in seconds
+            max_call_attempts: Maximum attempts for each role call
+            timeout_per_call: Timeout forwarded to timeout-aware LLM callables
             verifier: Optional Verifier for evidence-based claim checking
         """
         self.llm_call = llm_call_fn
@@ -77,9 +77,10 @@ class DebateEngine:
             self.factory = PromptFactory(fingerprint)
         else:
             self.factory = None
-        self.max_iterations = max_iterations
+        self.max_call_attempts = max(1, max_call_attempts)
         self.timeout = timeout_per_call
         self.verifier = verifier  # NEW: evidence verification layer
+        self._last_call_error: Optional[str] = None
 
     def debate(
         self,
@@ -116,8 +117,11 @@ class DebateEngine:
         proposer_raw = self._safe_call(proposer_prompt, model_name, role="proposer")
         proposer_json = self._parse_json(proposer_raw)
         total_chars += len(proposer_prompt) + len(proposer_raw or "")
-        log.append({"role": "proposer", "input": proposer_prompt[:500],
-                     "output": proposer_raw[:500] if proposer_raw else ""})
+        proposer_log = {"role": "proposer", "input": proposer_prompt[:500],
+                        "output": proposer_raw[:500] if proposer_raw else ""}
+        if self._last_call_error:
+            proposer_log["error"] = self._last_call_error
+        log.append(proposer_log)
         if on_progress:
             on_progress("proposer", proposer_json, proposer_raw)
 
@@ -167,8 +171,11 @@ class DebateEngine:
         critique_raw = self._safe_call(critique_prompt, model_name, role="critique")
         critique_json = self._parse_json(critique_raw)
         total_chars += len(critique_prompt) + len(critique_raw or "")
-        log.append({"role": "critique", "input": critique_prompt[:500],
-                     "output": critique_raw[:500] if critique_raw else ""})
+        critique_log = {"role": "critique", "input": critique_prompt[:500],
+                        "output": critique_raw[:500] if critique_raw else ""}
+        if self._last_call_error:
+            critique_log["error"] = self._last_call_error
+        log.append(critique_log)
         if on_progress:
             on_progress("critique", critique_json, critique_raw)
 
@@ -197,8 +204,11 @@ class DebateEngine:
         judge_raw = self._safe_call(judge_prompt, model_name, role="judge")
         judge_json = self._parse_json(judge_raw)
         total_chars += len(judge_prompt) + len(judge_raw or "")
-        log.append({"role": "judge", "input": judge_prompt[:500],
-                     "output": judge_raw[:500] if judge_raw else ""})
+        judge_log = {"role": "judge", "input": judge_prompt[:500],
+                     "output": judge_raw[:500] if judge_raw else ""}
+        if self._last_call_error:
+            judge_log["error"] = self._last_call_error
+        log.append(judge_log)
         if on_progress:
             on_progress("judge", judge_json, judge_raw)
 
@@ -239,16 +249,30 @@ class DebateEngine:
     # ── Helpers ───────────────────────────────────────────────────────
 
     def _safe_call(self, prompt: str, model_name: str, role: str = "") -> str:
-        """Call LLM with timeout protection. Passes role for model routing."""
-        try:
-            # Try to pass role to the callable (role-aware routing)
-            import inspect
-            sig = inspect.signature(self.llm_call)
-            if len(sig.parameters) >= 2:
-                return self.llm_call(prompt, role)
-            return self.llm_call(prompt)
-        except Exception as e:
-            return json.dumps({"error": str(e)})
+        """Call an LLM safely, forwarding role and timeout when supported."""
+        import inspect
+
+        self._last_call_error = None
+        for _attempt in range(self.max_call_attempts):
+            try:
+                signature = inspect.signature(self.llm_call)
+                parameters = signature.parameters
+                accepts_kwargs = any(
+                    parameter.kind == inspect.Parameter.VAR_KEYWORD
+                    for parameter in parameters.values()
+                )
+                kwargs = {}
+                if "role" in parameters or accepts_kwargs:
+                    kwargs["role"] = role
+                if "timeout_seconds" in parameters or accepts_kwargs:
+                    kwargs["timeout_seconds"] = self.timeout
+                response = self.llm_call(prompt, **kwargs)
+                if response:
+                    return response
+                self._last_call_error = "LLM returned an empty response"
+            except Exception as exc:
+                self._last_call_error = str(exc)
+        return ""
 
     @staticmethod
     def _parse_json(raw: str) -> Optional[Dict]:
@@ -267,7 +291,10 @@ class DebateEngine:
 
         # Try direct parse
         try:
-            return json.loads(cleaned)
+            parsed = json.loads(cleaned)
+            if not isinstance(parsed, dict) or set(parsed) == {"error"}:
+                return None
+            return parsed
         except json.JSONDecodeError:
             pass
 
@@ -275,7 +302,10 @@ class DebateEngine:
         match = re.search(r"\{[\s\S]*\}", cleaned)
         if match:
             try:
-                return json.loads(match.group())
+                parsed = json.loads(match.group())
+                if not isinstance(parsed, dict) or set(parsed) == {"error"}:
+                    return None
+                return parsed
             except json.JSONDecodeError:
                 pass
 

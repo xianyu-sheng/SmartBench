@@ -97,7 +97,7 @@ smartbench diagnose --project . --perf --output diagnostics.json
 再运行补丁后的同一组测试。只有自然语言建议、没有补丁时会标记为“跳过”，不会误报
 为“已验证”。
 
-支持的 OpenAI 兼容凭证环境变量包括 `DEEPSEEK_API_KEY`、`OPENAI_API_KEY`、`GLM_API_KEY`、`DOUBAO_API_KEY`、`MOONSHOT_API_KEY` 和 `DASHSCOPE_API_KEY`。向导输入的 Key 只保存在当前进程内存中。现有 Anthropic 注册项尚未实现原生 Messages API，因此当前不把它列为正式支持能力。
+凭证环境变量包括 `DEEPSEEK_API_KEY`、`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`GLM_API_KEY`、`DOUBAO_API_KEY`、`MOONSHOT_API_KEY` 和 `DASHSCOPE_API_KEY`。Anthropic 使用原生 Messages 协议，其余供应商使用各自的 OpenAI 兼容聊天端点。快速模式的默认模型可通过 `SMARTBENCH_<PROVIDER>_MODEL` 覆盖，例如 `SMARTBENCH_ANTHROPIC_MODEL`。向导输入的 Key 只保存在当前进程内存中。
 
 ## 可选 RAG
 

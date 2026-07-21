@@ -1,24 +1,17 @@
-"""
-LLM Chat Client — OpenAI-compatible API wrapper with role-aware routing.
-
-Supports:
-  - Multi-model role routing (Proposer / Critique / Judge)
-  - Auto model name resolution from provider
-  - Old config format fallback
-  - Retry with exponential backoff
-"""
+"""Role-aware LLM client for OpenAI-compatible and Anthropic APIs."""
 
 import json
 import logging
 import re
 import time
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
+
+import httpx
 
 from smartbench.llm.provider import PROVIDER_REGISTRY
 
 logger = logging.getLogger(__name__)
 
-# Default model per provider when model="auto"
 _DEFAULT_MODELS: Dict[str, str] = {
     "deepseek": "deepseek-chat",
     "openai": "gpt-4o",
@@ -30,6 +23,8 @@ _DEFAULT_MODELS: Dict[str, str] = {
     "local": "llama3",
 }
 
+_RETRYABLE_STATUS = {408, 409, 429, 500, 502, 503, 504}
+
 
 def call_llm(
     api_config: Dict,
@@ -39,57 +34,127 @@ def call_llm(
     ),
     role: str = "",
     max_retries: int = 2,
+    timeout_seconds: float = 120,
     on_error: Optional[Callable[[str], None]] = None,
 ) -> str:
-    """Call an LLM via OpenAI-compatible API with role-aware routing.
+    """Call the best configured model for *role* and return response text.
 
-    Args:
-        api_config: {"models": [{"provider":..., "model":..., "api_key":...,
-                     "base_url":..., "role":...}, ...]}
-        prompt: The user prompt.
-        system: System prompt.
-        role: "proposer" / "critique" / "judge" — routes to the correct model.
-        max_retries: Max retries per model on transient failures.
-        on_error: Optional callback(provider_name, error_message) for logging.
-
-    Returns:
-        LLM response text, or "" if all models failed.
+    Anthropic uses its native Messages request and response schema. Every
+    other registered provider uses the OpenAI-compatible chat-completions
+    schema. Failed providers are tried in role-preference order.
     """
-    import urllib.error
-    import urllib.request
-
     models = api_config.get("models", [])
-
-    # Fallback: old format {"deepseek": "sk-...", "openai": "sk-..."}
     if not models and isinstance(api_config, dict):
         models = _convert_old_format(api_config)
-
     if not models:
-        logger.warning("call_llm: no models configured")
+        _report_error("No models configured", on_error)
         return ""
+    deadline = time.monotonic() + max(float(timeout_seconds), 0.001)
+    max_retries = max(0, int(max_retries))
 
-    # Route by role: prefer model assigned to this role, fallback to "all", then rest
     ordered = sorted(
         models,
-        key=lambda m: (
-            0 if m.get("role") == role else (1 if m.get("role") == "all" else 2)
+        key=lambda model: (
+            0 if model.get("role") == role
+            else (1 if model.get("role") == "all" else 2)
         ),
     )
 
-    for m in ordered:
-        api_key = m.get("api_key", "")
+    for config in ordered:
+        api_key = config.get("api_key", "")
         if not api_key:
             continue
-
-        base_url = m.get("base_url", "").rstrip("/")
-        model_name = m.get("model", "auto")
-        provider = m.get("provider", "unknown")
-
+        provider = config.get("provider", "unknown")
+        base_url = config.get("base_url", "").rstrip("/")
+        if not base_url:
+            _report_error(f"{provider}: missing base URL", on_error)
+            continue
+        model_name = config.get("model", "auto")
         if model_name == "auto":
-            model_name = _DEFAULT_MODELS.get(provider, "gpt-3.5-turbo")
+            model_name = _DEFAULT_MODELS.get(provider, "gpt-4o")
 
-        url = f"{base_url}/chat/completions"
-        body = json.dumps({
+        url, headers, body = _build_request(
+            provider=provider,
+            base_url=base_url,
+            api_key=api_key,
+            model_name=model_name,
+            prompt=prompt,
+            system=system,
+        )
+
+        for attempt in range(max_retries + 1):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                _report_error("LLM call timeout budget exhausted", on_error)
+                return ""
+            try:
+                response = httpx.post(
+                    url,
+                    headers=headers,
+                    json=body,
+                    timeout=remaining,
+                )
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                _report_error(f"{provider} transport error: {exc}", on_error)
+                if attempt < max_retries:
+                    if not _sleep_before_deadline(2 ** attempt, deadline):
+                        return ""
+                    continue
+                break
+            except Exception as exc:
+                _report_error(f"{provider} client error: {exc}", on_error)
+                break
+
+            if 200 <= response.status_code < 300:
+                try:
+                    return _extract_content(provider, response.json())
+                except (KeyError, IndexError, TypeError, ValueError) as exc:
+                    _report_error(f"{provider} invalid response: {exc}", on_error)
+                    break
+
+            message = f"{provider} HTTP {response.status_code}: {response.text[:300]}"
+            _report_error(message, on_error)
+            if response.status_code not in _RETRYABLE_STATUS or attempt >= max_retries:
+                break
+            if not _sleep_before_deadline(_retry_delay(response, attempt), deadline):
+                return ""
+
+    return ""
+
+
+def _build_request(
+    provider: str,
+    base_url: str,
+    api_key: str,
+    model_name: str,
+    prompt: str,
+    system: str,
+) -> Tuple[str, Dict[str, str], Dict]:
+    """Build a provider-specific HTTP request without exposing credentials."""
+    if provider == "anthropic":
+        return (
+            f"{base_url}/messages",
+            {
+                "Content-Type": "application/json",
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            },
+            {
+                "model": model_name,
+                "system": system,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3,
+                "max_tokens": 4096,
+            },
+        )
+
+    return (
+        f"{base_url}/chat/completions",
+        {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        {
             "model": model_name,
             "messages": [
                 {"role": "system", "content": system},
@@ -97,47 +162,52 @@ def call_llm(
             ],
             "temperature": 0.3,
             "max_tokens": 4096,
-        }).encode("utf-8")
+        },
+    )
 
-        req = urllib.request.Request(url, data=body)
-        req.add_header("Content-Type", "application/json")
-        req.add_header("Authorization", f"Bearer {api_key}")
 
-        for attempt in range(1 + max_retries):
-            try:
-                with urllib.request.urlopen(req, timeout=120) as resp:
-                    data = json.loads(resp.read().decode("utf-8"))
-                    return data["choices"][0]["message"]["content"]
-            except urllib.error.HTTPError as e:
-                error_body = e.read().decode("utf-8", errors="ignore")[:300]
-                msg = f"{provider} HTTP {e.code}: {error_body}"
-                logger.warning(msg)
-                if on_error:
-                    on_error(msg)
-                # Don't retry on 4xx (client errors like bad key)
-                if 400 <= e.code < 500:
-                    break
-                if attempt < max_retries:
-                    time.sleep(2 ** attempt)
-                continue
-            except Exception as e:
-                msg = f"{provider} error: {e}"
-                logger.warning(msg)
-                if on_error:
-                    on_error(msg)
-                if attempt < max_retries:
-                    time.sleep(2 ** attempt)
-                continue
+def _extract_content(provider: str, payload: Dict) -> str:
+    if provider == "anthropic":
+        blocks = payload["content"]
+        text = "".join(
+            block.get("text", "")
+            for block in blocks
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    else:
+        text = payload["choices"][0]["message"]["content"]
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("response contained no text")
+    return text
 
-    return ""
+
+def _retry_delay(response: httpx.Response, attempt: int) -> float:
+    value = response.headers.get("retry-after", "")
+    try:
+        return min(max(float(value), 0.0), 30.0) if value else 2 ** attempt
+    except ValueError:
+        return 2 ** attempt
+
+
+def _sleep_before_deadline(delay: float, deadline: float) -> bool:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0 or delay >= remaining:
+        return False
+    time.sleep(delay)
+    return True
+
+
+def _report_error(message: str, callback: Optional[Callable[[str], None]]) -> None:
+    logger.warning(message)
+    if callback:
+        try:
+            callback(message)
+        except Exception:
+            logger.debug("LLM error callback failed", exc_info=True)
 
 
 def _convert_old_format(api_config: Dict) -> List[Dict]:
-    """Convert old flat format to new models list format.
-
-    Old: {"deepseek": "sk-...", "openai": "sk-..."}
-    New: {"models": [{"provider": "deepseek", "model": "auto", ...}]}
-    """
+    """Convert ``{"deepseek": "sk-..."}`` to the model-list format."""
     models = []
     for provider in PROVIDER_REGISTRY:
         key = api_config.get(provider, "")
@@ -154,39 +224,23 @@ def _convert_old_format(api_config: Dict) -> List[Dict]:
 
 
 def parse_json_safe(raw: str) -> Optional[Dict]:
-    """Safely parse JSON from LLM output, handling markdown fences.
-
-    >>> parse_json_safe('{"a": 1}')
-    {'a': 1}
-    >>> parse_json_safe('```json\\n{"a": 1}\\n```')
-    {'a': 1}
-    >>> parse_json_safe('Some text\\n{"a": 1}\\nMore text')
-    {'a': 1}
-    >>> parse_json_safe(None)
-    >>> parse_json_safe('not json')
-    """
+    """Parse JSON from a raw model response, including fenced output."""
     if not raw:
         return None
-
     cleaned = raw.strip()
-
-    # Remove markdown code fences
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*\n?", "", cleaned)
         cleaned = re.sub(r"\n?```\s*$", "", cleaned)
-
-    # Try direct parse
     try:
-        return json.loads(cleaned)
+        parsed = json.loads(cleaned)
+        return parsed if isinstance(parsed, dict) else None
     except json.JSONDecodeError:
         pass
-
-    # Try to extract JSON object from text
     match = re.search(r"\{[\s\S]*\}", cleaned)
     if match:
         try:
-            return json.loads(match.group())
+            parsed = json.loads(match.group())
+            return parsed if isinstance(parsed, dict) else None
         except json.JSONDecodeError:
             pass
-
     return None

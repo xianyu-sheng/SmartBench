@@ -98,7 +98,7 @@ that baseline tests pass, and then runs the same tests after the patch. A
 natural-language suggestion without a patch is reported as skipped, never as
 verified.
 
-Supported OpenAI-compatible credential variables are `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `GLM_API_KEY`, `DOUBAO_API_KEY`, `MOONSHOT_API_KEY`, and `DASHSCOPE_API_KEY`. The wizard keeps entered keys in process memory. The current Anthropic registry entry is not yet a native Messages API adapter and is therefore not advertised as supported.
+Credential variables are `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GLM_API_KEY`, `DOUBAO_API_KEY`, `MOONSHOT_API_KEY`, and `DASHSCOPE_API_KEY`. Anthropic uses its native Messages protocol; the others use their OpenAI-compatible chat endpoints. Override a quick-mode default with `SMARTBENCH_<PROVIDER>_MODEL`, for example `SMARTBENCH_ANTHROPIC_MODEL`. The wizard keeps entered keys in process memory.
 
 ## Optional RAG
 
