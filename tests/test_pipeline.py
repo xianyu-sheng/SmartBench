@@ -417,28 +417,32 @@ class TestPhaseOrchestration:
 class TestToolExecution:
     """Test that diagnostic tools execute and return formatted output."""
 
-    def test_tools_run_for_python(self, null_console):
+    @pytest.fixture
+    def project_path(self):
+        return str(Path(__file__).parent.parent.resolve())
+
+    def test_tools_run_for_python(self, null_console, project_path):
         from smartbench.diagnostics.executor import run_tools_for_strategy
         from smartbench.detector.fingerprint import Language
 
         result = run_tools_for_strategy(
-            null_console, "/tmp/SmartBench",
+            null_console, project_path,
             Language.PYTHON, "performance_analysis",
         )
         assert len(result) > 100
         assert "建议" in result or "diagnostic" in result.lower() or "tool" in result.lower()
 
-    def test_tools_empty_for_unknown_strategy(self, null_console):
+    def test_tools_empty_for_unknown_strategy(self, null_console, project_path):
         from smartbench.diagnostics.executor import run_tools_for_strategy
         from smartbench.detector.fingerprint import Language
 
         result = run_tools_for_strategy(
-            null_console, "/tmp/SmartBench",
+            null_console, project_path,
             Language.PYTHON, "nonexistent_strategy",
         )
         assert result == ""
 
-    def test_all_strategies_produce_output(self, null_console):
+    def test_all_strategies_produce_output(self, null_console, project_path):
         from smartbench.diagnostics.executor import run_tools_for_strategy
         from smartbench.detector.fingerprint import Language
 
@@ -447,7 +451,7 @@ class TestToolExecution:
             "security_scan", "architecture_review",
         ]:
             result = run_tools_for_strategy(
-                null_console, "/tmp/SmartBench",
+                null_console, project_path,
                 Language.PYTHON, strategy,
             )
             assert len(result) > 50, f"{strategy} should produce output"
@@ -483,7 +487,8 @@ class TestRAGPipeline:
         queries_path = os.path.join(
             os.path.dirname(__file__), "fixtures", "rag_eval_queries.json"
         )
-        evaluator = RAGEvaluator(None, "/tmp/SmartBench")
+        project_path = str(Path(__file__).parent.parent.resolve())
+        evaluator = RAGEvaluator(None, project_path)
         evaluator.load_queries(queries_path)
         assert len(evaluator.queries) == 12
         assert evaluator.queries[0].expected_file == "smartbench/engine/debate.py"
