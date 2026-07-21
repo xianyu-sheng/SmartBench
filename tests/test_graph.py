@@ -1086,6 +1086,17 @@ def run():
         assert len(graph.nodes) == 0
         assert len(graph.edges) == 0
 
+    def test_includes_legacy_source_directory(self, test_dir, builder):
+        (test_dir / "active.py").write_text("def active(): pass\n")
+        (test_dir / "legacy").mkdir()
+        (test_dir / "legacy" / "old.py").write_text("def obsolete(): pass\n")
+
+        graph = builder.build(str(test_dir), Language.PYTHON)
+        names = {node.name for node in graph.nodes.values()}
+
+        assert "active" in names
+        assert "obsolete" in names
+
     def test_missing_file_in_filter_skipped(self, test_dir, builder):
         """file_filter with a non-existent file should be skipped."""
         (test_dir / "real.py").write_text("def f(): pass\n")

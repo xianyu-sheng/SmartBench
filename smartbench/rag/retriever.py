@@ -41,7 +41,8 @@ class HybridRetriever:
                  embedder: Optional[CodeEmbedder] = None,
                  graph_weight: float = 0.4,
                  vector_weight: float = 0.6,
-                 min_score: float = 0.15):
+                 min_score: float = 0.15,
+                 max_context_chars: int = 12000):
         """
         Args:
             graph: The code graph for structural retrieval
@@ -57,12 +58,14 @@ class HybridRetriever:
         self.vector_store = vector_store
         self.embedder = embedder
         self.graph_retriever = GraphRetriever(
-            graph, project_path, max_tokens_estimate=6000
+            graph,
+            project_path,
+            max_tokens_estimate=max(1, max_context_chars // 3),
         )
         self.graph_weight = graph_weight
         self.vector_weight = vector_weight
         self.min_score = min_score
-        self.max_chars = 6000  # ~2000 tokens, generous for dual-source context
+        self.max_chars = max_context_chars
 
     # ── Public API ──────────────────────────────────────────────────────
 

@@ -30,7 +30,11 @@ from smartbench.cli.display import (
 )
 from smartbench.detector.fingerprint import ProjectFingerprint
 from smartbench.detector.scanner import ProjectScanner
-from smartbench.diagnostics.registry import DiagnosticRegistry, ProblemCategory
+from smartbench.diagnostics.registry import (
+    DiagnosticRegistry,
+    ProblemCategory,
+    infer_problem_category,
+)
 from smartbench.diagnostics.tools import ALL_TOOLS
 from smartbench.engine.debate import DebateEngine
 from smartbench.graph.builder import CodeGraphBuilder
@@ -38,6 +42,24 @@ from smartbench.graph.retriever import GraphRetriever
 from smartbench.llm.client import call_llm, parse_json_safe
 from smartbench.llm.provider import load_api_keys_from_env
 from smartbench.prompts.factory import PromptFactory
+
+
+def _fallback_strategy(concern: str) -> str:
+    """Choose a safe deterministic strategy when model routing is unavailable."""
+    lowered = concern.lower()
+    if any(word in lowered for word in ("architect", "design", "架构", "设计")):
+        return "architecture_review"
+    category = infer_problem_category([concern])
+    if category == ProblemCategory.SECURITY:
+        return "security_scan"
+    if category in {
+        ProblemCategory.PERFORMANCE,
+        ProblemCategory.MEMORY_LEAK,
+        ProblemCategory.DEADLOCK,
+        ProblemCategory.CONCURRENCY,
+    }:
+        return "performance_analysis"
+    return "correctness_audit"
 
 
 def resolve_project_path(console: Console, input_path: str) -> Optional[str]:
@@ -265,12 +287,20 @@ def run_diagnosis_with_graph(
             "tools": ["code_graph", "git_blame"],
         })
 
+    selected = _fallback_strategy(concern)
     strategy_prompt = factory.build_strategy_prompt(concern, strategies)
     strategy_response = call_llm(api_config, strategy_prompt)
     strategy = parse_json_safe(strategy_response) if strategy_response else None
 
     if strategy:
-        selected = strategy.get("selected_strategy", "auto")
+        candidate = strategy.get("selected_strategy", "")
+        valid_strategies = {item["name"] for item in strategies}
+        if candidate in valid_strategies:
+            selected = candidate
+        elif candidate:
+            console.print(
+                f"  [dim]未知策略 {candidate!r}，使用确定性回退 {selected}[/dim]"
+            )
         reasoning = strategy.get("reasoning", "")
         console.print(f"\n  [cyan]Strategy:[/cyan] {selected}")
         if reasoning:
@@ -289,7 +319,11 @@ def run_diagnosis_with_graph(
         try:
             from smartbench.diagnostics.executor import run_tools_for_strategy
             tool_context = run_tools_for_strategy(
-                console, project_path, fingerprint.primary_language, selected
+                console,
+                project_path,
+                fingerprint.primary_language,
+                selected,
+                symptoms=[concern],
             )
             if tool_context:
                 console.print("  [dim]诊断工具已执行[/dim]")
@@ -512,6 +546,7 @@ def run_diagnose_mode(
     project: str,
     symptoms: Optional[str],
     performance: bool,
+    system_probes: bool = False,
 ) -> Optional[Dict]:
     """Diagnosis-only mode — runs tools, shows results.
 
@@ -526,8 +561,9 @@ def run_diagnose_mode(
     fingerprint = run_phase1_detection(console, project_path)
     display_fingerprint(console, fingerprint)
 
-    category = (
-        ProblemCategory.PERFORMANCE if performance else ProblemCategory.UNKNOWN
+    category = infer_problem_category(
+        [symptoms] if symptoms else None,
+        performance=performance,
     )
     registry = DiagnosticRegistry()
     for tool in ALL_TOOLS:
@@ -538,11 +574,12 @@ def run_diagnose_mode(
         category,
         str(project_path),
         symptoms=[symptoms] if symptoms else None,
+        include_system=system_probes,
     )
 
     console.print("\n[bold]Diagnostic Results:[/bold]")
     for r in results:
-        if r.success and r.symptoms:
+        if r.success:
             console.print(
                 f"  [green]OK[/green] {r.tool_name}: "
                 f"{len(r.symptoms)} findings"

@@ -16,6 +16,21 @@ from smartbench.detector.fingerprint import (
     ProjectType,
 )
 
+_EXCLUDED_DIRS = {
+    ".git", "node_modules", "__pycache__", "target", "build", "vendor",
+    ".venv", "venv", "dist", ".idea", ".vscode", "obj", ".tox",
+    ".eggs", ".smartbench", ".pytest_cache", ".mypy_cache",
+    ".ruff_cache",
+}
+
+
+def _is_excluded(root: Path, path: Path) -> bool:
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return True
+    return bool(set(relative.parts[:-1]) & _EXCLUDED_DIRS)
+
 # ── Language detection: extension → Language ──────────────────────────
 _EXTENSION_MAP: Dict[str, Language] = {
     ".py": Language.PYTHON,
@@ -157,7 +172,10 @@ class ProjectScanner:
         for ext, lang in _EXTENSION_MAP.items():
             # Quick glob per extension
             try:
-                count = len(list(self.root.rglob(f"*{ext}")))
+                count = sum(
+                    1 for path in self.root.rglob(f"*{ext}")
+                    if path.is_file() and not _is_excluded(self.root, path)
+                )
                 if count > 0:
                     counts[lang] = counts.get(lang, 0) + count
             except (OSError, PermissionError):
@@ -321,16 +339,10 @@ class ProjectScanner:
         try:
             all_files = list(self.root.rglob("*"))
             # Filter out common non-source dirs
-            excluded = {".git", "node_modules", "__pycache__", "target", "build",
-                       "vendor", ".venv", "venv", "dist", ".idea", ".vscode", "obj"}
-
             files = []
             for f in all_files:
-                if f.is_file():
-                    # Check if any parent is excluded
-                    parts = set(p.name for p in f.parents)
-                    if not (parts & excluded):
-                        files.append(f)
+                if f.is_file() and not _is_excluded(self.root, f):
+                    files.append(f)
 
             fp.total_files = len(files)
 

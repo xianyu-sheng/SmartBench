@@ -249,7 +249,8 @@ class CodeGraphBuilder:
     EXCLUDED_DIRS: Set[str] = {
         ".git", "node_modules", "__pycache__", "target", "build",
         "vendor", ".venv", "venv", "dist", ".idea", ".vscode",
-        "obj", ".tox", ".eggs", "*.egg-info",
+        "obj", ".tox", ".eggs", "*.egg-info", ".smartbench",
+        ".pytest_cache", ".mypy_cache", ".ruff_cache",
     }
 
     # Files to exclude

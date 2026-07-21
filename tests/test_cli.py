@@ -32,6 +32,7 @@ class TestCLIHelp:
         assert "quick" in output
         assert "diagnose" in output
         assert "check" in output
+        assert "eval-rag" in output
 
     def test_quick_help(self, runner):
         result = runner.invoke(app, ["quick", "--help"])
@@ -46,10 +47,19 @@ class TestCLIHelp:
         output = plain_output(result)
         assert "--project" in output
         assert "--symptoms" in output
+        assert "--system-probes" in output
 
     def test_check_help(self, runner):
         result = runner.invoke(app, ["check", "--help"])
         assert result.exit_code == 0
+
+    def test_eval_rag_help(self, runner):
+        result = runner.invoke(app, ["eval-rag", "--help"])
+        assert result.exit_code == 0
+        output = plain_output(result)
+        assert "--project" in output
+        assert "--queries" in output
+        assert "--graph-only" in output
 
 
 class TestCLICheck:

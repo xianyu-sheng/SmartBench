@@ -90,6 +90,8 @@ smartbench quick \
 ```bash
 smartbench check
 smartbench diagnose --project . --perf --output diagnostics.json
+smartbench diagnose --project . --perf --system-probes
+smartbench eval-rag --project . --queries tests/fixtures/rag_eval_queries.json
 ```
 
 对于可信仓库，可以使用 `smartbench quick --project . --sandbox`：Judge 会尝试
@@ -111,7 +113,8 @@ python -m pip install -e ".[rag]"
 
 - 常规诊断流程不会编辑被分析仓库的源文件。
 - Git URL 会被克隆到临时目录。
-- 策略选择可能执行本机已安装的诊断探针，只应分析你信任的仓库和环境。
+- 项目级诊断可能在目标路径内执行本机已安装的编译器或分析器，只应分析你信任的仓库。
+- 主机进程、内存和内核探针（`ps`、`vmstat`、`dmesg`）默认关闭；只有显式使用 `diagnose --system-probes` 才会运行，并且输出可能暴露主机信息。
 - `--sandbox` 必须显式开启。它能保护工作区不被修改，但不是操作系统安全边界；仓库测试仍拥有当前用户权限。
 - 证据状态只描述“引用是否有依据”，不等价于漏洞或修复已被形式化证明。
 

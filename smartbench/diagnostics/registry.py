@@ -37,6 +37,33 @@ class Severity(Enum):
     LOW = "low"
 
 
+def infer_problem_category(
+    symptoms: Optional[List[str]] = None,
+    performance: bool = False,
+) -> ProblemCategory:
+    """Map free-form English or Chinese symptoms to a deterministic category."""
+    if performance:
+        return ProblemCategory.PERFORMANCE
+
+    text = " ".join(symptoms or []).lower()
+    keyword_groups = [
+        (ProblemCategory.DEADLOCK, ("deadlock", "hang", "卡死", "死锁")),
+        (ProblemCategory.MEMORY_LEAK, ("memory leak", "oom", "内存泄漏", "内存溢出")),
+        (ProblemCategory.CRASH, ("crash", "segfault", "panic", "崩溃", "闪退")),
+        (ProblemCategory.STARTUP_FAILURE, ("startup", "won't start", "启动失败", "无法启动")),
+        (ProblemCategory.CONCURRENCY, ("race", "concurr", "并发", "竞态")),
+        (ProblemCategory.SECURITY, ("security", "vulnerab", "inject", "安全", "漏洞", "注入")),
+        (ProblemCategory.DEPENDENCY, ("dependency", "package", "依赖", "包冲突")),
+        (ProblemCategory.CONFIGURATION, ("configuration", "config", "配置")),
+        (ProblemCategory.PERFORMANCE, ("performance", "slow", "latency", "性能", "慢", "延迟")),
+        (ProblemCategory.CODE_QUALITY, ("quality", "correct", "bug", "代码质量", "正确性")),
+    ]
+    for category, keywords in keyword_groups:
+        if any(keyword in text for keyword in keywords):
+            return category
+    return ProblemCategory.CODE_QUALITY
+
+
 @dataclass
 class DiagnosisResult:
     """Result from a single diagnostic tool run."""
@@ -77,6 +104,8 @@ class DiagnosticTool(ABC):
     - Which problem categories it handles
     - Whether the tool binary is available on this system
     """
+
+    requires_system_access = False
 
     @property
     @abstractmethod
@@ -166,14 +195,20 @@ class DiagnosticRegistry:
         """List all registered tools (available or not)."""
         return list(self._tools.values())
 
-    def find_tools(self, language: Language,
-                   category: Optional[ProblemCategory] = None) -> List[DiagnosticTool]:
+    def find_tools(
+        self,
+        language: Language,
+        category: Optional[ProblemCategory] = None,
+        include_system: bool = False,
+    ) -> List[DiagnosticTool]:
         """Find tools matching a language and optional category."""
         matches = []
         for tool in self._tools.values():
             if language not in tool.applicable_languages:
                 continue
             if category and category not in tool.applicable_categories:
+                continue
+            if tool.requires_system_access and not include_system:
                 continue
             if tool.is_available():
                 matches.append(tool)
@@ -187,14 +222,27 @@ class DiagnosticRegistry:
                 result[tool.name] = tool.is_available()
         return result
 
-    def diagnose(self, language: Language, category: ProblemCategory,
-                 target_path: str, symptoms: Optional[List[str]] = None) -> List[DiagnosisResult]:
+    def diagnose(
+        self,
+        language: Language,
+        category: ProblemCategory,
+        target_path: str,
+        symptoms: Optional[List[str]] = None,
+        include_system: bool = False,
+    ) -> List[DiagnosisResult]:
         """Run all applicable tools for a language + category."""
-        tools = self.find_tools(language, category)
+        if category == ProblemCategory.UNKNOWN:
+            category = infer_problem_category(symptoms)
+        tools = self.find_tools(language, category, include_system=include_system)
         results = []
         for tool in tools:
             try:
-                result = tool.diagnose(target_path, category, symptoms)
+                result = tool.diagnose(
+                    target_path,
+                    category,
+                    symptoms,
+                    extra_args={"language": language},
+                )
                 results.append(result)
             except Exception as e:
                 results.append(DiagnosisResult(

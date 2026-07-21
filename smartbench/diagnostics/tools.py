@@ -7,8 +7,9 @@ Each tool inherits from DiagnosticTool and declares:
 - diagnose(): how to run the tool and parse its output
 """
 
+import ast
 import re
-import sys
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from smartbench.detector.fingerprint import Language
@@ -25,6 +26,7 @@ class DMesgTool(DiagnosticTool):
     """Kernel log analysis — crashes, OOM, hardware issues."""
 
     name = "dmesg"
+    requires_system_access = True
     applicable_languages = list(Language)
     applicable_categories = [
         ProblemCategory.CRASH, ProblemCategory.STARTUP_FAILURE,
@@ -36,6 +38,15 @@ class DMesgTool(DiagnosticTool):
         result = self._run_command(["dmesg"], timeout=10)
         evidence = "\n".join(result.stdout.splitlines()[-100:])[-3000:]
         output = result.stdout + result.stderr
+
+        if result.returncode != 0:
+            return DiagnosisResult(
+                tool_name=self.name,
+                problem_category=category,
+                evidence=output[-3000:],
+                success=False,
+                error=result.stderr.strip() or "dmesg failed",
+            )
 
         findings = DiagnosisResult(
             tool_name=self.name,
@@ -74,6 +85,7 @@ class ProcessTool(DiagnosticTool):
     """Process listing — deadlocks, resource usage."""
 
     name = "ps"
+    requires_system_access = True
     applicable_languages = list(Language)
     applicable_categories = [
         ProblemCategory.DEADLOCK, ProblemCategory.PERFORMANCE,
@@ -85,6 +97,15 @@ class ProcessTool(DiagnosticTool):
                  extra_args: Optional[Dict] = None) -> DiagnosisResult:
         result = self._run_command(["ps", "aux", "--sort=-%mem"], timeout=10)
         evidence = "\n".join(result.stdout.splitlines()[:20])[:2000]
+
+        if result.returncode != 0:
+            return DiagnosisResult(
+                tool_name=self.name,
+                problem_category=category,
+                evidence=(result.stdout + result.stderr)[-2000:],
+                success=False,
+                error=result.stderr.strip() or "ps failed",
+            )
 
         findings = DiagnosisResult(
             tool_name=self.name,
@@ -122,6 +143,7 @@ class VMStatTool(DiagnosticTool):
     """Virtual memory statistics — page faults, swapping."""
 
     name = "vmstat"
+    requires_system_access = True
     applicable_languages = list(Language)
     applicable_categories = [ProblemCategory.PERFORMANCE, ProblemCategory.MEMORY_LEAK]
 
@@ -130,6 +152,15 @@ class VMStatTool(DiagnosticTool):
                  extra_args: Optional[Dict] = None) -> DiagnosisResult:
         result = self._run_command(["vmstat", "1", "3"], timeout=10)
         evidence = result.stdout[:2000]
+
+        if result.returncode != 0:
+            return DiagnosisResult(
+                tool_name=self.name,
+                problem_category=category,
+                evidence=(result.stdout + result.stderr)[-2000:],
+                success=False,
+                error=result.stderr.strip() or "vmstat failed",
+            )
 
         findings = DiagnosisResult(
             tool_name=self.name,
@@ -195,6 +226,9 @@ class GoPProfTool(DiagnosticTool):
                 findings.symptoms.append("Data race detected")
                 findings.severity = Severity.CRITICAL
                 findings.confidence = 0.95
+            elif result.returncode != 0:
+                findings.success = False
+                findings.error = result.stderr.strip() or "go test -race failed"
 
         elif category == ProblemCategory.PERFORMANCE:
             # Build and suggest pprof endpoints
@@ -206,6 +240,9 @@ class GoPProfTool(DiagnosticTool):
             output = result.stdout + result.stderr
             findings.evidence = "\n".join(output.splitlines()[:20])[:2000] or "Build OK"
             findings.commands_used = ["go build ./..."]
+            if result.returncode != 0:
+                findings.success = False
+                findings.error = result.stderr.strip() or "go build failed"
             findings.suggestions.append({
                 "title": "Run pprof CPU profile",
                 "command": "go tool pprof -http=:8080 http://localhost:6060/debug/pprof/profile?seconds=30",
@@ -253,30 +290,51 @@ class PythonDiagTool(DiagnosticTool):
         )
 
         if category == ProblemCategory.STARTUP_FAILURE:
-            # Check imports
-            result = self._run_command(
-                [sys.executable, "-c", "import ast; print('syntax OK')"],
-                timeout=30,
-                cwd=target_path,
+            root = Path(target_path)
+            excluded = {
+                ".git", ".venv", "venv", "__pycache__", "build", "dist",
+                "node_modules", "legacy",
+            }
+            checked = 0
+            syntax_errors = []
+            for path in root.rglob("*.py"):
+                if set(path.relative_to(root).parts[:-1]) & excluded:
+                    continue
+                try:
+                    ast.parse(
+                        path.read_text(encoding="utf-8", errors="ignore"),
+                        filename=str(path.relative_to(root)),
+                    )
+                    checked += 1
+                except SyntaxError as exc:
+                    syntax_errors.append(
+                        f"{path.relative_to(root)}:{exc.lineno}: {exc.msg}"
+                    )
+                except OSError:
+                    continue
+                if checked + len(syntax_errors) >= 500:
+                    break
+            findings.evidence = (
+                "\n".join(syntax_errors)
+                if syntax_errors else f"Parsed {checked} Python files without syntax errors"
             )
-            findings.evidence = result.stdout + result.stderr
-            findings.commands_used = ["python -c 'import ast'"]
-            if "ModuleNotFoundError" in result.stderr:
-                findings.symptoms.append("Missing Python dependency")
+            if syntax_errors:
+                findings.symptoms.append(
+                    f"{len(syntax_errors)} Python syntax error(s) detected"
+                )
                 findings.severity = Severity.HIGH
-                findings.confidence = 0.9
+                findings.confidence = 1.0
 
         elif category == ProblemCategory.DEPENDENCY:
-            # Check requirements
-            result = self._run_command(
-                [sys.executable, "-m", "pip", "check"],
-                timeout=30,
-                cwd=target_path,
+            findings.evidence = (
+                "Dependency consistency was not executed automatically because "
+                "SmartBench cannot safely infer the target environment."
             )
-            findings.evidence = result.stdout + result.stderr
-            findings.commands_used = ["pip check"]
-            if result.returncode != 0:
-                findings.symptoms.append("Dependency conflicts detected")
+            findings.suggestions.append({
+                "title": "Check the target Python environment",
+                "command": "python -m pip check",
+                "description": "Run inside the project's activated virtual environment",
+            })
 
         elif category == ProblemCategory.PERFORMANCE:
             findings.suggestions.append({

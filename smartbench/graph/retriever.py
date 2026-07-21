@@ -8,6 +8,8 @@ This replaces the old "read entire key files" approach with
 targeted graph-based context retrieval.
 """
 
+import re
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 from smartbench.graph.schema import CodeGraph, CodeNode, EdgeType, NodeType
@@ -117,13 +119,16 @@ class GraphRetriever:
 
     # ── Seed finding ──────────────────────────────────────────────────
 
+    _QUERY_STOPWORDS = {
+        "a", "an", "and", "are", "code", "does", "file", "files",
+        "find", "for", "from", "how", "implementation", "in", "is",
+        "it", "of", "the", "to", "where", "with", "work", "works",
+        "defined", "generated", "based", "source",
+    }
+
     def _find_seeds(self, query: str) -> List[CodeNode]:
         """
-        Multi-strategy seed finding:
-        1. Exact function name match
-        2. Contains match (fuzzy)
-        3. Keyword in file path
-        4. Keyword in function properties
+        Multi-strategy seed finding for both identifiers and natural language.
         """
         seeds: List[CodeNode] = []
         query_lower = query.lower().strip()
@@ -137,38 +142,60 @@ class GraphRetriever:
         if seeds:
             return seeds
 
-        # Strategy 2: Contains match
+        # Strategy 2: Natural-language token scoring across names and paths.
+        query_tokens = self._identifier_tokens(query_lower) - self._QUERY_STOPWORDS
+        candidates = []
         for node in self.graph.nodes.values():
-            if node.node_type in (NodeType.FUNCTION, NodeType.CLASS):
-                if query_lower in node.name.lower():
-                    seeds.append(node)
-
-        if seeds:
-            return seeds[:10]  # Cap fuzzy matches
-
-        # Strategy 3: File path match
-        for node in self.graph.nodes.values():
+            if node.node_type not in (NodeType.FUNCTION, NodeType.CLASS, NodeType.FILE):
+                continue
+            name_tokens = self._identifier_tokens(node.name)
+            path_tokens = self._identifier_tokens(node.file_path)
+            signature_tokens = self._identifier_tokens(
+                node.properties.get("signature", "")
+            )
+            score = 0.0
+            for token in query_tokens:
+                score += 4.0 * self._best_token_match(token, name_tokens)
+                score += 2.5 * self._best_token_match(token, path_tokens)
+                score += self._best_token_match(token, signature_tokens)
             if node.node_type == NodeType.FILE:
-                if query_lower in node.file_path.lower():
-                    # Get all functions in this file
-                    funcs = [
-                        n for n in self.graph.nodes.values()
-                        if n.file_path == node.file_path
-                        and n.node_type == NodeType.FUNCTION
-                    ]
-                    seeds.extend(funcs[:5])
+                file_stem = Path(node.file_path).stem.lower()
+                if file_stem in query_tokens:
+                    score += 3.0
+            if score > 0:
+                candidates.append((score, node))
 
-        if seeds:
-            return seeds
+        candidates.sort(key=lambda item: (-item[0], item[1].file_path, item[1].name))
+        return [node for _, node in candidates[:10]]
 
-        # Strategy 4: Keyword in properties
-        for node in self.graph.nodes.values():
-            if node.node_type == NodeType.FUNCTION:
-                sig = node.properties.get("signature", "").lower()
-                if query_lower in sig:
-                    seeds.append(node)
+    @staticmethod
+    def _identifier_tokens(value: str) -> set[str]:
+        """Split paths, snake_case, kebab-case, and CamelCase identifiers."""
+        expanded = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", value)
+        return {
+            token.lower()
+            for token in re.findall(r"[A-Za-z0-9]+", expanded)
+            if len(token) > 1
+        }
 
-        return seeds[:10]
+    @staticmethod
+    def _best_token_match(query_token: str, candidates: set[str]) -> float:
+        """Return a conservative lexical similarity in the range 0..1."""
+        best = 0.0
+        for candidate in candidates:
+            if query_token == candidate:
+                return 1.0
+            shorter = min(len(query_token), len(candidate))
+            if shorter >= 5 and (
+                query_token.startswith(candidate[:5])
+                or candidate.startswith(query_token[:5])
+            ):
+                best = max(best, 0.7)
+            elif shorter >= 4 and (
+                query_token in candidate or candidate in query_token
+            ):
+                best = max(best, 0.5)
+        return best
 
     # ── Ranking ───────────────────────────────────────────────────────
 

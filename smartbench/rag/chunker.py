@@ -19,7 +19,7 @@ from smartbench.rag import Chunk
 EXCLUDED_DIRS: Set[str] = {
     '.git', 'node_modules', '__pycache__', 'target', 'build',
     'vendor', '.venv', 'venv', 'dist', '.idea', '.vscode', 'obj',
-    '.smartbench', '.claude', '.pytest_cache', 'legacy',
+    '.smartbench', '.claude', '.pytest_cache',
 }
 
 EXCLUDED_SUFFIXES: Set[str] = {

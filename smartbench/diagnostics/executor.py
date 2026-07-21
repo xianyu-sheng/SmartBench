@@ -36,6 +36,7 @@ def run_tools_for_strategy(
     project_path: str,
     language: Language,
     strategy: str,
+    symptoms: List[str] | None = None,
 ) -> str:
     """Execute diagnostic tools for a given strategy and return formatted context.
 
@@ -72,7 +73,12 @@ def run_tools_for_strategy(
                 f"  Running {tool.name}...", total=None
             )
             try:
-                result = tool.diagnose(project_path, category)
+                result = tool.diagnose(
+                    project_path,
+                    category,
+                    symptoms=symptoms,
+                    extra_args={"language": language},
+                )
                 results.append(result)
             except Exception as e:
                 logger.warning("Tool %s failed: %s", tool.name, e)

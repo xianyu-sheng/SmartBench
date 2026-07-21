@@ -75,9 +75,26 @@ smartbench check
 ```bash
 smartbench diagnose --project ./my-project
 smartbench diagnose --project ./my-project --perf --output diagnostics.json
+smartbench diagnose --project ./my-project --perf --system-probes
 ```
 
-`--symptoms` 会作为症状描述传入诊断阶段。诊断探针可能执行本机命令，因此只应对信任的目标路径运行。
+`--symptoms` 会作为症状描述传入诊断阶段。默认只运行项目级探针；主机级的
+`ps`、`vmstat` 和 `dmesg` 必须通过 `--system-probes` 显式开启，其输出可能包含
+主机进程或内核信息。诊断探针可能执行本机命令，因此只应对信任的目标路径运行。
+
+### `smartbench eval-rag`
+
+使用带标注的查询集测量 `Hit@k`、`Precision@k`、MRR 和平均延迟：
+
+```bash
+smartbench eval-rag \
+  --project ./my-project \
+  --queries ./eval_queries.json \
+  --output rag-report.json
+```
+
+加上 `--graph-only` 可只评测结构检索。查询文件是 JSON 数组，每项至少包含
+`query` 和目录明确的 `expected_file`；同名但位于其他目录的文件不会被误算为命中。
 
 ## 模型凭证
 

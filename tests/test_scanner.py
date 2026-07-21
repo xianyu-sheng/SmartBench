@@ -142,6 +142,19 @@ class TestLanguageDetection:
         fp = scanner.scan()
         assert fp.primary_language == Language.UNKNOWN
 
+    def test_ignores_dependencies_but_keeps_legacy_source(self, tmp_path: Path):
+        project = create_js_project(tmp_path / "frontend")
+        (project / "node_modules" / "fake").mkdir(parents=True)
+        (project / "legacy").mkdir()
+        for index in range(10):
+            (project / "node_modules" / "fake" / f"module_{index}.py").write_text("")
+            (project / "legacy" / f"old_{index}.js").write_text("")
+
+        fingerprint = ProjectScanner(str(project)).scan()
+
+        assert fingerprint.primary_language == Language.JAVASCRIPT
+        assert fingerprint.source_files == 11
+
 
 # ── Framework detection ─────────────────────────────────────────────────────
 

@@ -34,6 +34,7 @@ class EvalReport:
     """Evaluation results for a set of queries."""
     total_queries: int = 0
     hit_rates: Dict[int, float] = field(default_factory=dict)   # k → rate
+    precision_at_k: Dict[int, float] = field(default_factory=dict)
     mrr: float = 0.0
     avg_latency_ms: float = 0.0
     per_query: List[Dict] = field(default_factory=list)
@@ -47,6 +48,8 @@ class EvalReport:
         ]
         for k, rate in sorted(self.hit_rates.items()):
             lines.append(f"  Hit@{k}:   {rate:.1%}")
+        for k, precision in sorted(self.precision_at_k.items()):
+            lines.append(f"  P@{k}:     {precision:.3f}")
         lines.append(f"  Avg latency: {self.avg_latency_ms:.1f}ms")
         return "\n".join(lines)
 
@@ -69,7 +72,12 @@ class RAGEvaluator:
         with open(queries_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
+        if not isinstance(data, list):
+            raise ValueError("Evaluation query file must contain a JSON list")
+        self.queries.clear()
         for item in data:
+            if not isinstance(item, dict) or not item.get("query") or not item.get("expected_file"):
+                raise ValueError("Each evaluation item needs query and expected_file")
             self.queries.append(EvalQuery(
                 query=item["query"],
                 expected_file=item["expected_file"],
@@ -86,6 +94,11 @@ class RAGEvaluator:
         Returns:
             EvalReport with all metrics.
         """
+        if self.retriever is None or not hasattr(self.retriever, "retrieve"):
+            raise ValueError("A retriever with a retrieve(query) method is required")
+        normalized_k = tuple(sorted({int(k) for k in k_values if int(k) > 0}))
+        if not normalized_k:
+            raise ValueError("k_values must contain at least one positive integer")
         report = EvalReport(total_queries=len(self.queries))
 
         # Detect retrieval mode
@@ -98,14 +111,15 @@ class RAGEvaluator:
         else:
             report.retrieval_mode = "graph_only"
 
-        hits_at_k: Dict[int, int] = {k: 0 for k in k_values}
+        hits_at_k: Dict[int, int] = {k: 0 for k in normalized_k}
+        precision_sums: Dict[int, float] = {k: 0.0 for k in normalized_k}
         reciprocal_ranks: List[float] = []
         latencies: List[float] = []
 
         for eq in self.queries:
-            start = time.time()
+            start = time.perf_counter()
             context = self.retriever.retrieve(eq.query)
-            elapsed = (time.time() - start) * 1000
+            elapsed = (time.perf_counter() - start) * 1000
             latencies.append(elapsed)
 
             # Extract file paths from retrieved context
@@ -115,9 +129,10 @@ class RAGEvaluator:
             rank = self._find_rank(eq.expected_file, retrieved_files)
 
             # Update hits
-            for k in k_values:
+            for k in normalized_k:
                 if rank is not None and rank <= k:
                     hits_at_k[k] += 1
+                    precision_sums[k] += 1.0 / k
 
             # MRR
             if rank is not None:
@@ -136,7 +151,10 @@ class RAGEvaluator:
         # Compute aggregate metrics
         total = max(len(self.queries), 1)
         report.hit_rates = {
-            k: hits_at_k[k] / total for k in k_values
+            k: hits_at_k[k] / total for k in normalized_k
+        }
+        report.precision_at_k = {
+            k: precision_sums[k] / total for k in normalized_k
         }
         report.mrr = sum(reciprocal_ranks) / total
         report.avg_latency_ms = sum(latencies) / total
@@ -158,7 +176,7 @@ class RAGEvaluator:
         # Pattern: // ── path/to/file ──
         for m in re.finditer(r'──\s*(.+?)\s*──', context):
             f = m.group(1).strip()
-            if '.' in f and '/' in f:
+            if Path(f).suffix:
                 files.append(f)
 
         # Pattern: file_path or file: followed by a path
@@ -179,22 +197,19 @@ class RAGEvaluator:
     def _find_rank(expected: str, retrieved: List[str]) -> Optional[int]:
         """Find the 1-based rank of the expected file in retrieved list.
 
-        Uses fuzzy matching: checks if expected filename appears anywhere
-        in the retrieved path.
+        Directory-qualified ground truth requires an exact normalized suffix;
+        this avoids inflating metrics when different folders share a filename.
         """
-        expected_name = Path(expected).name
-        expected_stem = Path(expected).stem
+        expected_normalized = expected.replace('\\', '/').lstrip('./')
+        expected_has_parent = '/' in expected_normalized
 
         for i, f in enumerate(retrieved):
-            f_name = Path(f).name
-            # Exact match
-            if f == expected or f.endswith(expected):
+            normalized = f.replace('\\', '/').lstrip('./')
+            if normalized == expected_normalized:
                 return i + 1
-            # Filename match
-            if f_name == expected_name:
+            if expected_has_parent and normalized.endswith('/' + expected_normalized):
                 return i + 1
-            # Stem match (handles .py vs .pyi etc.)
-            if Path(f).stem == expected_stem:
+            if not expected_has_parent and Path(normalized).name == expected_normalized:
                 return i + 1
 
         return None

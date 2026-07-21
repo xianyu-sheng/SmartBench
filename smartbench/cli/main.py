@@ -15,7 +15,13 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from smartbench.cli.phases import run_diagnose_mode, run_quick_mode
+from smartbench.cli.phases import (
+    resolve_project_path,
+    run_diagnose_mode,
+    run_phase1_detection,
+    run_phase4_graph,
+    run_quick_mode,
+)
 from smartbench.cli.wizard import run_interactive_wizard
 from smartbench.detector.scanner import ProjectScanner
 from smartbench.diagnostics.registry import DiagnosticRegistry
@@ -94,15 +100,65 @@ def diagnose(
     performance: bool = typer.Option(
         False, "--perf", help="Performance profiling mode"
     ),
+    system_probes: bool = typer.Option(
+        False,
+        "--system-probes",
+        help="Include host process, VM, and kernel probes (may expose host data)",
+    ),
     output: Optional[str] = typer.Option(
         None, "--output", "-o", help="Save report to file (JSON)"
     ),
 ):
     """Run diagnosis only (no benchmarking)."""
     result = run_diagnose_mode(
-        console, project=project, symptoms=symptoms, performance=performance
+        console,
+        project=project,
+        symptoms=symptoms,
+        performance=performance,
+        system_probes=system_probes,
     )
     _maybe_save_output(result, output)
+
+
+@app.command("eval-rag")
+def evaluate_rag(
+    project: str = typer.Option(..., "--project", "-p"),
+    queries: str = typer.Option(..., "--queries", "-q"),
+    graph_only: bool = typer.Option(
+        False, "--graph-only", help="Evaluate structural retrieval without vectors"
+    ),
+    output: Optional[str] = typer.Option(
+        None, "--output", "-o", help="Save evaluation report to JSON"
+    ),
+):
+    """Measure retrieval Hit@k, Precision@k, MRR, and latency."""
+    from smartbench.graph.retriever import GraphRetriever
+    from smartbench.rag.evaluator import RAGEvaluator
+
+    project_path = resolve_project_path(console, project)
+    if not project_path:
+        console.print(f"[red]Cannot access: {project}[/red]")
+        raise typer.Exit(1)
+    try:
+        fingerprint = run_phase1_detection(console, project_path)
+        graph, hybrid = run_phase4_graph(
+            console,
+            project_path,
+            fingerprint,
+            build_rag=not graph_only,
+        )
+        if graph is None:
+            raise RuntimeError("Could not build a code graph")
+        retriever = hybrid or GraphRetriever(graph, project_path)
+        evaluator = RAGEvaluator(retriever, project_path)
+        evaluator.load_queries(queries)
+        report = evaluator.evaluate()
+    except (OSError, ValueError, RuntimeError) as exc:
+        console.print(f"[red]Evaluation failed: {exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    console.print(report.summary())
+    _maybe_save_output(report, output)
 
 
 @app.command()

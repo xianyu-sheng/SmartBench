@@ -207,6 +207,15 @@ class TestPhase4CodeGraph:
         # Should find code containing "debate" — at minimum the debate engine itself
         assert len(context) > 50
 
+    def test_graph_retriever_handles_natural_language(self, code_graph, project_path):
+        retriever = GraphRetriever(
+            code_graph, project_path, max_tokens_estimate=4000
+        )
+
+        context = retriever.retrieve("How does the debate engine work?")
+
+        assert "smartbench/engine/debate.py" in context
+
     def test_graph_retriever_empty_query(self, code_graph, project_path):
         retriever = GraphRetriever(
             code_graph, project_path, max_tokens_estimate=4000
@@ -377,6 +386,20 @@ class TestPhaseOrchestration:
         )
         assert result is None
 
+    @pytest.mark.parametrize(
+        ("concern", "expected"),
+        [
+            ("review the architecture", "architecture_review"),
+            ("检查 SQL 注入漏洞", "security_scan"),
+            ("the service is slow", "performance_analysis"),
+            ("find correctness bugs", "correctness_audit"),
+        ],
+    )
+    def test_fallback_strategy(self, concern, expected):
+        from smartbench.cli.phases import _fallback_strategy
+
+        assert _fallback_strategy(concern) == expected
+
     def test_phase1_integration(self, null_console, project_path):
         from smartbench.cli.phases import run_phase1_detection
         fp = run_phase1_detection(null_console, project_path)
@@ -456,6 +479,17 @@ class TestToolExecution:
 class TestRAGPipeline:
     """Test the RAG pipeline end-to-end."""
 
+    def test_chunker_includes_legacy_source_directory(self, tmp_path):
+        from smartbench.rag.chunker import CodeChunker
+
+        legacy = tmp_path / "legacy"
+        legacy.mkdir()
+        (legacy / "old.py").write_text("def still_relevant():\n    pass\n")
+
+        chunks = CodeChunker().chunk_project(str(tmp_path))
+
+        assert any(chunk.file_path == "legacy/old.py" for chunk in chunks)
+
     def test_embedder_hash_fallback_without_optional_ml_dependencies(
         self, monkeypatch
     ):
@@ -493,6 +527,73 @@ class TestRAGPipeline:
         context = hybrid.retrieve("debate engine")
         assert len(context) > 100, "Should retrieve relevant context"
 
+    def test_source_edit_invalidates_index_and_restores_embedding_mode(
+        self, tmp_path
+    ):
+        from smartbench.rag.indexer import IndexPipeline
+
+        project = tmp_path / "cache-project"
+        project.mkdir()
+        source = project / "main.py"
+        source.write_text("def value():\n    return 1\n", encoding="utf-8")
+        fingerprint = ProjectScanner(str(project)).scan()
+
+        first = IndexPipeline(str(project), fingerprint)
+        assert first.needs_reindex() is True
+        store, embedder = first.index()
+        assert store.count() > 0
+        assert first.needs_reindex() is False
+        state = store.load_index_state()
+        assert state["source_hash"]
+        assert state["embedding_backend"] in {
+            "hash", "tfidf", "sentence-transformers"
+        }
+
+        second = IndexPipeline(str(project), fingerprint)
+        _, restored = second.index_if_needed()
+        assert len(restored.embed_query("value")) == state["embedding_dimension"]
+
+        # Same-length content changes used to leave the cache permanently stale.
+        source.write_text("def value():\n    return 2\n", encoding="utf-8")
+        assert second.needs_reindex() is True
+
+        rebuilt_store, _ = second.index_if_needed()
+        assert second.needs_reindex() is False
+        assert (
+            rebuilt_store.load_index_state()["source_hash"]
+            != state["source_hash"]
+        )
+
+    def test_tfidf_vocabulary_uses_validated_json(self, tmp_path):
+        from types import SimpleNamespace
+
+        import numpy as np
+
+        from smartbench.rag.store import VectorStore
+
+        store = VectorStore(str(tmp_path), "safe-cache")
+        vectorizer = SimpleNamespace(
+            vocabulary_={"alpha": 0, "beta": 1},
+            idf_=np.array([1.0, 2.0]),
+            max_features=256,
+        )
+
+        store.save_tfidf_vocab(vectorizer)
+
+        cache_dir = tmp_path / ".smartbench" / "vector_store"
+        assert not list(cache_dir.glob("*.pkl"))
+        assert store.load_tfidf_vocab() == {
+            "vocabulary": {"alpha": 0, "beta": 1},
+            "idf": [1.0, 2.0],
+            "max_features": 256,
+        }
+
+        list(cache_dir.glob("tfidf_vocab_*.json"))[0].write_text(
+            '{"vocabulary": {"alpha": true}, "idf": [], "max_features": 256}',
+            encoding="utf-8",
+        )
+        assert store.load_tfidf_vocab() is None
+
     def test_evaluator_loads_queries(self):
         import os
 
@@ -506,3 +607,54 @@ class TestRAGPipeline:
         evaluator.load_queries(queries_path)
         assert len(evaluator.queries) == 12
         assert evaluator.queries[0].expected_file == "smartbench/engine/debate.py"
+
+        # Reloading replaces the set instead of silently duplicating it.
+        evaluator.load_queries(queries_path)
+        assert len(evaluator.queries) == 12
+
+    def test_evaluator_metrics_and_exact_path_matching(self, tmp_path):
+        from smartbench.rag.evaluator import EvalQuery, RAGEvaluator
+
+        class FakeRetriever:
+            def retrieve(self, query):
+                if query == "hit":
+                    return (
+                        "// ── src/right.py ──\n"
+                        "// [function] right (line 1)\n"
+                    )
+                return "// ── tests/right.py ──\n"
+
+        evaluator = RAGEvaluator(FakeRetriever(), str(tmp_path))
+        evaluator.queries = [
+            EvalQuery(query="hit", expected_file="src/right.py"),
+            EvalQuery(query="miss", expected_file="src/right.py"),
+        ]
+
+        report = evaluator.evaluate(k_values=(3, 1, 3))
+
+        assert report.hit_rates == {1: 0.5, 3: 0.5}
+        assert report.precision_at_k == {1: 0.5, 3: pytest.approx(1 / 6)}
+        assert report.mrr == 0.5
+        assert report.per_query[1]["rank"] is None
+
+    def test_evaluator_requires_retriever(self, tmp_path):
+        from smartbench.rag.evaluator import RAGEvaluator
+
+        with pytest.raises(ValueError, match="retriever"):
+            RAGEvaluator(None, str(tmp_path)).evaluate()
+
+    def test_labeled_graph_retrieval_quality(self, code_graph, project_path):
+        from smartbench.rag.evaluator import RAGEvaluator
+
+        queries_path = str(
+            Path(__file__).parent / "fixtures" / "rag_eval_queries.json"
+        )
+        evaluator = RAGEvaluator(
+            GraphRetriever(code_graph, project_path), project_path
+        )
+        evaluator.load_queries(queries_path)
+
+        report = evaluator.evaluate(k_values=(1, 3, 5))
+
+        assert report.hit_rates[5] >= 0.75
+        assert report.mrr >= 0.30

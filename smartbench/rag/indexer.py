@@ -35,6 +35,8 @@ class IndexPipeline:
     and can be reused across SmartBench sessions.
     """
 
+    INDEX_SCHEMA_VERSION = 3
+
     def __init__(self, project_path: str,
                  fingerprint: ProjectFingerprint,
                  chunker: Optional[CodeChunker] = None,
@@ -51,9 +53,10 @@ class IndexPipeline:
         self.chunker = chunker or CodeChunker()
         self.embedder = embedder or CodeEmbedder()
 
-        # Stable hash for the project (fingerprint summary + path)
-        fp_str = fingerprint.summary() + str(Path(project_path).resolve())
-        self.fingerprint_hash = hashlib.md5(fp_str.encode()).hexdigest()
+        # Stable storage identity. Source changes are tracked separately so an
+        # edited project overwrites its old index instead of leaking new files.
+        project_identity = str(Path(project_path).resolve())
+        self.fingerprint_hash = hashlib.sha256(project_identity.encode()).hexdigest()
 
     # ── Public API ──────────────────────────────────────────────────────
 
@@ -69,14 +72,17 @@ class IndexPipeline:
             embedder has the fitted vocabulary (must be reused for queries!)
         """
         start = time.time()
+        source_hash = self._calculate_source_hash()
 
         # Step 1: Chunk
         logger.info("Chunking project files...")
         chunks = self.chunker.chunk_project(self.project_path, graph)
         logger.info(f"Created {len(chunks)} code chunks")
 
+        store = VectorStore(self.project_path, self.fingerprint_hash)
+        store.clear()
+
         if not chunks:
-            store = VectorStore(self.project_path, self.fingerprint_hash)
             return store, self.embedder
 
         # Step 2: Embed (fits vocabulary on chunks)
@@ -85,12 +91,24 @@ class IndexPipeline:
 
         # Step 3: Store
         logger.info("Storing embeddings...")
-        store = VectorStore(self.project_path, self.fingerprint_hash)
         stored = store.index_chunks(embedded, self.embedder.dimension)
+        if stored != len(chunks):
+            store.clear()
+            raise RuntimeError(
+                f"Vector index incomplete: stored {stored} of {len(chunks)} chunks"
+            )
 
         # Persist TF-IDF vocabulary for later query reuse
         if self.embedder._fallback_mode == "tfidf" and self.embedder._tfidf_vectorizer:
             store.save_tfidf_vocab(self.embedder._tfidf_vectorizer)
+
+        store.save_index_state({
+            **self._expected_index_state(source_hash),
+            "embedding_backend": self.embedder._fallback_mode or "sentence-transformers",
+            "embedding_model": self.embedder.model_name,
+            "embedding_dimension": self.embedder.dimension,
+            "storage_backend": store._backend,
+        })
 
         elapsed = time.time() - start
         logger.info(f"Indexing complete: {stored} chunks in {elapsed:.1f}s")
@@ -114,6 +132,7 @@ class IndexPipeline:
                 tfidf_data = store.load_tfidf_vocab()
                 if tfidf_data:
                     self.embedder._load_tfidf_vocab(tfidf_data)
+                self._restore_embedder_state(store.load_index_state() or {})
                 return store, self.embedder
             logger.info("Vector index stale, rebuilding...")
 
@@ -121,8 +140,7 @@ class IndexPipeline:
 
     def needs_reindex(self, graph: Optional[CodeGraph] = None) -> bool:
         """
-        Check if the index is stale or doesn't exist yet.
-        Uses lightweight file-stat heuristic — does NOT chunk the project.
+        Check if the index is stale or doesn't exist yet using source hashes.
 
         Returns True if re-indexing is needed.
         """
@@ -138,27 +156,59 @@ class IndexPipeline:
         """
         Determine if the index needs rebuilding.
 
-        Uses the graph node count as a lightweight proxy for expected chunks
-        (avoids expensive full-project chunking just to check staleness).
+        Compares an exact source-content digest and index schema metadata.
         """
         try:
-            stored_count = store.count()
-            if stored_count == 0:
+            if store.count() == 0:
                 return True
-
-            # Estimate expected chunks from graph nodes (cheap heuristic)
-            # Each graph node ≈ 1 function/class/file chunk
-            expected = len(graph.nodes) if graph else 50
-            # Add ~20% for non-graph files (configs, docs, etc.)
-            expected = int(expected * 1.2)
-
-            if stored_count < expected * 0.6:
-                logger.info(
-                    f"Index may be stale: {stored_count} stored vs ~{expected} expected"
-                )
+            state = store.load_index_state()
+            if not state:
                 return True
-
-            return False
+            if (
+                state.get("embedding_backend") == "tfidf"
+                and not store.load_tfidf_vocab()
+            ):
+                return True
+            expected = self._expected_index_state(self._calculate_source_hash())
+            return any(state.get(key) != value for key, value in expected.items())
         except Exception as e:
             logger.warning(f"Index health check failed: {e}, will rebuild")
             return True
+
+    def _calculate_source_hash(self) -> str:
+        """Hash every indexable file so same-size edits also invalidate cache."""
+        digest = hashlib.sha256()
+        root = Path(self.project_path)
+        for relative, full_path in sorted(self.chunker._discover_files(root)):
+            digest.update(relative.encode("utf-8", errors="surrogatepass"))
+            digest.update(b"\0")
+            try:
+                with open(full_path, "rb") as handle:
+                    for block in iter(lambda: handle.read(128 * 1024), b""):
+                        digest.update(block)
+            except OSError as exc:
+                digest.update(f"unreadable:{exc.__class__.__name__}".encode())
+            digest.update(b"\0")
+        return digest.hexdigest()
+
+    def _expected_index_state(self, source_hash: str) -> dict:
+        return {
+            "schema_version": self.INDEX_SCHEMA_VERSION,
+            "source_hash": source_hash,
+            "chunk_size": self.chunker.chunk_size,
+            "overlap": self.chunker.overlap,
+            "max_chunk_chars": self.chunker.max_chunk_chars,
+        }
+
+    def _restore_embedder_state(self, state: dict) -> None:
+        """Keep query vectors compatible with the persisted index backend."""
+        backend = state.get("embedding_backend")
+        dimension = state.get("embedding_dimension")
+        if isinstance(dimension, int) and dimension > 0:
+            self.embedder._dimension = dimension
+        if backend == "hash":
+            self.embedder._fallback_mode = "hash"
+            self.embedder._load_attempted = True
+        model_name = state.get("embedding_model")
+        if isinstance(model_name, str) and model_name:
+            self.embedder.model_name = model_name

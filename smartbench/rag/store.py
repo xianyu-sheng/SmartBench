@@ -148,6 +148,7 @@ class VectorStore:
         self.fingerprint_hash = fingerprint_hash
         self.store_path = self.project_path / ".smartbench" / "vector_store"
         self.collection_name = f"code_{fingerprint_hash[:8]}"
+        self.state_file = self.store_path / f"state_{fingerprint_hash[:8]}.json"
         self._client = None
         self._collection = None
         self._backend = None  # "chromadb" or "simple"
@@ -209,46 +210,152 @@ class VectorStore:
 
     def clear(self):
         """Delete the collection (for re-indexing)."""
+        state = self.load_index_state() or {}
         # Always clear SimpleVectorStore
         SimpleVectorStore(str(self.project_path), self.fingerprint_hash).clear()
-        # Also try ChromaDB if we have a client
+        for suffix in ("json", "pkl"):
+            vocab_path = self.store_path / (
+                f"tfidf_vocab_{self.fingerprint_hash[:8]}.{suffix}"
+            )
+            if vocab_path.exists():
+                vocab_path.unlink()
+
+        # A persisted Chroma collection must also be removed even when this
+        # process has not initialized the client yet. Otherwise deleted source
+        # chunks survive a rebuild.
+        if state.get("storage_backend") == "chromadb" and self._client is None:
+            try:
+                self._ensure_chroma_client()
+            except Exception:
+                pass
+        if self.state_file.exists():
+            self.state_file.unlink()
         if self._client is not None:
             try:
                 self._client.delete_collection(self.collection_name)
             except Exception:
                 pass
         self._collection = None
+        self._backend = None
+        self._simple_store = None
 
     def exists(self) -> bool:
-        """Check if the index already exists (uses SimpleVectorStore check)."""
-        svs = SimpleVectorStore(str(self.project_path), self.fingerprint_hash)
-        return svs.exists()
+        """Check that both vector data and completion metadata exist."""
+        state = self.load_index_state()
+        if not state:
+            return False
+
+        expected_backend = state.get("storage_backend")
+        if expected_backend == "simple":
+            self._backend = "simple"
+            self._simple_store = SimpleVectorStore(
+                str(self.project_path), self.fingerprint_hash
+            )
+            return self._simple_store.exists()
+        if expected_backend != "chromadb":
+            return False
+
+        self._init_backend()
+        if self._backend != "chromadb" or self._client is None:
+            return False
+        try:
+            self._collection = self._client.get_collection(
+                self.collection_name, embedding_function=None
+            )
+            return self._collection.count() > 0
+        except Exception:
+            return False
+
+    def save_index_state(self, state: Dict) -> None:
+        """Atomically persist source and embedding metadata after indexing."""
+        self.store_path.mkdir(parents=True, exist_ok=True)
+        temporary = self.state_file.with_suffix(".tmp")
+        with open(temporary, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, ensure_ascii=False, indent=2)
+        temporary.replace(self.state_file)
+
+    def load_index_state(self) -> Optional[Dict]:
+        """Load index completion metadata, returning None if it is invalid."""
+        try:
+            with open(self.state_file, "r", encoding="utf-8") as handle:
+                state = json.load(handle)
+            return state if isinstance(state, dict) else None
+        except (OSError, json.JSONDecodeError):
+            return None
 
     def save_tfidf_vocab(self, vectorizer) -> None:
-        """Persist TF-IDF vectorizer vocabulary for later reload."""
-        import pickle
+        """Persist a JSON-only TF-IDF vocabulary for later safe reload."""
         try:
             self.store_path.mkdir(parents=True, exist_ok=True)
-            vocab_path = self.store_path / f"tfidf_vocab_{self.fingerprint_hash[:8]}.pkl"
-            with open(vocab_path, 'wb') as f:
-                pickle.dump({
-                    'vocabulary': vectorizer.vocabulary_,
-                    'idf': vectorizer.idf_.tolist() if hasattr(vectorizer, 'idf_') else [],
-                    'max_features': getattr(vectorizer, 'max_features', 256),
-                }, f)
+            vocab_path = self.store_path / (
+                f"tfidf_vocab_{self.fingerprint_hash[:8]}.json"
+            )
+            temporary = vocab_path.with_suffix(".tmp")
+            vocabulary = {
+                str(term): int(index)
+                for term, index in vectorizer.vocabulary_.items()
+            }
+            idf = (
+                [float(value) for value in vectorizer.idf_.tolist()]
+                if hasattr(vectorizer, "idf_")
+                else []
+            )
+            max_features = getattr(vectorizer, "max_features", 256)
+            payload = {
+                "vocabulary": vocabulary,
+                "idf": idf,
+                "max_features": (
+                    int(max_features) if max_features is not None else 256
+                ),
+            }
+            with open(temporary, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, ensure_ascii=False)
+            temporary.replace(vocab_path)
             logger.info("Saved TF-IDF vocab to %s", vocab_path)
         except Exception as e:
             logger.warning("Failed to save TF-IDF vocab: %s", e)
 
     def load_tfidf_vocab(self) -> Optional[Dict]:
-        """Load persisted TF-IDF vocabulary for query embedding."""
-        import pickle
-        vocab_path = self.store_path / f"tfidf_vocab_{self.fingerprint_hash[:8]}.pkl"
+        """Load and validate persisted TF-IDF vocabulary JSON."""
+        vocab_path = self.store_path / (
+            f"tfidf_vocab_{self.fingerprint_hash[:8]}.json"
+        )
         if not vocab_path.exists():
             return None
         try:
-            with open(vocab_path, 'rb') as f:
-                return pickle.load(f)
+            with open(vocab_path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            vocabulary = data.get("vocabulary")
+            idf = data.get("idf")
+            max_features = data.get("max_features")
+            if not isinstance(vocabulary, dict) or not vocabulary:
+                raise ValueError("missing vocabulary")
+            if not all(
+                isinstance(term, str)
+                and isinstance(index, int)
+                and not isinstance(index, bool)
+                and index >= 0
+                for term, index in vocabulary.items()
+            ):
+                raise ValueError("invalid vocabulary entries")
+            if set(vocabulary.values()) != set(range(len(vocabulary))):
+                raise ValueError("vocabulary indices must be contiguous")
+            if not isinstance(idf, list) or not all(
+                isinstance(value, (int, float)) and not isinstance(value, bool)
+                for value in idf
+            ):
+                raise ValueError("invalid idf values")
+            if idf and len(idf) != len(vocabulary):
+                raise ValueError("idf length does not match vocabulary")
+            if (
+                not isinstance(max_features, int)
+                or isinstance(max_features, bool)
+                or max_features <= 0
+                or max_features > 1_000_000
+                or len(vocabulary) > max_features
+            ):
+                raise ValueError("invalid max_features")
+            return data
         except Exception as e:
             logger.warning("Failed to load TF-IDF vocab: %s", e)
             return None
@@ -267,6 +374,12 @@ class VectorStore:
         ChromaDB is available as an optional upgrade via
         prefer_chromadb=True (set at init or via env var).
         """
+        # Existing indexes keep their recorded backend. A fresh index may opt
+        # into ChromaDB through the environment variable.
+        persisted_backend = (self.load_index_state() or {}).get(
+            "storage_backend"
+        )
+
         # Use SimpleVectorStore by default (small and deterministic)
         self._backend = "simple"
         self._simple_store = SimpleVectorStore(
@@ -276,7 +389,10 @@ class VectorStore:
 
         # Optionally try ChromaDB if env var is set
         import os
-        if os.environ.get("SMARTBENCH_CHROMADB"):
+        prefer_chromadb = persisted_backend == "chromadb" or (
+            persisted_backend is None and bool(os.environ.get("SMARTBENCH_CHROMADB"))
+        )
+        if prefer_chromadb:
             try:
                 self._ensure_chroma_client()
                 test_col = self._client.create_collection(
@@ -316,6 +432,14 @@ class VectorStore:
             )
 
     def _index_chunks_chroma(self, chunk_embedding_pairs, dimension: int) -> int:
+        # This API receives the complete project index, so replace any old
+        # collection rather than leaving chunks for files that were deleted.
+        if self._client is not None:
+            try:
+                self._client.delete_collection(self.collection_name)
+            except Exception:
+                pass
+        self._collection = None
         self._ensure_chroma_collection(dimension)
         ids = []
         embeddings = []

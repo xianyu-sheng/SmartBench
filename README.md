@@ -90,6 +90,8 @@ Inspect available local probes, or run the diagnosis-only path:
 ```bash
 smartbench check
 smartbench diagnose --project . --perf --output diagnostics.json
+smartbench diagnose --project . --perf --system-probes
+smartbench eval-rag --project . --queries tests/fixtures/rag_eval_queries.json
 ```
 
 For a trusted repository, `smartbench quick --project . --sandbox` asks the
@@ -112,7 +114,8 @@ SmartBench uses graph-only retrieval when the optional RAG stack is unavailable.
 
 - Source files in the analyzed repository are not edited by the normal diagnosis pipeline.
 - Git URLs are cloned into a temporary directory.
-- Strategy selection can execute installed diagnostic probes. Use SmartBench only on repositories and local environments you trust.
+- Project-scoped diagnostics can execute installed compilers or analyzers inside the target path. Use SmartBench only on repositories you trust.
+- Host process, memory, and kernel probes (`ps`, `vmstat`, and `dmesg`) are disabled by default. `diagnose --system-probes` explicitly enables them and their output may expose host information.
 - `--sandbox` is explicit opt-in. It protects the working tree, but it is not an OS security boundary: repository tests still run with your user permissions.
 - Evidence status describes whether a reference is grounded, not whether a vulnerability or fix has been formally proven.
 
