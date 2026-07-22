@@ -9,6 +9,7 @@ Handles LLM-hallucinated paths through fuzzy resolution:
 """
 
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -31,7 +32,7 @@ class LocationVerifier:
         """
         self.project_path = Path(project_path).resolve()
         self._file_cache: Dict[str, List[str]] = {}  # path -> lines
-        self._file_index: Optional[Dict[str, str]] = None  # filename -> full path
+        self._file_index: Optional[Dict[str, List[str]]] = None
 
     # ── Public API ──────────────────────────────────────────────────────
 
@@ -51,6 +52,13 @@ class LocationVerifier:
         Returns:
             VerificationResult with resolution details
         """
+        if not isinstance(file_path, str):
+            file_path = ""
+        if isinstance(line, str) and line.strip().isdigit():
+            line = int(line.strip())
+        if not isinstance(function_name, str):
+            function_name = None
+
         result = VerificationResult(
             status=VerificationStatus.UNVERIFIABLE,
             claim=f"{file_path}:{line}" if line else file_path,
@@ -129,36 +137,53 @@ class LocationVerifier:
         claimed_stem = Path(claimed).stem.lower()
 
         # Strategy 1: Exact filename match
-        if claimed_name.lower() in self._file_index:
-            return self._file_index[claimed_name.lower()]
+        exact_paths = self._file_index.get(claimed_name.lower(), [])
+        if len(exact_paths) == 1:
+            return exact_paths[0]
+        if len(exact_paths) > 1:
+            claimed_parts = {part.lower() for part in Path(claimed).parts[:-1]}
+            ranked = sorted(
+                (
+                    len(
+                        claimed_parts
+                        & {part.lower() for part in Path(path).parts[:-1]}
+                    ),
+                    path,
+                )
+                for path in exact_paths
+            )
+            if claimed_parts and ranked[-1][0] > ranked[-2][0]:
+                return ranked[-1][1]
+            return None
 
         # Strategy 2: Stem match with correct extension
         candidates: List[Tuple[str, float]] = []
-        for fname, fpath in self._file_index.items():
+        for fname, paths in self._file_index.items():
             fstem = Path(fname).stem.lower()
             fsuffix = Path(fname).suffix.lower()
+            for fpath in paths:
+                score = 0.0
+                if fstem == claimed_stem:
+                    score += 0.8
+                    if fsuffix == claimed_suffix:
+                        score += 0.2
+                elif claimed_stem in fstem or fstem in claimed_stem:
+                    score += 0.5
+                    if fsuffix == claimed_suffix:
+                        score += 0.2
+                elif self._levenshtein(fstem, claimed_stem) <= 3:
+                    score += 0.3
 
-            score = 0.0
-            if fstem == claimed_stem:
-                score += 0.8
-                if fsuffix == claimed_suffix:
-                    score += 0.2
-            elif claimed_stem in fstem or fstem in claimed_stem:
-                score += 0.5
-                if fsuffix == claimed_suffix:
-                    score += 0.2
-            elif self._levenshtein(fstem, claimed_stem) <= 3:
-                score += 0.3
+                claimed_parts = Path(claimed).parts
+                path_parts = Path(fpath).parts
+                overlap = len(
+                    {part.lower() for part in claimed_parts}
+                    & {part.lower() for part in path_parts}
+                )
+                score += overlap * 0.1
 
-            # Path overlap bonus
-            claimed_parts = Path(claimed).parts
-            path_parts = Path(fpath).parts
-            overlap = len(set(p.lower() for p in claimed_parts) &
-                          set(p.lower() for p in path_parts))
-            score += overlap * 0.1
-
-            if score > 0.3:
-                candidates.append((fpath, score))
+                if score > 0.3:
+                    candidates.append((fpath, score))
 
         if candidates:
             candidates.sort(key=lambda x: -x[1])
@@ -172,16 +197,31 @@ class LocationVerifier:
         excluded = {'.git', 'node_modules', '__pycache__', 'target',
                      'build', '.venv', 'venv', 'dist', '.smartbench'}
 
-        for path in self.project_path.rglob('*'):
-            if not is_project_file(self.project_path, path):
-                continue
-            if set(path.relative_to(self.project_path).parts[:-1]) & excluded:
-                continue
-            try:
-                rel = str(path.relative_to(self.project_path)).replace('\\', '/')
-                self._file_index[path.name.lower()] = rel
-            except ValueError:
-                pass
+        indexed = 0
+        for current, dirnames, filenames in os.walk(
+            self.project_path, topdown=True, followlinks=False
+        ):
+            current_path = Path(current)
+            dirnames[:] = [
+                dirname
+                for dirname in sorted(dirnames)
+                if dirname not in excluded
+                and not (current_path / dirname).is_symlink()
+            ]
+            for filename in sorted(filenames):
+                path = current_path / filename
+                if not is_project_file(self.project_path, path):
+                    continue
+                try:
+                    rel = str(path.relative_to(self.project_path)).replace(
+                        '\\', '/'
+                    )
+                except ValueError:
+                    continue
+                self._file_index.setdefault(path.name.lower(), []).append(rel)
+                indexed += 1
+                if indexed >= 20_000:
+                    return
 
     # ── Line verification ───────────────────────────────────────────────
 
@@ -209,6 +249,13 @@ class LocationVerifier:
             lines = self._read_file(full_path)
         except Exception as e:
             result.detail = f"无法读取文件: {e}"
+            return result
+
+        if line is not None and (
+            not isinstance(line, int) or isinstance(line, bool)
+        ):
+            result.confidence = 0.0
+            result.detail = f"行号格式无效: {line!r}"
             return result
 
         if 1 <= line <= len(lines):
@@ -265,7 +312,7 @@ class LocationVerifier:
         the expected name.
         """
         # Search backwards from line for function/class definition
-        for i in range(line - 1, max(0, line - 30), -1):
+        for i in range(line - 1, max(-1, line - 31), -1):
             ln = lines[i].strip()
             # Common function definition patterns
             for pattern in [

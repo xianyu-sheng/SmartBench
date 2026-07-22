@@ -122,15 +122,18 @@ class CrossChecker:
             Critique dict with added "__verification" field
         """
         verdicts = critique.get("verdicts", [])
+        if not isinstance(verdicts, list):
+            verdicts = []
         verified_verdicts = []
 
         for v in verdicts:
             if not isinstance(v, dict):
-                verified_verdicts.append(v)
                 continue
 
             # Verify each concern against actual code
             concerns = v.get("concerns", [])
+            if not isinstance(concerns, list):
+                concerns = []
             verified_concerns = []
             for c in concerns:
                 if not isinstance(c, str):
@@ -181,8 +184,9 @@ class CrossChecker:
         claims = []
 
         # 1. Explicit evidence claims (new schema)
-        if "evidence_claims" in proposal:
-            for ec in proposal["evidence_claims"]:
+        evidence_claims = proposal.get("evidence_claims")
+        if isinstance(evidence_claims, list):
+            for ec in evidence_claims:
                 if isinstance(ec, dict):
                     claims.append(ec)
             return claims  # If explicit claims exist, use only those
@@ -198,6 +202,8 @@ class CrossChecker:
 
         # 3. Function names mentioned in problem
         problem = proposal.get("problem", "")
+        if not isinstance(problem, str):
+            problem = ""
         func_names = self._extract_function_names(problem)
         for fn in func_names:
             claims.append({
@@ -208,7 +214,11 @@ class CrossChecker:
 
         # 4. Call chains in implementation steps
         steps = proposal.get("implementation_steps", [])
+        if not isinstance(steps, list):
+            steps = []
         for step in steps:
+            if not isinstance(step, str):
+                continue
             chain = self._extract_call_chain(step)
             if chain:
                 claims.append({
@@ -224,6 +234,8 @@ class CrossChecker:
     def _verify_location_claim(self, claim: Dict) -> VerificationResult:
         """Verify a file:line location claim."""
         target = claim.get("target", "")
+        if not isinstance(target, str):
+            target = ""
         file_path, line = self._parse_location(target)
 
         result = self.loc_verifier.verify(file_path, line)
@@ -247,6 +259,8 @@ class CrossChecker:
     def _verify_call_claim(self, claim: Dict) -> VerificationResult:
         """Verify a call chain claim."""
         target = claim.get("target", "")
+        if not isinstance(target, str):
+            target = ""
         chain = [s.strip() for s in target.split("->")]
 
         chain_result = self.extractor.verify_call_chain(chain)
@@ -280,6 +294,10 @@ class CrossChecker:
         """Verify a code pattern claim (e.g., 'missing error handling')."""
         target = claim.get("target", "")
         description = claim.get("description", "")
+        if not isinstance(target, str):
+            target = ""
+        if not isinstance(description, str):
+            description = ""
 
         # Check if the named function exists in graph
         found = self.graph.find_by_name(target)

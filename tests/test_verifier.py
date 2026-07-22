@@ -27,6 +27,7 @@ from smartbench.verifier.cross_checker import CrossChecker
 from smartbench.verifier.location import LocationVerifier
 from smartbench.verifier.sandbox import SandboxVerifier
 from smartbench.verifier.scorer import VerdictScorer
+from smartbench.verifier.verifier import Verifier
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -81,6 +82,20 @@ class TestLocationVerifierVerify:
         assert result.claimed_file == "nonexistent.py"
         assert "文件不存在" in result.detail or "file" in result.detail.lower()
 
+    def test_string_line_is_normalized_and_malformed_line_is_unverifiable(
+        self, tmp_path: Path
+    ):
+        root = _create_project(tmp_path, {"main.py": "value = 1\n"})
+        verifier = LocationVerifier(str(root))
+
+        valid = verifier.verify("main.py", line="1")
+        invalid = verifier.verify("main.py", line="not-a-line")
+
+        assert valid.status == VerificationStatus.VERIFIED
+        assert valid.resolved_line == 1
+        assert invalid.status == VerificationStatus.UNVERIFIABLE
+        assert "格式无效" in invalid.detail
+
 
 class TestLocationVerifierResolveFile:
     """LocationVerifier._resolve_file via _fuzzy_resolve."""
@@ -116,6 +131,20 @@ class TestLocationVerifierResolveFile:
         verifier = LocationVerifier(str(root))
         assert verifier._fuzzy_resolve("") is None
         assert verifier._fuzzy_resolve("   ") is None
+
+    def test_duplicate_filename_requires_unambiguous_path_context(
+        self, tmp_path: Path
+    ):
+        root = _create_project(tmp_path, {
+            "api/helper.py": "api = True\n",
+            "worker/helper.py": "worker = True\n",
+        })
+        verifier = LocationVerifier(str(root))
+
+        assert verifier._fuzzy_resolve("helper.py") is None
+        assert verifier._fuzzy_resolve("worker/missing/helper.py") == (
+            "worker/helper.py"
+        )
 
 
 class TestLocationVerifierMultiple:
@@ -167,6 +196,17 @@ class TestLocationVerifierFindFunction:
         verifier = LocationVerifier(str(root))
         result = verifier.verify("app.py", line=4, function_name="world")
         assert result.actual_function == "world"
+
+    def test_find_function_declared_on_first_line(self, tmp_path: Path):
+        root = _create_project(tmp_path, {
+            "app.py": "def first():\n    return 1\n",
+        })
+        verifier = LocationVerifier(str(root))
+
+        result = verifier.verify("app.py", line=1, function_name="first")
+
+        assert result.actual_function == "first"
+        assert result.status == VerificationStatus.VERIFIED
 
     def test_find_fn_in_rust(self, tmp_path: Path):
         root = _create_project(tmp_path, {
@@ -307,6 +347,43 @@ class TestCrossChecker:
         result = checker.verify_critique(critique, proposals)
         verdicts = result.get("__verification", {}).get("verdicts_checked", 0)
         assert verdicts >= 1
+
+    def test_malformed_nested_claims_do_not_abort_verification(
+        self, mock_graph, mock_graph_retriever, mock_project
+    ):
+        checker = CrossChecker(mock_graph, str(mock_project), mock_graph_retriever)
+        proposals = [{
+            "title": "malformed evidence",
+            "location": "server.py:1",
+            "problem": ["not", "text"],
+            "implementation_steps": "not-a-list",
+            "evidence_claims": None,
+        }]
+
+        result = checker.verify_proposals(proposals)
+        critique = checker.verify_critique(
+            {"verdicts": "not-a-list"}, result
+        )
+
+        assert result[0]["__verification"]["claim_count"] == 1
+        assert critique["__verification"]["verdicts_checked"] == 0
+
+
+def test_verification_stats_tolerate_malformed_scores(
+    mock_graph, mock_graph_retriever, mock_project
+):
+    verifier = Verifier(str(mock_project), mock_graph, mock_graph_retriever)
+
+    stats = verifier.get_verification_stats([
+        {"__verification": {
+            "verdict": "verified",
+            "verification_score": "not-a-number",
+        }},
+        {"__verification": "not-an-object"},
+    ])
+
+    assert stats["verified"] == 1
+    assert stats["overall_score"] == 0.0
 
 
 # ======================================================================

@@ -167,8 +167,14 @@ class Verifier:
             if not isinstance(p, dict):
                 continue
             verif = p.get("__verification", {})
+            if not isinstance(verif, dict):
+                continue
             verdict = verif.get("verdict", "unverifiable")
-            score = verif.get("verification_score", 0)
+            try:
+                score = float(verif.get("verification_score", 0))
+            except (TypeError, ValueError):
+                score = 0.0
+            score = max(0.0, min(score, 1.0))
 
             if verdict == "verified":
                 verified_count += 1
