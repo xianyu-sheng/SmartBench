@@ -408,7 +408,7 @@ class TestPhaseOrchestration:
             )
 
         monkeypatch.setattr(phases.tempfile, "mkdtemp", fake_mkdtemp)
-        monkeypatch.setattr(phases.subprocess, "run", fake_run)
+        monkeypatch.setattr(phases, "run_bounded", fake_run)
 
         result = phases.resolve_project_path(
             null_console, "https://token-secret@example.com/repo.git"

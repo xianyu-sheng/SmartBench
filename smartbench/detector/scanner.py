@@ -10,7 +10,7 @@ import os
 import re
 import subprocess
 from heapq import nsmallest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlsplit, urlunsplit
 
@@ -25,6 +25,7 @@ from smartbench.path_safety import (
     read_text_bounded,
     resolve_project_file,
 )
+from smartbench.subprocess_utils import run_bounded
 
 _DEFAULT_SCAN_MAX_FILES = 100_000
 _DEFAULT_SCAN_MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -528,17 +529,22 @@ class ProjectScanner:
 
     def _detect_git(self, fp: ProjectFingerprint) -> None:
         """Gather git signals without any LLM calls."""
-        git_dir = self.root / ".git"
-        if not git_dir.exists():
+        try:
+            result = run_bounded(
+                ["git", "rev-parse", "--is-inside-work-tree"],
+                cwd=str(self.root), timeout=10,
+            )
+        except (subprocess.SubprocessError, FileNotFoundError, OSError):
             return
-
+        if result.returncode != 0 or result.stdout.strip() != "true":
+            return
         fp.is_git_repo = True
 
         # Remote URL
         try:
-            result = subprocess.run(
+            result = run_bounded(
                 ["git", "remote", "get-url", "origin"],
-                cwd=str(self.root), capture_output=True, text=True, timeout=10,
+                cwd=str(self.root), timeout=10,
             )
             if result.returncode == 0:
                 fp.git_remote_url = _sanitize_git_remote(result.stdout)
@@ -547,9 +553,9 @@ class ProjectScanner:
 
         # Recent commit count
         try:
-            result = subprocess.run(
+            result = run_bounded(
                 ["git", "rev-list", "--count", "HEAD", "--max-count=100"],
-                cwd=str(self.root), capture_output=True, text=True, timeout=10,
+                cwd=str(self.root), timeout=10,
             )
             if result.returncode == 0:
                 fp.recent_commit_count = int(result.stdout.strip())
@@ -558,13 +564,26 @@ class ProjectScanner:
 
         # Hot files (changed in last 10 commits)
         try:
-            result = subprocess.run(
-                ["git", "log", "--name-only", "--pretty=format:", "-n", "10"],
-                cwd=str(self.root), capture_output=True, text=True, timeout=10,
+            result = run_bounded(
+                [
+                    "git", "log", "--name-only", "--relative",
+                    "--pretty=format:", "-n", "10", "--", ".",
+                ],
+                cwd=str(self.root), timeout=10,
             )
             if result.returncode == 0:
-                files = [f.strip() for f in result.stdout.split("\n") if f.strip()]
-                # Count occurrences and take top 5
+                files = []
+                for raw_path in result.stdout.splitlines():
+                    candidate = raw_path.strip().replace("\\", "/")
+                    path = PurePosixPath(candidate)
+                    if (
+                        candidate
+                        and not path.is_absolute()
+                        and ".." not in path.parts
+                        and "\0" not in candidate
+                    ):
+                        files.append(candidate)
+                # Count occurrences and retain a small deterministic hot set.
                 from collections import Counter
                 fp.hot_files = [f for f, _ in Counter(files).most_common(10)]
         except (subprocess.SubprocessError, FileNotFoundError, OSError):

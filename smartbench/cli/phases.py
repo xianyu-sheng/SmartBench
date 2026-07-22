@@ -12,7 +12,6 @@ Orchestrates the 5-phase pipeline:
 import atexit
 import os
 import shutil
-import subprocess
 import tempfile
 from pathlib import Path
 from typing import Dict, Optional, Tuple
@@ -45,6 +44,7 @@ from smartbench.llm.client import call_llm, parse_json_safe
 from smartbench.llm.provider import load_api_keys_from_env
 from smartbench.path_safety import read_text_prefix, resolve_project_file
 from smartbench.prompts.factory import PromptFactory
+from smartbench.subprocess_utils import run_bounded
 from smartbench.terminal import safe_terminal_text
 
 
@@ -87,9 +87,9 @@ def resolve_project_path(console: Console, input_path: str) -> Optional[str]:
         console.print("  [dim]Cloning repository...[/dim]")
         tmpdir = tempfile.mkdtemp(prefix="smartbench_clone_")
         try:
-            result = subprocess.run(
+            result = run_bounded(
                 ["git", "clone", "--depth", "1", input_path, tmpdir],
-                capture_output=True, text=True, timeout=120,
+                timeout=120,
                 env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
             )
             if result.returncode == 0:

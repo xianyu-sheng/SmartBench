@@ -414,6 +414,18 @@ class TestGitDetection:
         assert fp.recent_commit_count == 0
         assert fp.hot_files == []
 
+    def test_git_repo_is_detected_from_nested_project(self, tmp_path: Path):
+        repository = tmp_path / "monorepo"
+        project = repository / "packages" / "service"
+        create_python_project(project)
+        _git_init_and_commit(repository)
+
+        fingerprint = ProjectScanner(str(project)).scan()
+
+        assert fingerprint.is_git_repo is True
+        assert fingerprint.recent_commit_count >= 1
+        assert "main.py" in fingerprint.hot_files
+
 
 # ── Manifest file discovery ─────────────────────────────────────────────────
 

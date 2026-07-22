@@ -117,6 +117,36 @@ def test_command_runner_treats_metacharacters_as_plain_arguments(tmp_path: Path)
     assert not marker.exists()
 
 
+def test_command_runner_bounds_noisy_process_output():
+    result = PythonDiagTool()._run_command(
+        [
+            sys.executable,
+            "-c",
+            "print('A' * 400000); print('OUTPUT-END')",
+        ]
+    )
+
+    assert result.returncode == 0
+    assert len(result.stdout.encode()) < 300000
+    assert "output bytes omitted" in result.stdout
+    assert result.stdout.rstrip().endswith("OUTPUT-END")
+
+
+def test_command_runner_preserves_bounded_output_on_timeout():
+    result = PythonDiagTool()._run_command(
+        [
+            sys.executable,
+            "-c",
+            "import time; print('started', flush=True); time.sleep(5)",
+        ],
+        timeout=0.05,
+    )
+
+    assert result.returncode == -1
+    assert "started" in result.stdout
+    assert "TIMEOUT" in result.stderr
+
+
 def test_python_startup_diagnostic_parses_project_without_executing_it(
     tmp_path: Path
 ):

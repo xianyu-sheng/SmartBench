@@ -13,6 +13,7 @@ from enum import Enum
 from typing import Dict, List, Optional, Sequence
 
 from smartbench.detector.fingerprint import Language
+from smartbench.subprocess_utils import run_bounded
 
 
 class ProblemCategory(Enum):
@@ -155,12 +156,13 @@ class DiagnosticTool(ABC):
                 cmd, -1, "", "Command must be an argument list"
             )
         try:
-            return subprocess.run(
-                list(cmd), shell=False, capture_output=True, text=True,
-                timeout=timeout, cwd=cwd,
+            return run_bounded(
+                list(cmd), timeout=timeout, cwd=cwd,
             )
-        except subprocess.TimeoutExpired:
-            return subprocess.CompletedProcess(list(cmd), -1, "", "TIMEOUT")
+        except subprocess.TimeoutExpired as exc:
+            return subprocess.CompletedProcess(
+                list(cmd), -1, exc.stdout or "", exc.stderr or "TIMEOUT"
+            )
         except FileNotFoundError:
             return subprocess.CompletedProcess(
                 list(cmd), -1, "", f"Command not found: {cmd[0]}"

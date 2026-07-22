@@ -17,6 +17,8 @@ import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from smartbench.subprocess_utils import run_bounded
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MAX_COPY_FILES = 20_000
@@ -359,15 +361,12 @@ class SandboxVerifier:
         input_text: Optional[str] = None,
     ) -> Dict:
         try:
-            proc = subprocess.run(
+            proc = run_bounded(
                 command,
                 cwd=str(cwd),
-                input=input_text,
-                capture_output=True,
-                text=True,
                 timeout=self.timeout,
-                shell=False,
                 env=self._subprocess_environment(),
+                input_text=input_text,
             )
             output = (proc.stdout[-3000:] + "\n" + proc.stderr[-1000:]).strip()
             return {
