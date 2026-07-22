@@ -76,13 +76,30 @@ class RAGEvaluator:
             raise ValueError("Evaluation query file must contain a JSON list")
         self.queries.clear()
         for item in data:
-            if not isinstance(item, dict) or not item.get("query") or not item.get("expected_file"):
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("query"), str)
+                or not item["query"].strip()
+                or not isinstance(item.get("expected_file"), str)
+                or not item["expected_file"].strip()
+            ):
                 raise ValueError("Each evaluation item needs query and expected_file")
+            expected_line = item.get("expected_line", 0)
+            if (
+                not isinstance(expected_line, int)
+                or isinstance(expected_line, bool)
+                or expected_line < 0
+            ):
+                raise ValueError("expected_line must be a non-negative integer")
             self.queries.append(EvalQuery(
                 query=item["query"],
                 expected_file=item["expected_file"],
-                expected_line=item.get("expected_line", 0),
-                description=item.get("description", ""),
+                expected_line=expected_line,
+                description=(
+                    item.get("description", "")
+                    if isinstance(item.get("description", ""), str)
+                    else ""
+                ),
             ))
 
     def evaluate(self, k_values: Tuple[int, ...] = (1, 3, 5, 10)) -> EvalReport:
@@ -96,7 +113,12 @@ class RAGEvaluator:
         """
         if self.retriever is None or not hasattr(self.retriever, "retrieve"):
             raise ValueError("A retriever with a retrieve(query) method is required")
-        normalized_k = tuple(sorted({int(k) for k in k_values if int(k) > 0}))
+        if not self.queries:
+            raise ValueError("No evaluation queries loaded")
+        try:
+            normalized_k = tuple(sorted({int(k) for k in k_values if int(k) > 0}))
+        except (TypeError, ValueError):
+            raise ValueError("k_values must contain positive integers") from None
         if not normalized_k:
             raise ValueError("k_values must contain at least one positive integer")
         report = EvalReport(total_queries=len(self.queries))
@@ -104,7 +126,7 @@ class RAGEvaluator:
         # Detect retrieval mode
         from smartbench.rag.retriever import HybridRetriever
         if isinstance(self.retriever, HybridRetriever):
-            if self.retriever.vector_store:
+            if self.retriever.vector_store and self.retriever.embedder:
                 report.retrieval_mode = "hybrid"
             else:
                 report.retrieval_mode = "graph_only"
@@ -123,7 +145,14 @@ class RAGEvaluator:
             latencies.append(elapsed)
 
             # Extract file paths from retrieved context
-            retrieved_files = self._extract_files_from_context(context)
+            structured_files = getattr(
+                self.retriever, "last_retrieved_files", None
+            )
+            retrieved_files = (
+                list(structured_files)
+                if isinstance(structured_files, list)
+                else self._extract_files_from_context(context)
+            )
 
             # Find rank of expected file
             rank = self._find_rank(eq.expected_file, retrieved_files)

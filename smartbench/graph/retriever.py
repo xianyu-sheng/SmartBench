@@ -41,7 +41,12 @@ class GraphRetriever:
         """
         self.graph = graph
         self.project_path = project_path
-        self.max_chars = max_tokens_estimate * 3  # rough: 1 token ≈ 3 chars for code
+        try:
+            token_budget = int(max_tokens_estimate)
+        except (TypeError, ValueError):
+            token_budget = 4000
+        self.max_chars = max(1, token_budget) * 3
+        self.last_retrieved_files: List[str] = []
 
     def retrieve(self, query: str, hops: int = 2,
                  max_nodes: int = 15) -> str:
@@ -56,6 +61,15 @@ class GraphRetriever:
         Returns:
             Formatted string ready for LLM prompt injection
         """
+        self.last_retrieved_files = []
+        if not isinstance(query, str):
+            query = str(query)
+        try:
+            hops = max(0, int(hops))
+            max_nodes = max(0, int(max_nodes))
+        except (TypeError, ValueError):
+            hops, max_nodes = 2, 15
+
         # 1. Find seed nodes
         seeds = self._find_seeds(query)
 
@@ -84,9 +98,13 @@ class GraphRetriever:
         """
         Retrieve context around specific function names (from profiling/perf data).
         """
+        self.last_retrieved_files = []
+        if not function_names:
+            return "/* No functions found for hotspots */"
         seeds = []
         for name in function_names:
-            seeds.extend(self.graph.find_by_name(name, NodeType.FUNCTION))
+            if isinstance(name, str):
+                seeds.extend(self.graph.find_by_name(name, NodeType.FUNCTION))
 
         if not seeds:
             return "/* No functions found for hotspots */"
@@ -100,6 +118,9 @@ class GraphRetriever:
         """
         Retrieve context from a specific file, optionally focused on a line range.
         """
+        self.last_retrieved_files = []
+        if not isinstance(file_path, str):
+            return f"/* Could not read file: {file_path!r} */"
         full_path = resolve_project_file(self.project_path, file_path)
         if full_path is None:
             return f"/* Could not read file: {file_path} */"
@@ -109,15 +130,30 @@ class GraphRetriever:
         except (OSError, FileNotFoundError):
             return f"/* Could not read file: {file_path} */"
 
+        normalized_path = str(
+            full_path.relative_to(Path(self.project_path).resolve())
+        ).replace("\\", "/")
+        self.last_retrieved_files = [normalized_path]
+
         if focus_lines:
-            start, end = focus_lines
+            try:
+                start, end = (int(value) for value in focus_lines)
+            except (TypeError, ValueError):
+                return f"/* Invalid line range for file: {normalized_path} */"
+            if start < 1 or end < start:
+                return f"/* Invalid line range for file: {normalized_path} */"
             # Add context padding
             pad_start = max(0, start - 10)
             pad_end = min(len(lines), end + 10)
             selected = lines[pad_start:pad_end]
-            return f"// {file_path}:{pad_start+1}-{pad_end}\n" + "".join(selected)
+            return (
+                f"// {normalized_path}:{pad_start+1}-{pad_end}\n"
+                + "".join(selected)
+            )[:self.max_chars]
 
-        return f"// {file_path}:1-{len(lines)}\n" + "".join(lines)
+        return (
+            f"// {normalized_path}:1-{len(lines)}\n" + "".join(lines)
+        )[:self.max_chars]
 
     # ── Seed finding ──────────────────────────────────────────────────
 
@@ -299,8 +335,10 @@ class GraphRetriever:
                 if total_chars + file_chars <= self.max_chars:
                     file_section += block_text
 
-            sections.append(file_section)
-            total_chars += file_chars
+            if len(file_section) > len(f"\n// ── {file_path} ──\n"):
+                sections.append(file_section)
+                self.last_retrieved_files.append(file_path)
+                total_chars += len(file_section)
 
             if total_chars > self.max_chars:
                 sections.append("\n// ... (context truncated, token budget reached)\n")

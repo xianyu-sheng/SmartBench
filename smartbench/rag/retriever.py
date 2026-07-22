@@ -65,8 +65,15 @@ class HybridRetriever:
         )
         self.graph_weight = graph_weight
         self.vector_weight = vector_weight
-        self.min_score = min_score
-        self.max_chars = max_context_chars
+        try:
+            self.min_score = max(0.0, min(float(min_score), 1.0))
+        except (TypeError, ValueError):
+            self.min_score = 0.15
+        try:
+            self.max_chars = max(1, int(max_context_chars))
+        except (TypeError, ValueError):
+            self.max_chars = 12000
+        self.last_retrieved_files: List[str] = []
 
     # ── Public API ──────────────────────────────────────────────────────
 
@@ -89,8 +96,18 @@ class HybridRetriever:
         Returns:
             Formatted string for LLM prompt injection
         """
+        self.last_retrieved_files = []
+        if not isinstance(query, str):
+            query = str(query)
+        try:
+            n_results = max(1, int(n_results))
+        except (TypeError, ValueError):
+            n_results = 15
+
         # Get graph context
         graph_context = self.graph_retriever.retrieve(query)
+        graph_files = list(self.graph_retriever.last_retrieved_files)
+        self.last_retrieved_files = graph_files
         graph_had_results = "No relevant" not in graph_context
 
         # Get vector results if available
@@ -123,7 +140,9 @@ class HybridRetriever:
             return graph_context
 
         # Deduplicate: skip vector results for files already covered by graph
-        new_blocks = self._deduplicate_blocks(vector_blocks, graph_context)
+        new_blocks = self._deduplicate_blocks(
+            vector_blocks, graph_context, graph_files=graph_files
+        )
 
         if not new_blocks:
             return graph_context
@@ -133,9 +152,27 @@ class HybridRetriever:
         parts.append("\n// ── Semantic Search Results (RAG) ──")
         parts.extend(new_blocks)
 
+        visible_vector_files = []
+        cursor = 0
+        for index, part in enumerate(parts):
+            if index:
+                cursor += 1  # separator inserted by ``join``
+            if index >= 2:
+                file_path = self._block_file_path(part)
+                header_length = len(part.split('\n', 1)[0])
+                if file_path and cursor + header_length <= self.max_chars:
+                    visible_vector_files.append(file_path)
+            cursor += len(part)
+
         combined = "\n".join(parts)
         if len(combined) > self.max_chars:
             combined = combined[:self.max_chars] + "\n// ... (context truncated)"
+
+        visible_files = list(graph_files)
+        for file_path in visible_vector_files:
+            if file_path not in visible_files:
+                visible_files.append(file_path)
+        self.last_retrieved_files = visible_files
 
         return combined
 
@@ -280,32 +317,36 @@ class HybridRetriever:
 
         return blocks
 
-    def _deduplicate_blocks(self, vector_blocks: List[str],
-                            graph_context: str) -> List[str]:
+    def _deduplicate_blocks(
+        self,
+        vector_blocks: List[str],
+        graph_context: str,
+        graph_files: Optional[List[str]] = None,
+    ) -> List[str]:
         """Remove vector blocks for files already covered by graph context."""
-        # Extract file paths from graph context
-        graph_files = set()
-        for line in graph_context.split('\n'):
-            if '──' in line and '──' in line:
-                # Extract path from "// ── path/to/file ──"
-                parts = line.split('──')
-                if len(parts) >= 2:
-                    fname = parts[1].strip()
-                    if fname:
-                        graph_files.add(fname)
+        exact_graph_files = set(graph_files or [])
+        if graph_files is None:
+            for line in graph_context.split('\n'):
+                path = self._block_file_path(line)
+                if path:
+                    exact_graph_files.add(path)
 
         new_blocks = []
         for block in vector_blocks:
-            # Check if this block's file is already in graph context
-            is_dup = False
-            for gf in graph_files:
-                if gf in block:
-                    is_dup = True
-                    break
-            if not is_dup:
+            if self._block_file_path(block) not in exact_graph_files:
                 new_blocks.append(block)
 
         return new_blocks
+
+    @staticmethod
+    def _block_file_path(block: str) -> str:
+        """Read the generated path header without inspecting source content."""
+        first_line = block.split('\n', 1)[0]
+        prefix = "// ── "
+        suffix = " ──"
+        if first_line.startswith(prefix) and first_line.endswith(suffix):
+            return first_line[len(prefix):-len(suffix)]
+        return ""
 
     def _fuzzy_resolve_path(self, claimed: str) -> Optional[str]:
         """

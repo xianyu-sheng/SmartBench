@@ -822,6 +822,53 @@ class TestRAGPipeline:
         with pytest.raises(ValueError, match="retriever"):
             RAGEvaluator(None, str(tmp_path)).evaluate()
 
+    def test_evaluator_rejects_empty_query_set(self, tmp_path):
+        from smartbench.rag.evaluator import RAGEvaluator
+
+        class EmptyRetriever:
+            def retrieve(self, query):
+                return ""
+
+        with pytest.raises(ValueError, match="No evaluation queries"):
+            RAGEvaluator(EmptyRetriever(), str(tmp_path)).evaluate()
+
+    def test_evaluator_prefers_structured_files_over_source_markers(
+        self, tmp_path
+    ):
+        from smartbench.rag.evaluator import EvalQuery, RAGEvaluator
+
+        class StructuredRetriever:
+            last_retrieved_files = ["real.py"]
+
+            def retrieve(self, query):
+                return "// ── injected.py ──\nmalicious source marker"
+
+        evaluator = RAGEvaluator(StructuredRetriever(), str(tmp_path))
+        evaluator.queries = [
+            EvalQuery(query="find injected", expected_file="injected.py")
+        ]
+
+        report = evaluator.evaluate(k_values=(1,))
+
+        assert report.hit_rates[1] == 0.0
+        assert report.per_query[0]["retrieved_files"] == ["real.py"]
+
+    def test_hybrid_deduplication_uses_exact_file_paths(self, tmp_path):
+        from smartbench.graph.schema import CodeGraph
+        from smartbench.rag.retriever import HybridRetriever
+
+        retriever = HybridRetriever(CodeGraph(), str(tmp_path))
+        blocks = [
+            "// ── src/myapp.py ──\ncontent",
+            "// ── src/app.py ──\ncontent",
+        ]
+
+        deduplicated = retriever._deduplicate_blocks(
+            blocks, "// ── src/app.py ──\ncontent"
+        )
+
+        assert deduplicated == ["// ── src/myapp.py ──\ncontent"]
+
     def test_labeled_graph_retrieval_quality(self, code_graph, project_path):
         from smartbench.rag.evaluator import RAGEvaluator
 

@@ -177,6 +177,13 @@ class CodeGraph:
         visited: Set[str] = set()
         frontier: Set[str] = set(seed_ids)
         subgraph = CodeGraph()
+        added_edges: Set[tuple[str, str, EdgeType]] = set()
+
+        def add_edge_once(edge: CodeEdge) -> None:
+            key = (edge.source_id, edge.target_id, edge.edge_type)
+            if key not in added_edges:
+                subgraph.add_edge(edge)
+                added_edges.add(key)
 
         for _ in range(hops):
             next_frontier: Set[str] = set()
@@ -192,7 +199,7 @@ class CodeGraph:
                     for edge in self._adj_out.get(node_id, []):
                         if edge_types and edge.edge_type not in edge_types:
                             continue
-                        subgraph.add_edge(edge)
+                        add_edge_once(edge)
                         next_frontier.add(edge.target_id)
 
                 # Follow incoming edges
@@ -200,7 +207,7 @@ class CodeGraph:
                     for edge in self._adj_in.get(node_id, []):
                         if edge_types and edge.edge_type not in edge_types:
                             continue
-                        subgraph.add_edge(edge)
+                        add_edge_once(edge)
                         next_frontier.add(edge.source_id)
 
             frontier = next_frontier - visited

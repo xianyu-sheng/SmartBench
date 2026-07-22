@@ -607,6 +607,17 @@ class TestCodeGraphExpand:
         assert len(sub.nodes) == 1
         assert "a" in sub.nodes
 
+    def test_expand_both_directions_does_not_duplicate_edges(
+        self, graph_with_edges
+    ):
+        sub = graph_with_edges.expand(["a"], hops=2, direction="both")
+
+        edge_keys = {
+            (edge.source_id, edge.target_id, edge.edge_type)
+            for edge in sub.edges
+        }
+        assert len(sub.edges) == len(edge_keys) == 3
+
     def test_expand_adds_referenced_nodes(self, graph_with_edges):
         # Remove 'b' but keep edges referencing it
         g = graph_with_edges
