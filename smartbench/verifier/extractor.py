@@ -9,9 +9,15 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from smartbench.graph.schema import CodeGraph, NodeType
-from smartbench.path_safety import resolve_project_file
+from smartbench.path_safety import read_text_bounded, resolve_project_file
 
 logger = logging.getLogger(__name__)
+
+_MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024
+_MAX_EVIDENCE_CHARS = 12_000
+_MAX_CONTEXT_LINES = 200
+_MAX_CACHED_FILES = 32
+_TRUNCATION_MARKER = "\n... [evidence truncated]"
 
 
 class EvidenceExtractor:
@@ -31,7 +37,7 @@ class EvidenceExtractor:
         """
         self.project_path = Path(project_path).resolve()
         self.graph = graph
-        self._file_cache: Dict[str, List[str]] = {}
+        self._file_cache: Dict[str, Optional[List[str]]] = {}
 
     # ── Public API ──────────────────────────────────────────────────────
 
@@ -43,7 +49,7 @@ class EvidenceExtractor:
 
         Args:
             file_path: Relative file path
-            line: 1-based line number (None = whole file)
+            line: 1-based line number (None = bounded file preview)
             context_lines: Lines of context before/after the target line
 
         Returns:
@@ -54,16 +60,27 @@ class EvidenceExtractor:
             return None
 
         lines = self._read_file(full_path)
-
-        if line is None:
-            return '\n'.join(lines)
-
-        if line < 1 or line > len(lines):
+        if lines is None:
             return None
 
-        start = max(0, line - 1 - context_lines)
-        end = min(len(lines), line + context_lines)
-        return '\n'.join(lines[start:end])
+        if line is None:
+            return self._truncate_evidence('\n'.join(lines))
+
+        if isinstance(line, bool):
+            return None
+        try:
+            normalized_line = int(line)
+            normalized_context = int(context_lines)
+        except (TypeError, ValueError):
+            return None
+        normalized_context = max(0, min(normalized_context, _MAX_CONTEXT_LINES))
+
+        if normalized_line < 1 or normalized_line > len(lines):
+            return None
+
+        start = max(0, normalized_line - 1 - normalized_context)
+        end = min(len(lines), normalized_line + normalized_context)
+        return self._truncate_evidence('\n'.join(lines[start:end]))
 
     def extract_function_at(self, file_path: str,
                             line: int) -> Optional[str]:
@@ -192,13 +209,22 @@ class EvidenceExtractor:
 
     # ── Internals ───────────────────────────────────────────────────────
 
-    def _read_file(self, path: Path) -> List[str]:
-        """Read file with caching."""
+    @staticmethod
+    def _truncate_evidence(content: str) -> str:
+        """Keep evidence prompt-safe even when a source line is enormous."""
+        if len(content) <= _MAX_EVIDENCE_CHARS:
+            return content
+        prefix_size = _MAX_EVIDENCE_CHARS - len(_TRUNCATION_MARKER)
+        return content[:prefix_size] + _TRUNCATION_MARKER
+
+    def _read_file(self, path: Path) -> Optional[List[str]]:
+        """Read a bounded source file with a small FIFO cache."""
         key = str(path)
         if key not in self._file_cache:
-            try:
-                content = path.read_text(encoding='utf-8', errors='ignore')
-                self._file_cache[key] = content.split('\n')
-            except Exception:
-                self._file_cache[key] = []
+            if len(self._file_cache) >= _MAX_CACHED_FILES:
+                self._file_cache.pop(next(iter(self._file_cache)))
+            content = read_text_bounded(path, _MAX_SOURCE_FILE_BYTES)
+            self._file_cache[key] = (
+                content.split('\n') if content is not None else None
+            )
         return self._file_cache[key]

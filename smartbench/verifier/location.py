@@ -14,10 +14,19 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from smartbench.path_safety import is_project_file, resolve_project_file
+from smartbench.path_safety import (
+    is_project_file,
+    read_text_bounded,
+    resolve_project_file,
+)
 from smartbench.verifier import VerificationResult, VerificationStatus
 
 logger = logging.getLogger(__name__)
+
+_MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024
+_MAX_LOCATION_EVIDENCE_CHARS = 12_000
+_MAX_CACHED_FILES = 32
+_TRUNCATION_MARKER = "\n... [evidence truncated]"
 
 
 class LocationVerifier:
@@ -31,7 +40,7 @@ class LocationVerifier:
             project_path: Root directory of the project
         """
         self.project_path = Path(project_path).resolve()
-        self._file_cache: Dict[str, List[str]] = {}  # path -> lines
+        self._file_cache: Dict[str, Optional[List[str]]] = {}
         self._file_index: Optional[Dict[str, List[str]]] = None
 
     # ── Public API ──────────────────────────────────────────────────────
@@ -245,12 +254,6 @@ class LocationVerifier:
             result.detail = f"文件存在: {result.resolved_file}"
             return result
 
-        try:
-            lines = self._read_file(full_path)
-        except Exception as e:
-            result.detail = f"无法读取文件: {e}"
-            return result
-
         if line is not None and (
             not isinstance(line, int) or isinstance(line, bool)
         ):
@@ -258,11 +261,22 @@ class LocationVerifier:
             result.detail = f"行号格式无效: {line!r}"
             return result
 
+        lines = self._read_file(full_path)
+        if lines is None:
+            result.confidence = 0.0
+            result.detail = (
+                "文件存在，但无法在安全读取上限内核验内容 "
+                f"(最大 {_MAX_SOURCE_FILE_BYTES // (1024 * 1024)} MiB)"
+            )
+            return result
+
         if 1 <= line <= len(lines):
             result.resolved_line = line
             ctx_start = max(0, line - 4)
             ctx_end = min(len(lines), line + 3)
-            result.actual_content = '\n'.join(lines[ctx_start:ctx_end])
+            result.actual_content = self._truncate_evidence(
+                '\n'.join(lines[ctx_start:ctx_end])
+            )
 
             if function_name:
                 fun_found = self._find_function_at(lines, line, function_name)
@@ -294,15 +308,24 @@ class LocationVerifier:
 
         return result
 
-    def _read_file(self, path: Path) -> List[str]:
-        """Read file with caching."""
+    @staticmethod
+    def _truncate_evidence(content: str) -> str:
+        """Keep extracted line context within the prompt budget."""
+        if len(content) <= _MAX_LOCATION_EVIDENCE_CHARS:
+            return content
+        prefix_size = _MAX_LOCATION_EVIDENCE_CHARS - len(_TRUNCATION_MARKER)
+        return content[:prefix_size] + _TRUNCATION_MARKER
+
+    def _read_file(self, path: Path) -> Optional[List[str]]:
+        """Read a bounded source file with a small FIFO cache."""
         key = str(path)
         if key not in self._file_cache:
-            try:
-                content = path.read_text(encoding='utf-8', errors='ignore')
-                self._file_cache[key] = content.split('\n')
-            except Exception:
-                self._file_cache[key] = []
+            if len(self._file_cache) >= _MAX_CACHED_FILES:
+                self._file_cache.pop(next(iter(self._file_cache)))
+            content = read_text_bounded(path, _MAX_SOURCE_FILE_BYTES)
+            self._file_cache[key] = (
+                content.split('\n') if content is not None else None
+            )
         return self._file_cache[key]
 
     def _find_function_at(self, lines: List[str], line: int,

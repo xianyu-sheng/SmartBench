@@ -24,6 +24,7 @@ from smartbench.graph.schema import (
 )
 from smartbench.verifier import VerificationResult, VerificationStatus
 from smartbench.verifier.cross_checker import CrossChecker
+from smartbench.verifier.extractor import EvidenceExtractor
 from smartbench.verifier.location import LocationVerifier
 from smartbench.verifier.sandbox import SandboxVerifier
 from smartbench.verifier.scorer import VerdictScorer
@@ -184,6 +185,52 @@ class TestLocationVerifierVerifyLine:
         verifier = LocationVerifier(str(root))
         result = verifier.verify("f.py", line=100)
         assert result.actual_content is None or "c" not in result.actual_content
+
+    def test_oversized_file_is_unverifiable_instead_of_fully_read(
+        self, tmp_path: Path
+    ):
+        root = _create_project(tmp_path, {
+            "large.py": "x" * (2 * 1024 * 1024 + 1),
+        })
+
+        result = LocationVerifier(str(root)).verify("large.py", line=1)
+
+        assert result.status == VerificationStatus.UNVERIFIABLE
+        assert result.confidence == 0.0
+        assert "安全读取上限" in result.detail
+
+    def test_single_long_line_evidence_is_truncated(self, tmp_path: Path):
+        root = _create_project(tmp_path, {"long.py": "x" * 20_000})
+
+        result = LocationVerifier(str(root)).verify("long.py", line=1)
+
+        assert result.status == VerificationStatus.VERIFIED
+        assert len(result.actual_content) <= 12_000
+        assert result.actual_content.endswith("[evidence truncated]")
+
+
+class TestEvidenceExtractorBounds:
+    def test_whole_file_preview_is_truncated(self, tmp_path: Path):
+        root = _create_project(tmp_path, {"long.py": "x" * 20_000})
+
+        evidence = EvidenceExtractor(str(root)).extract_at("long.py")
+
+        assert len(evidence) <= 12_000
+        assert evidence.endswith("[evidence truncated]")
+
+    def test_oversized_file_is_not_loaded(self, tmp_path: Path):
+        root = _create_project(tmp_path, {
+            "large.py": "x" * (2 * 1024 * 1024 + 1),
+        })
+
+        assert EvidenceExtractor(str(root)).extract_at("large.py") is None
+
+    def test_invalid_line_and_context_are_rejected(self, tmp_path: Path):
+        root = _create_project(tmp_path, {"main.py": "a\nb\nc\n"})
+        extractor = EvidenceExtractor(str(root))
+
+        assert extractor.extract_at("main.py", line=True) is None
+        assert extractor.extract_at("main.py", line=2, context_lines="bad") is None
 
 
 class TestLocationVerifierFindFunction:
