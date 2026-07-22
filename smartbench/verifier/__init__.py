@@ -5,7 +5,7 @@ Layers:
   1. LocationVerifier — file:line existence check + fuzzy path resolution
   2. EvidenceExtractor — read actual source code at claimed locations
   3. CrossChecker — cross-validate proposals against code graph + source
-  4. VerdictScorer — score proposals by evidence strength
+  4. VerdictScorer — normalize scores and summarize evidence strength
   5. Verifier — top-level orchestration
 
 All verification is DETERMINISTIC (no LLM calls) — zero hallucination risk.

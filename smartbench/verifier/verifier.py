@@ -63,7 +63,7 @@ class Verifier:
 
         Pipeline:
           1. CrossChecker.verify_proposals() — extract claims, check disk + graph
-          2. VerdictScorer.score_proposals() — compute scores, flag hallucinations
+          2. VerdictScorer.score_proposals() — normalize scores, add breakdowns
 
         Args:
             proposals: List of proposal dicts from Proposer

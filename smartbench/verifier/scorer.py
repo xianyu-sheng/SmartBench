@@ -1,14 +1,12 @@
-"""
-VerdictScorer — assign verification scores and flag hallucinations.
+"""Normalize CrossChecker scores, summarize evidence, and flag weak claims.
 
-Scoring factors (weighted):
-  1. Location validity (40%): file exists + line in range
-  2. Function existence (30%): named function exists in graph
-  3. Call chain accuracy (20%): claimed calls match graph edges
-  4. Source match (10%): actual code matches description
+CrossChecker owns claim verification and aggregate scoring. VerdictScorer keeps
+that score on a bounded 0..1 scale, adds deterministic count/rate breakdowns,
+and creates the human-readable hallucination summary.
 """
 
 import logging
+import math
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -18,18 +16,18 @@ class VerdictScorer:
     """
     Scores proposals and flags potential hallucinations.
 
-    A proposal scoring below 0.3 is flagged as likely hallucinated.
+    By default, a proposal scoring below 0.3 is flagged as likely hallucinated.
     """
 
-    # Score thresholds (adjusted for realistic partial matches)
-    VERIFIED_THRESHOLD = 0.6    # Above this → "verified"
-    PARTIAL_THRESHOLD = 0.25    # Between → "partial"
-                                # Below → "hallucinated"
+    DEFAULT_FLAG_THRESHOLD = 0.3
+    _VALID_VERDICTS = {
+        "verified", "partial", "hallucinated", "unverifiable",
+    }
 
     def score_proposals(self,
                         proposals: List[Dict]) -> List[Dict]:
         """
-        Score multiple proposals and annotate each with scored verification.
+        Normalize verification annotations and add a count/rate breakdown.
 
         Also generates a summary suitable for prompt injection.
 
@@ -45,26 +43,58 @@ class VerdictScorer:
                 scored.append(p)
                 continue
 
-            verif = p.get("__verification", {})
-            if not verif:
+            raw_verif = p.get("__verification", {})
+            if not isinstance(raw_verif, dict) or not raw_verif:
+                reason = (
+                    "无法验证：核验结果格式无效"
+                    if raw_verif
+                    else "无法验证：提案未包含可验证声明"
+                )
                 p["__verification"] = {
                     "verification_score": 0.0,
                     "verdict": "unverifiable",
-                    "flags": ["无法验证：提案未包含可验证声明"],
+                    "flags": [reason],
                     "detail": "请在提案中添加 evidence_claims",
+                    "verified_locations": [],
+                    "partial_locations": [],
+                    "hallucinated_locations": [],
+                    "breakdown": self._compute_breakdown({}),
                 }
                 scored.append(p)
                 continue
 
-            # Enrich with detailed breakdown
+            verif = dict(raw_verif)
+            score, score_is_valid = self._coerce_score(
+                verif.get("verification_score")
+            )
+            verdict = verif.get("verdict", "unverifiable")
+            if not isinstance(verdict, str) or verdict not in self._VALID_VERDICTS:
+                verdict = "unverifiable"
+            flags = self._list_value(verif.get("flags"))
+            if not score_is_valid:
+                verdict = "unverifiable"
+                flags.append("[?] 核验得分格式无效，已按 0 处理")
+
+            verif["verification_score"] = score
+            verif["verdict"] = verdict
+            verif["flags"] = flags
+            for key in (
+                "verified_locations",
+                "partial_locations",
+                "hallucinated_locations",
+            ):
+                verif[key] = self._list_value(verif.get(key))
             verif["breakdown"] = self._compute_breakdown(verif)
             p["__verification"] = verif
             scored.append(p)
 
         return scored
 
-    def flag_hallucinations(self, proposals: List[Dict],
-                            threshold: float = 0.3) -> Dict[str, Any]:
+    def flag_hallucinations(
+        self,
+        proposals: List[Dict],
+        threshold: float = DEFAULT_FLAG_THRESHOLD,
+    ) -> Dict[str, Any]:
         """
         Identify proposals likely to be LLM hallucinations.
 
@@ -77,6 +107,9 @@ class VerdictScorer:
         """
         flagged = []
         clean = []
+        normalized_threshold, threshold_is_valid = self._coerce_score(threshold)
+        if not threshold_is_valid:
+            normalized_threshold = self.DEFAULT_FLAG_THRESHOLD
 
         for p in proposals:
             if not isinstance(p, dict):
@@ -84,14 +117,20 @@ class VerdictScorer:
                 continue
 
             verif = p.get("__verification", {})
-            score = verif.get("verification_score", 0)
+            if not isinstance(verif, dict):
+                verif = {}
+            score, _ = self._coerce_score(verif.get("verification_score"))
 
-            if score < threshold:
+            if score < normalized_threshold:
                 flagged.append({
                     "title": p.get("title", "?"),
                     "score": score,
-                    "hallucinated_locations": verif.get("hallucinated_locations", []),
-                    "partial_locations": verif.get("partial_locations", []),
+                    "hallucinated_locations": self._list_value(
+                        verif.get("hallucinated_locations")
+                    ),
+                    "partial_locations": self._list_value(
+                        verif.get("partial_locations")
+                    ),
                 })
             else:
                 clean.append(p)
@@ -118,7 +157,11 @@ class VerdictScorer:
             for c in clean:
                 if isinstance(c, dict):
                     verif = c.get("__verification", {})
-                    score = verif.get("verification_score", 0)
+                    if not isinstance(verif, dict):
+                        verif = {}
+                    score, _ = self._coerce_score(
+                        verif.get("verification_score")
+                    )
                     summary_parts.append(
                         f"- [✓] **{c.get('title', '?')}** (得分: {score:.0%})\n"
                     )
@@ -143,11 +186,31 @@ class VerdictScorer:
 
     # ── Internals ───────────────────────────────────────────────────────
 
+    @staticmethod
+    def _list_value(value: Any) -> List:
+        """Return a shallow copy only for actual list values."""
+        return list(value) if isinstance(value, list) else []
+
+    @staticmethod
+    def _coerce_score(value: Any) -> tuple[float, bool]:
+        """Convert an external score to a finite value in the range 0..1."""
+        try:
+            score = float(value)
+        except (TypeError, ValueError):
+            return 0.0, False
+        if not math.isfinite(score):
+            return 0.0, False
+        return max(0.0, min(score, 1.0)), True
+
     def _compute_breakdown(self, verif: Dict) -> Dict:
         """Compute detailed score breakdown."""
-        verified = len(verif.get("verified_locations", []))
-        partial = len(verif.get("partial_locations", []))
-        hallucinated = len(verif.get("hallucinated_locations", []))
+        if not isinstance(verif, dict):
+            verif = {}
+        verified = len(self._list_value(verif.get("verified_locations")))
+        partial = len(self._list_value(verif.get("partial_locations")))
+        hallucinated = len(
+            self._list_value(verif.get("hallucinated_locations"))
+        )
         total = verified + partial + hallucinated
 
         return {
@@ -175,11 +238,40 @@ class VerdictScorer:
         if not scores:
             return 0.0
 
+        normalized_scores = []
+        for score in scores:
+            try:
+                value = float(score)
+            except (TypeError, ValueError):
+                raise ValueError("scores must contain finite numbers") from None
+            if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+                raise ValueError("scores must be finite values between 0 and 1")
+            normalized_scores.append(value)
+
         if weights is None:
-            weights = [1.0] * len(scores)
+            normalized_weights = [1.0] * len(normalized_scores)
+        else:
+            if len(weights) != len(normalized_scores):
+                raise ValueError("weights must have the same length as scores")
+            normalized_weights = []
+            for weight in weights:
+                try:
+                    value = float(weight)
+                except (TypeError, ValueError):
+                    raise ValueError(
+                        "weights must contain finite numbers"
+                    ) from None
+                if not math.isfinite(value) or value < 0:
+                    raise ValueError(
+                        "weights must be finite and non-negative"
+                    )
+                normalized_weights.append(value)
 
-        total_weight = sum(weights)
+        total_weight = sum(normalized_weights)
         if total_weight == 0:
-            return sum(scores) / len(scores)
+            return sum(normalized_scores) / len(normalized_scores)
 
-        return sum(s * w for s, w in zip(scores, weights)) / total_weight
+        return sum(
+            score * weight
+            for score, weight in zip(normalized_scores, normalized_weights)
+        ) / total_weight

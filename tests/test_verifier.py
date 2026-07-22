@@ -440,6 +440,36 @@ class TestVerdictScorerScore:
         assert verif.get("verification_score") == 0.0
         assert verif.get("verdict") == "unverifiable"
 
+    def test_malformed_verification_isolated_as_unverifiable(self):
+        scorer = VerdictScorer()
+
+        scored = scorer.score_proposals([
+            {"title": "bad object", "__verification": "not-an-object"},
+            {
+                "title": "bad score",
+                "__verification": {
+                    "verification_score": "not-a-number",
+                    "verdict": "verified",
+                    "verified_locations": "main.py:10",
+                },
+            },
+        ])
+
+        for proposal in scored:
+            verif = proposal["__verification"]
+            assert verif["verification_score"] == 0.0
+            assert verif["verdict"] == "unverifiable"
+            assert verif["breakdown"]["total_claims"] == 0
+
+    def test_score_is_clamped_without_overwriting_valid_verdict(self):
+        scorer = VerdictScorer()
+        proposal = self._proposal_with_verdict(2.5, "verified")
+
+        scored = scorer.score_proposals([proposal])
+
+        assert scored[0]["__verification"]["verification_score"] == 1.0
+        assert scored[0]["__verification"]["verdict"] == "verified"
+
 
 class TestVerdictScorerFlag:
     """flag_hallucinations identifies proposals below a threshold."""
@@ -469,6 +499,36 @@ class TestVerdictScorerFlag:
         result = scorer.flag_hallucinations(proposals, threshold=0.3)
         assert len(result["flagged"]) == 0
         assert len(result["clean"]) == 1
+
+    def test_flagging_tolerates_malformed_nested_values(self):
+        scorer = VerdictScorer()
+        proposals = [{
+            "title": "malformed",
+            "__verification": {
+                "verification_score": "not-a-number",
+                "hallucinated_locations": "missing.py",
+                "partial_locations": None,
+            },
+        }]
+
+        result = scorer.flag_hallucinations(proposals)
+
+        assert result["flagged"] == [{
+            "title": "malformed",
+            "score": 0.0,
+            "hallucinated_locations": [],
+            "partial_locations": [],
+        }]
+        assert "得分: 0%" in result["summary"]
+
+
+def test_verdict_scorer_merge_scores_validates_its_contract():
+    assert VerdictScorer.merge_scores([0.2, 0.8], [1, 3]) == pytest.approx(0.65)
+    assert VerdictScorer.merge_scores([0.2, 0.8], [0, 0]) == pytest.approx(0.5)
+    with pytest.raises(ValueError, match="same length"):
+        VerdictScorer.merge_scores([0.2, 0.8], [1])
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        VerdictScorer.merge_scores([1.5])
 
 
 # ======================================================================
