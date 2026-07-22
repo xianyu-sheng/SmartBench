@@ -1035,6 +1035,71 @@ def broken(:
         graph = builder.build(str(test_dir), Language.PYTHON)
         assert len(graph.nodes) <= 6  # max 3 files x (1 file node + 1 func node per file)
 
+    def test_discovery_uses_one_pruned_walk(self, test_dir, monkeypatch):
+        (test_dir / "src").mkdir()
+        (test_dir / "src" / "app.py").write_text("def app(): pass\n")
+        dependency = test_dir / "node_modules" / "package"
+        dependency.mkdir(parents=True)
+        (dependency / "hidden.py").write_text("def hidden(): pass\n")
+
+        def fail_rglob(*args, **kwargs):
+            raise AssertionError("graph discovery must not use rglob")
+
+        monkeypatch.setattr(Path, "rglob", fail_rglob)
+        graph = CodeGraphBuilder(use_treesitter=False).build(
+            str(test_dir), Language.PYTHON
+        )
+
+        files = {
+            node.file_path
+            for node in graph.nodes.values()
+            if node.node_type == NodeType.FILE
+        }
+        assert files == {"src/app.py"}
+
+    def test_oversized_source_file_is_skipped(self, test_dir):
+        (test_dir / "small.py").write_text("def small(): pass\n")
+        (test_dir / "large.py").write_text("x" * 101)
+        builder = CodeGraphBuilder(
+            use_treesitter=False, max_file_bytes=100
+        )
+
+        graph = builder.build(str(test_dir), Language.PYTHON)
+
+        files = {
+            node.file_path
+            for node in graph.nodes.values()
+            if node.node_type == NodeType.FILE
+        }
+        assert files == {"small.py"}
+
+    def test_source_snapshot_is_read_once_per_build(
+        self, test_dir, monkeypatch
+    ):
+        (test_dir / "app.py").write_text(
+            "import helper\n"
+            "def app():\n"
+            "    helper()\n"
+            "def helper():\n"
+            "    pass\n"
+        )
+        from smartbench.graph import builder as builder_module
+
+        original_read = builder_module.read_text_bounded
+        reads = []
+
+        def tracked_read(path, max_bytes):
+            reads.append(path)
+            return original_read(path, max_bytes)
+
+        monkeypatch.setattr(builder_module, "read_text_bounded", tracked_read)
+
+        CodeGraphBuilder(use_treesitter=False).build(
+            str(test_dir), Language.PYTHON
+        )
+
+        assert reads == [test_dir / "app.py"]
+
     def test_binary_file_skipped_gracefully(self, test_dir, builder):
         """Binary bytes that aren't valid UTF-8 should be handled."""
         f = test_dir / "data.bin"

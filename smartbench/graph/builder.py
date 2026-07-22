@@ -8,6 +8,7 @@ Architecture: language-specific parsers register with the builder.
 Adding a new language = adding a new parser class.
 """
 
+import os
 import re
 import time
 from pathlib import Path
@@ -21,7 +22,16 @@ from smartbench.graph.schema import (
     EdgeType,
     NodeType,
 )
-from smartbench.path_safety import is_project_file, resolve_project_file
+from smartbench.path_safety import (
+    is_project_file,
+    read_text_bounded,
+    resolve_project_file,
+)
+
+_GRAPH_MAX_DIRECTORIES = 5_000
+_GRAPH_MAX_DISCOVERED_FILES = 50_000
+_DEFAULT_MAX_FILES = 500
+_DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024
 
 # ── Regex patterns per language ──────────────────────────────────────
 
@@ -260,13 +270,26 @@ class CodeGraphBuilder:
         "*.pb.go", "*.pb.cc", "*_generated.go",
     ]
 
-    def __init__(self, max_files: int = 500, use_treesitter: bool = True):
+    def __init__(
+        self,
+        max_files: int = _DEFAULT_MAX_FILES,
+        use_treesitter: bool = True,
+        max_file_bytes: int = _DEFAULT_MAX_FILE_BYTES,
+    ):
         """
         Args:
             max_files: Maximum source files to parse (safety limit)
             use_treesitter: Attempt to use tree-sitter if installed
+            max_file_bytes: Maximum bytes read from one source file
         """
-        self.max_files = max_files
+        try:
+            self.max_files = max(1, int(max_files))
+        except (TypeError, ValueError, OverflowError):
+            self.max_files = _DEFAULT_MAX_FILES
+        try:
+            self.max_file_bytes = max(1, int(max_file_bytes))
+        except (TypeError, ValueError, OverflowError):
+            self.max_file_bytes = _DEFAULT_MAX_FILE_BYTES
         self.use_treesitter = use_treesitter
         self._treesitter_available = False
         self._ts_parser = None
@@ -300,6 +323,8 @@ class CodeGraphBuilder:
             "project_path": str(root),
             "language": language.value,
             "build_time_ms": 0,
+            "max_files": self.max_files,
+            "max_file_bytes": self.max_file_bytes,
         })
 
         # 1. Discover source files
@@ -311,6 +336,7 @@ class CodeGraphBuilder:
         # Try tree-sitter first for supported languages, fall back to regex
         patterns = _PATTERNS.get(language, {})
         all_functions: Dict[str, CodeNode] = {}  # name → node for call resolution
+        file_contents: Dict[str, str] = {}
 
         tree_parser = None
         if self._treesitter_available:
@@ -318,11 +344,11 @@ class CodeGraphBuilder:
             tree_parser = get_parser(language.value)
 
         for file_path in source_files:
-            rel_path = str(file_path.relative_to(root))
-            try:
-                content = file_path.read_text(encoding="utf-8", errors="ignore")
-            except (OSError, PermissionError):
+            rel_path = file_path.relative_to(root).as_posix()
+            content = read_text_bounded(file_path, self.max_file_bytes)
+            if content is None:
                 continue
+            file_contents[rel_path] = content
 
             # File node
             file_node = CodeNode(
@@ -370,10 +396,14 @@ class CodeGraphBuilder:
         # Always use regex for call resolution — it's more robust than
         # tree-sitter's call_expression traversal across languages.
         # Tree-sitter is used for precise function/class extraction only.
-        self._resolve_calls(graph, all_functions, patterns)
+        self._resolve_calls(
+            graph, all_functions, patterns, file_contents
+        )
 
         # 4. Resolve imports
-        self._resolve_imports(graph, root, source_files, language, patterns)
+        self._resolve_imports(
+            graph, source_files, language, patterns, file_contents
+        )
 
         elapsed = int((time.time() - start_time) * 1000)
         graph.meta["build_time_ms"] = elapsed
@@ -384,36 +414,85 @@ class CodeGraphBuilder:
 
     def _discover_files(self, root: Path, language: Language,
                         file_filter: Optional[List[str]] = None) -> List[Path]:
-        """Find all source files for the given language."""
+        """Find bounded project source files with a single pruned walk."""
+        extensions = set(_LANG_EXTENSIONS.get(language, []))
+        if not extensions:
+            return []
+
         if file_filter:
             filtered = []
             for requested in file_filter:
+                if not isinstance(requested, (str, Path)):
+                    continue
                 resolved = resolve_project_file(root, requested)
-                if resolved is not None:
-                    filtered.append(resolved)
+                if resolved is None or resolved.suffix not in extensions:
+                    continue
+                if any(
+                    self._match_pattern(resolved.name, pattern)
+                    for pattern in self.EXCLUDED_PATTERNS
+                ):
+                    continue
+                try:
+                    if resolved.stat().st_size > self.max_file_bytes:
+                        continue
+                except OSError:
+                    continue
+                filtered.append(resolved)
             return sorted(set(filtered))[:self.max_files]
 
-        extensions = _LANG_EXTENSIONS.get(language, [])
-        files = []
-
-        for ext in extensions:
-            for f in root.rglob(f"*{ext}"):
-                if not is_project_file(root, f):
-                    continue
-                # Check excluded dirs
-                parts = set(f.relative_to(root).parts[:-1])
-                if parts & self.EXCLUDED_DIRS:
-                    continue
-                # Check excluded patterns
-                if any(self._match_pattern(f.name, pat) for pat in self.EXCLUDED_PATTERNS):
-                    continue
-                files.append(f)
-                if len(files) >= self.max_files:
-                    break
-            if len(files) >= self.max_files:
+        files: List[Path] = []
+        visited_directories = 0
+        discovered_files = 0
+        for current, dirnames, filenames in os.walk(
+            root, topdown=True, followlinks=False
+        ):
+            visited_directories += 1
+            if visited_directories > _GRAPH_MAX_DIRECTORIES:
                 break
 
-        return sorted(files)
+            current_path = Path(current)
+            safe_dirs = []
+            for dirname in sorted(dirnames):
+                candidate = current_path / dirname
+                if (
+                    any(
+                        self._match_pattern(dirname, pattern)
+                        for pattern in self.EXCLUDED_DIRS
+                    )
+                    or candidate.is_symlink()
+                ):
+                    continue
+                try:
+                    candidate.resolve().relative_to(root)
+                except (OSError, RuntimeError, ValueError):
+                    continue
+                safe_dirs.append(dirname)
+            dirnames[:] = safe_dirs
+
+            for filename in sorted(filenames):
+                discovered_files += 1
+                if discovered_files > _GRAPH_MAX_DISCOVERED_FILES:
+                    return files
+                candidate = current_path / filename
+                if candidate.suffix not in extensions:
+                    continue
+                if any(
+                    self._match_pattern(filename, pattern)
+                    for pattern in self.EXCLUDED_PATTERNS
+                ):
+                    continue
+                if not is_project_file(root, candidate):
+                    continue
+                try:
+                    if candidate.stat().st_size > self.max_file_bytes:
+                        continue
+                except OSError:
+                    continue
+                files.append(candidate)
+                if len(files) >= self.max_files:
+                    return files
+
+        return files
 
     @staticmethod
     def _match_pattern(name: str, pattern: str) -> bool:
@@ -543,7 +622,8 @@ class CodeGraphBuilder:
 
     def _resolve_calls(self, graph: CodeGraph,
                        all_functions: Dict[str, CodeNode],
-                       patterns: Dict) -> None:
+                       patterns: Dict,
+                       file_contents: Dict[str, str]) -> None:
         """For each function node, find calls to other known functions."""
         call_pattern = patterns.get("call")
         if not call_pattern:
@@ -552,18 +632,6 @@ class CodeGraphBuilder:
         func_nodes = [n for n in graph.nodes.values() if n.node_type == NodeType.FUNCTION]
         if not func_nodes:
             return
-
-        # Cache file contents to avoid repeated I/O (BUG FIX: was reading per-function)
-        file_contents: Dict[str, str] = {}
-        for fn in func_nodes:
-            if fn.file_path not in file_contents:
-                try:
-                    file_path = (Path(graph.meta["project_path"]) / fn.file_path)
-                    file_contents[fn.file_path] = file_path.read_text(
-                        encoding="utf-8", errors="ignore"
-                    )
-                except (OSError, PermissionError, KeyError):
-                    file_contents[fn.file_path] = ""
 
         for fn in func_nodes:
             content = file_contents.get(fn.file_path, "")
@@ -588,21 +656,29 @@ class CodeGraphBuilder:
                     edge_type=EdgeType.CALLS,
                 ))
 
-    def _resolve_imports(self, graph: CodeGraph, root: Path,
-                         source_files: List[Path], language: Language,
-                         patterns: Dict) -> None:
+    def _resolve_imports(
+        self,
+        graph: CodeGraph,
+        source_files: List[Path],
+        language: Language,
+        patterns: Dict,
+        file_contents: Dict[str, str],
+    ) -> None:
         """Create IMPORT edges between files and imported modules."""
         import_pattern = patterns.get("import")
         if not import_pattern:
             return
 
         for file_path in source_files:
-            rel_path = str(file_path.relative_to(root))
-            file_id = CodeNode.make_id(rel_path, rel_path, NodeType.FILE)
-
             try:
-                content = file_path.read_text(encoding="utf-8", errors="ignore")
-            except (OSError, PermissionError):
+                rel_path = file_path.relative_to(
+                    Path(graph.meta["project_path"])
+                ).as_posix()
+            except (KeyError, ValueError):
+                continue
+            file_id = CodeNode.make_id(rel_path, rel_path, NodeType.FILE)
+            content = file_contents.get(rel_path)
+            if content is None:
                 continue
 
             for match in import_pattern.finditer(content):
