@@ -154,6 +154,80 @@ def test_invalid_response_falls_back_to_next_model(monkeypatch):
     assert call_llm({"models": [first, second]}, "hello") == "fallback"
 
 
+def test_malformed_model_entries_are_skipped_before_valid_fallback(monkeypatch):
+    errors = []
+    valid = _config(model="valid-fallback")["models"][0]
+    calls = []
+
+    def fake_post(url, **kwargs):
+        calls.append(kwargs["json"]["model"])
+        return FakeResponse(200, {
+            "choices": [{"message": {"content": "ok"}}]
+        })
+
+    monkeypatch.setattr("smartbench.llm.client.httpx.post", fake_post)
+    result = call_llm(
+        {
+            "models": [
+                None,
+                "not-an-object",
+                {
+                    "provider": "deepseek",
+                    "model": "broken",
+                    "api_key": ["secret-must-not-leak"],
+                    "base_url": "https://example.test/v1",
+                },
+                valid,
+            ],
+        },
+        "hello",
+        on_error=errors.append,
+    )
+
+    assert result == "ok"
+    assert calls == ["valid-fallback"]
+    assert len(errors) == 3
+    assert all("secret-must-not-leak" not in error for error in errors)
+
+
+def test_invalid_top_level_llm_configuration_returns_stable_error(monkeypatch):
+    errors = []
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("invalid configuration must not reach the network")
+
+    monkeypatch.setattr("smartbench.llm.client.httpx.post", fail_if_called)
+
+    assert call_llm(None, "hello", on_error=errors.append) == ""
+    assert call_llm(
+        {"models": "not-a-list"}, "hello", on_error=errors.append
+    ) == ""
+    assert "API configuration must be an object" in errors
+    assert "API configuration 'models' must be a list" in errors
+
+
+def test_invalid_retry_controls_fall_back_to_safe_defaults(monkeypatch):
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured["timeout"] = kwargs["timeout"]
+        return FakeResponse(200, {
+            "choices": [{"message": {"content": "ok"}}]
+        })
+
+    monkeypatch.setattr("smartbench.llm.client.httpx.post", fake_post)
+
+    result = call_llm(
+        _config(),
+        "hello",
+        timeout_seconds=float("nan"),
+        max_retries="invalid",
+    )
+
+    assert result == "ok"
+    assert 0 < captured["timeout"] <= 120
+
+
 def test_provider_detection_and_environment_loading(monkeypatch):
     assert detect_provider("claude-sonnet-4")[:1] == ("anthropic",)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-secret")
@@ -186,13 +260,16 @@ def test_errors_do_not_include_api_key(monkeypatch):
     errors = []
     monkeypatch.setattr(
         "smartbench.llm.client.httpx.post",
-        lambda *args, **kwargs: FakeResponse(401, text="invalid credentials"),
+        lambda *args, **kwargs: FakeResponse(
+            401, text="secret-key was rejected"
+        ),
     )
 
     call_llm(_config(), "hello", on_error=errors.append)
 
     assert errors
     assert all("secret-key" not in message for message in errors)
+    assert "[REDACTED] was rejected" in errors[0]
     assert json.dumps(errors)
 
 

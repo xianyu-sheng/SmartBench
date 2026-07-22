@@ -2,9 +2,10 @@
 
 import json
 import logging
+import math
 import re
 import time
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -43,14 +44,26 @@ def call_llm(
     other registered provider uses the OpenAI-compatible chat-completions
     schema. Failed providers are tried in role-preference order.
     """
-    models = api_config.get("models", [])
-    if not models and isinstance(api_config, dict):
-        models = _convert_old_format(api_config)
+    models = _normalize_model_configs(api_config, on_error)
     if not models:
         _report_error("No models configured", on_error)
         return ""
-    deadline = time.monotonic() + max(float(timeout_seconds), 0.001)
-    max_retries = max(0, int(max_retries))
+    secret_values = [model["api_key"] for model in models]
+
+    def report_error(message: str) -> None:
+        _report_error(message, on_error, secrets=secret_values)
+
+    try:
+        normalized_timeout = float(timeout_seconds)
+    except (TypeError, ValueError):
+        normalized_timeout = 120.0
+    if not math.isfinite(normalized_timeout):
+        normalized_timeout = 120.0
+    deadline = time.monotonic() + max(normalized_timeout, 0.001)
+    try:
+        max_retries = max(0, int(max_retries))
+    except (TypeError, ValueError):
+        max_retries = 2
 
     ordered = sorted(
         models,
@@ -67,7 +80,7 @@ def call_llm(
         provider = config.get("provider", "unknown")
         base_url = config.get("base_url", "").rstrip("/")
         if not base_url:
-            _report_error(f"{provider}: missing base URL", on_error)
+            report_error(f"{provider}: missing base URL")
             continue
         model_name = config.get("model", "auto")
         if model_name == "auto":
@@ -85,7 +98,7 @@ def call_llm(
         for attempt in range(max_retries + 1):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                _report_error("LLM call timeout budget exhausted", on_error)
+                report_error("LLM call timeout budget exhausted")
                 return ""
             try:
                 response = httpx.post(
@@ -95,31 +108,94 @@ def call_llm(
                     timeout=remaining,
                 )
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
-                _report_error(f"{provider} transport error: {exc}", on_error)
+                report_error(f"{provider} transport error: {exc}")
                 if attempt < max_retries:
                     if not _sleep_before_deadline(2 ** attempt, deadline):
                         return ""
                     continue
                 break
             except Exception as exc:
-                _report_error(f"{provider} client error: {exc}", on_error)
+                report_error(f"{provider} client error: {exc}")
                 break
 
             if 200 <= response.status_code < 300:
                 try:
                     return _extract_content(provider, response.json())
                 except (KeyError, IndexError, TypeError, ValueError) as exc:
-                    _report_error(f"{provider} invalid response: {exc}", on_error)
+                    report_error(f"{provider} invalid response: {exc}")
                     break
 
             message = f"{provider} HTTP {response.status_code}: {response.text[:300]}"
-            _report_error(message, on_error)
+            report_error(message)
             if response.status_code not in _RETRYABLE_STATUS or attempt >= max_retries:
                 break
             if not _sleep_before_deadline(_retry_delay(response, attempt), deadline):
                 return ""
 
     return ""
+
+
+def _normalize_model_configs(
+    api_config: Any,
+    on_error: Optional[Callable[[str], None]],
+) -> List[Dict[str, str]]:
+    """Validate external model configuration without exposing field values."""
+    if not isinstance(api_config, dict):
+        _report_error("API configuration must be an object", on_error)
+        return []
+
+    raw_models = api_config.get("models", [])
+    if not raw_models:
+        raw_models = _convert_old_format(api_config)
+    if not isinstance(raw_models, list):
+        _report_error("API configuration 'models' must be a list", on_error)
+        return []
+
+    normalized: List[Dict[str, str]] = []
+    for index, raw_model in enumerate(raw_models[:32], start=1):
+        prefix = f"Model configuration #{index}"
+        if not isinstance(raw_model, dict):
+            _report_error(f"{prefix} must be an object; skipped", on_error)
+            continue
+
+        api_key = raw_model.get("api_key", "")
+        provider = raw_model.get("provider", "unknown")
+        base_url = raw_model.get("base_url", "")
+        model_name = raw_model.get("model", "auto")
+        role = raw_model.get("role", "all")
+
+        invalid_fields = []
+        if not isinstance(api_key, str) or not api_key.strip():
+            invalid_fields.append("api_key")
+        if not isinstance(provider, str) or not provider.strip():
+            invalid_fields.append("provider")
+        if not isinstance(base_url, str) or not base_url.strip():
+            invalid_fields.append("base_url")
+        if not isinstance(model_name, str) or not model_name.strip():
+            invalid_fields.append("model")
+        if not isinstance(role, str) or not role.strip():
+            invalid_fields.append("role")
+        if invalid_fields:
+            _report_error(
+                f"{prefix} has invalid fields: {', '.join(invalid_fields)}; skipped",
+                on_error,
+            )
+            continue
+
+        normalized.append({
+            "api_key": api_key.strip(),
+            "provider": provider.strip(),
+            "base_url": base_url.strip(),
+            "model": model_name.strip(),
+            "role": role.strip(),
+        })
+
+    if len(raw_models) > 32:
+        _report_error(
+            "Only the first 32 model configurations are considered",
+            on_error,
+        )
+    return normalized
 
 
 def _build_request(
@@ -197,11 +273,19 @@ def _sleep_before_deadline(delay: float, deadline: float) -> bool:
     return True
 
 
-def _report_error(message: str, callback: Optional[Callable[[str], None]]) -> None:
-    logger.warning(message)
+def _report_error(
+    message: str,
+    callback: Optional[Callable[[str], None]],
+    secrets: Optional[List[str]] = None,
+) -> None:
+    safe_message = str(message)
+    for secret in secrets or []:
+        if secret:
+            safe_message = safe_message.replace(secret, "[REDACTED]")
+    logger.warning(safe_message)
     if callback:
         try:
-            callback(message)
+            callback(safe_message)
         except Exception:
             logger.debug("LLM error callback failed", exc_info=True)
 
