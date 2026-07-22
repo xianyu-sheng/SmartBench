@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/xianyu-sheng/SmartBench/actions/workflows/ci.yml/badge.svg)](https://github.com/xianyu-sheng/SmartBench/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg)](https://www.python.org/)
+[![Version: 0.6.1](https://img.shields.io/badge/version-0.6.1-4C1.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Status: Beta](https://img.shields.io/badge/status-beta-orange.svg)](#项目状态)
 
@@ -17,12 +18,13 @@ SmartBench 将确定性仓库指纹、代码结构解析、可选 RAG 检索、�
 
 - 通过依赖目录剪枝与明确扫描上限，确定性识别语言、框架、构建系统、入口、依赖和 Git 信号。
 - 安装 `graph` 可选依赖后，对 Python、Go、JavaScript、TypeScript 和 Rust 使用 tree-sitter 提取符号。
-- 其他语言使用正则启发式回退，并提取近似调用关系。
+- 其他语言使用正则启发式回退，并保守提取近似调用关系；同名定义存在歧义时不会虚构调用边。
 - Proposer、Critique、Judge 三个审查角色，可共用模型，也可分别配置模型。
 - 对引用路径、行号、符号和部分调用链做确定性核验；模糊路径修正会明确标记为“部分可信”。
 - 可选代码图与本地向量混合检索，并带有标注过的检索评测样例。
 - 按策略执行 Python、Go、C/C++、Java/Kotlin 及通用系统诊断探针或生成工具建议。
 - 混合语言仓库会按全部已检测语言路由本地诊断，不会退化成空的通用结果。
+- 支持 Git URL、worktree 与单仓库子项目识别，并限制外部命令的执行时间和输出量。
 - 支持输出 JSON 报告，便于非交互流程使用。
 
 ## 工作流程
@@ -61,6 +63,7 @@ cd SmartBench
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
+smartbench --version
 smartbench --help
 ```
 
@@ -120,6 +123,7 @@ python -m pip install -e ".[rag]"
 - 仓库元数据、README、源码、日志、工具输出和前序模型输出会在提示词中标记为不可信数据，其中类似指令的文字不应控制工作流。这只能缓解 Prompt Injection，并非形式化隔离边界；不要分析包含不允许发送给所配置模型供应商之秘密的仓库。
 - Git remote 中的凭证以及 URL query/fragment 会在写入项目指纹或显示前移除。
 - 项目级诊断可能在目标路径内执行本机已安装的编译器或分析器，只应分析你信任的仓库。
+- 外部工具不通过 shell 执行，并受到时间和输出上限约束；在 POSIX 系统中，超时会终止所启动的整个进程组。
 - 主机进程、内存和内核探针（`ps`、`vmstat`、`dmesg`）默认关闭；只有显式使用 `diagnose --system-probes` 才会运行，并且输出可能暴露主机信息。
 - `--sandbox` 必须显式开启。它会保护工作区、限制补丁只能修改声明的目标文件，并移除凭证型环境变量，但不是操作系统安全边界；仓库测试仍拥有当前用户权限，也可能访问网络或用户文件。
 - 证据状态只描述“引用是否有依据”，不等价于漏洞或修复已被形式化证明。
@@ -151,13 +155,24 @@ python -m compileall -q smartbench
 python -m build
 ```
 
-CI 会在 Python 3.10、3.11、3.12 上执行 lint、编译检查和测试，单独验证五种 tree-sitter 适配器，并构建 wheel 与源码包。
+CI 会在 Python 3.10、3.11、3.12 上执行 lint、编译检查和测试，单独验证五种 tree-sitter 适配器，构建 wheel 与源码包，并在干净环境安装 wheel、从源码目录外执行 CLI 冒烟测试。
+
+## 验证快照
+
+0.6.1 发布候选版本于 2026-07-22 完成以下验证：
+
+- 强制启用五种 tree-sitter 适配器时，417 项自动化测试全部通过。
+- Ruff、字节码编译、wheel 和源码包构建通过。
+- 在干净 Python 3.12 环境安装 wheel 后，从源码目录外成功运行 `--help`、`check`、`diagnose` 和仅代码图 `eval-rag`。
+- 本仓库 12 条查询的仅代码图回归样例达到 MRR 0.829、Hit@5 100%。该结果只用于自检，不代表通用诊断准确率。
+
+版本详情见 [CHANGELOG](CHANGELOG.md)。
 
 ## 项目状态
 
 SmartBench 的定位是诊断工作台，不替代编译器、Linter、安全扫描器、Profiler 或人工审查。接下来的质量里程碑是：
 
-1. 在带标签样例上发布检索与诊断精度数据。
+1. 将检索与诊断精度评测扩展到独立的带标签仓库。
 2. 输出 SARIF 等标准机器可读审查格式。
 3. 为可选仓库测试执行增加更强的进程隔离。
 4. 扩展机器可应用补丁覆盖率和语言专项验证。

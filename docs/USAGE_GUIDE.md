@@ -12,6 +12,7 @@ cd SmartBench
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
+smartbench --version
 ```
 
 可选依赖：
@@ -57,6 +58,9 @@ smartbench quick --project ./my-project --sandbox
 应用或基线本身失败时都不会显示“验证通过”。补丁只能修改建议中声明的目标文件，
 测试子进程会移除凭证型环境变量；但临时副本只能避免修改原工作区，并不隔离测试
 进程，测试代码仍拥有当前用户权限，也可能访问网络或用户文件。
+
+SmartBench 对本地诊断、Git 元数据读取和补丁验证子进程设置超时与输出上限，
+避免异常工具无限占用内存；这仍不等价于操作系统沙箱。
 
 未配置模型时，快速模式仍会显示仓库指纹和代码图统计，但不会执行 LLM 审查。
 
@@ -142,3 +146,5 @@ pytest -q
 python -m compileall -q smartbench
 python -m build
 ```
+
+CI 还会把构建出的 wheel 安装到干净虚拟环境，并从源码目录外执行 CLI 冒烟测试。

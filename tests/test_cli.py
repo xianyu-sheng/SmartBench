@@ -36,6 +36,15 @@ class TestCLIHelp:
         assert "diagnose" in output
         assert "check" in output
         assert "eval-rag" in output
+        assert "--version" in output
+
+    def test_version_reports_package_version(self, runner):
+        from smartbench import __version__
+
+        result = runner.invoke(app, ["--version"])
+
+        assert result.exit_code == 0
+        assert plain_output(result).strip() == f"smartbench {__version__}"
 
     def test_quick_help(self, runner):
         result = runner.invoke(app, ["quick", "--help"])

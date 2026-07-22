@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/xianyu-sheng/SmartBench/actions/workflows/ci.yml/badge.svg)](https://github.com/xianyu-sheng/SmartBench/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg)](https://www.python.org/)
+[![Version: 0.6.1](https://img.shields.io/badge/version-0.6.1-4C1.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Status: Beta](https://img.shields.io/badge/status-beta-orange.svg)](#project-status)
 
@@ -17,12 +18,13 @@ SmartBench combines deterministic repository fingerprinting, structural code par
 
 - Deterministic language, framework, build-system, entry-point, dependency, and Git-signal detection with dependency pruning and explicit scan limits.
 - Tree-sitter symbol extraction for Python, Go, JavaScript, TypeScript, and Rust when the `graph` extra is installed.
-- Regex fallback for broader language coverage and approximate call relationships.
+- Regex fallback for broader language coverage and conservative approximate call relationships; ambiguous duplicate definitions do not receive invented edges.
 - Three review roles: Proposer, Critique, and Judge. They can share one model or use separate models.
 - Deterministic checks for cited paths, line ranges, symbols, and selected call chains; fuzzy path corrections are marked partial.
 - Optional graph plus local-vector hybrid retrieval, with a labeled retrieval-evaluation fixture.
 - Strategy-based local diagnostic probes and recommendations for Python, Go, C/C++, Java/Kotlin, and system signals.
 - Mixed-language repositories route local diagnostics across every detected language instead of collapsing to an empty generic result.
+- Git URLs, worktrees, and nested monorepo projects are recognized; external command output and execution time are bounded.
 - JSON report output for non-interactive workflows.
 
 ## How it works
@@ -61,6 +63,7 @@ cd SmartBench
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
+smartbench --version
 smartbench --help
 ```
 
@@ -121,6 +124,7 @@ SmartBench uses graph-only retrieval when the optional RAG stack is unavailable.
 - Repository metadata, README text, source, logs, tool output, and prior model output are marked as untrusted data in prompts; embedded instruction-like text is not intended to control the workflow. This mitigates prompt injection but is not a formal isolation boundary, so do not analyze repositories containing secrets you cannot expose to the configured model provider.
 - Git remote credentials plus URL query/fragment data are removed before the remote is stored in the fingerprint or displayed.
 - Project-scoped diagnostics can execute installed compilers or analyzers inside the target path. Use SmartBench only on repositories you trust.
+- External tools are run without a shell, with time and output bounds; timeout termination covers the spawned process group on POSIX systems.
 - Host process, memory, and kernel probes (`ps`, `vmstat`, and `dmesg`) are disabled by default. `diagnose --system-probes` explicitly enables them and their output may expose host information.
 - `--sandbox` is explicit opt-in. It protects the working tree, restricts patches to the declared target file, and removes credential-like environment variables, but it is not an OS security boundary: repository tests still run with your user permissions and may access the network or user files.
 - Evidence status describes whether a reference is grounded, not whether a vulnerability or fix has been formally proven.
@@ -152,13 +156,24 @@ python -m compileall -q smartbench
 python -m build
 ```
 
-CI runs lint, compilation, and tests on Python 3.10, 3.11, and 3.12; separately exercises all five parser adapters and builds both a wheel and source distribution.
+CI runs lint, compilation, and tests on Python 3.10, 3.11, and 3.12; separately exercises all five parser adapters, builds both a wheel and source distribution, installs the wheel in a clean environment, and smoke-tests the installed CLI outside the checkout.
+
+## Validation snapshot
+
+The 0.6.1 release candidate was validated on 2026-07-22 with:
+
+- 417 automated tests passing with all five tree-sitter adapters required.
+- Ruff, bytecode compilation, wheel, and source-distribution checks passing.
+- A clean Python 3.12 wheel install running `--help`, `check`, `diagnose`, and graph-only `eval-rag` from outside the source checkout.
+- The repository's 12-query graph-only fixture reaching MRR 0.829 and Hit@5 100%. This is a self-retrieval regression fixture, not a claim of general diagnostic accuracy.
+
+Release details are recorded in the [changelog](CHANGELOG.md).
 
 ## Project status
 
 SmartBench is a diagnostic workbench, not a replacement for compilers, linters, security scanners, profilers, or human review. The next quality milestones are:
 
-1. Publish measured retrieval and diagnostic precision against labeled cases.
+1. Expand retrieval and diagnostic precision measurement to independent labeled repositories.
 2. Export a standard machine-readable review format such as SARIF.
 3. Add stronger process isolation for optional repository test execution.
 4. Expand machine-applicable patch coverage and language-specific validation.

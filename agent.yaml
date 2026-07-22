@@ -4,7 +4,7 @@ description: |
   确定性仓库指纹、代码结构图、可选 RAG 检索、三角色 LLM 审查与本地证据核验
   组成的代码诊断工作台。证据核验确认引用位置，不承诺语义零误报。
 protocol: cli
-version: "0.6.0"
+version: "0.6.1"
 
 capabilities:
   tasks:

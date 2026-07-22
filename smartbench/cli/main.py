@@ -15,6 +15,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from smartbench import __version__
 from smartbench.cli.phases import (
     resolve_project_path,
     run_diagnose_mode,
@@ -36,9 +37,22 @@ app = typer.Typer(
 console = Console()
 
 
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"smartbench {__version__}")
+        raise typer.Exit()
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
+    version: bool = typer.Option(
+        False,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show the installed SmartBench version and exit",
+    ),
     quick: bool = typer.Option(
         False, "--quick", "-q", help="Quick mode: auto-detect everything"
     ),
