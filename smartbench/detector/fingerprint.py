@@ -117,6 +117,8 @@ class ProjectFingerprint:
     total_files: int = 0
     source_files: int = 0
     lines_of_code_estimate: int = 0
+    scan_truncated: bool = False
+    scan_file_limit: int = 0
 
     # Key files discovered
     manifest_files: List[str] = field(default_factory=list)   # go.mod, Cargo.toml, ...
@@ -156,6 +158,8 @@ class ProjectFingerprint:
             "total_files": self.total_files,
             "source_files": self.source_files,
             "lines_of_code_estimate": self.lines_of_code_estimate,
+            "scan_truncated": self.scan_truncated,
+            "scan_file_limit": self.scan_file_limit,
             "manifest_files": self.manifest_files,
             "entry_points": self.entry_points,
             "has_readme": self.has_readme,
@@ -175,7 +179,10 @@ class ProjectFingerprint:
         if self.framework != Framework.NONE:
             parts.append(f"[{self.framework.value}]")
         parts.append(f"[{self.project_type.value}]")
-        parts.append(f"{self.source_files} src files")
+        source_count = f">={self.source_files}" if self.scan_truncated else str(
+            self.source_files
+        )
+        parts.append(f"{source_count} src files")
         if self.is_git_repo:
             parts.append("(git)")
         return " ".join(parts)

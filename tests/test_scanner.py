@@ -170,6 +170,36 @@ class TestLanguageDetection:
         assert fingerprint.primary_language == Language.PYTHON
         assert fingerprint.source_files == 2
 
+    def test_scanner_reports_when_file_limit_is_reached(self, tmp_path: Path):
+        project = tmp_path / "bounded"
+        project.mkdir()
+        for index in range(5):
+            (project / f"module_{index}.py").write_text(
+                f"VALUE = {index}\n"
+            )
+
+        fingerprint = ProjectScanner(str(project), max_files=3).scan()
+
+        assert fingerprint.total_files == 3
+        assert fingerprint.source_files == 3
+        assert fingerprint.scan_truncated is True
+        assert fingerprint.scan_file_limit == 3
+        assert ">=3 src files" in fingerprint.summary()
+
+    def test_scanner_skips_oversized_manifest_content(self, tmp_path: Path):
+        project = tmp_path / "oversized-manifest"
+        project.mkdir()
+        (project / "app.py").write_text("print('ok')\n")
+        (project / "requirements.txt").write_text("flask\n" + "x" * 100)
+
+        fingerprint = ProjectScanner(
+            str(project), max_file_bytes=50
+        ).scan()
+
+        assert fingerprint.primary_language == Language.PYTHON
+        assert fingerprint.framework == Framework.NONE
+        assert fingerprint.dependencies == []
+
 
 # ── Framework detection ─────────────────────────────────────────────────────
 
@@ -485,6 +515,8 @@ class TestProjectFingerprint:
         assert fp.project_type == ProjectType.UNKNOWN
         assert fp.language_confidence == 0.0
         assert fp.total_files == 0
+        assert fp.scan_truncated is False
+        assert fp.scan_file_limit == 0
         assert fp.is_git_repo is False
 
     def test_to_dict_roundtrip(self):
@@ -507,6 +539,8 @@ class TestProjectFingerprint:
         assert d["project_type"] == "web_service"
         assert d["build_system"] == "pip"
         assert d["total_files"] == 10
+        assert d["scan_truncated"] is False
+        assert d["scan_file_limit"] == 0
         assert d["is_git_repo"] is True
         assert d["git_remote_url"] == "https://example.com/repo.git"
         assert d["recent_commit_count"] == 5

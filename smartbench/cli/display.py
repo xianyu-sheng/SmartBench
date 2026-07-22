@@ -235,8 +235,11 @@ def display_fingerprint(console: Console, fp: ProjectFingerprint) -> None:
     )
     table.add_row("Project Type", fp.project_type.value)
     table.add_row("Build System", _safe(fp.build_system or "unknown"))
+    source_count = f">={fp.source_files}" if fp.scan_truncated else str(
+        fp.source_files
+    )
     table.add_row(
-        "Source Files", f"{fp.source_files} (~{fp.lines_of_code_estimate:,} LOC)"
+        "Source Files", f"{source_count} (~{fp.lines_of_code_estimate:,} LOC)"
     )
     table.add_row("Entry Points", _safe(", ".join(fp.entry_points[:5]) or "none"))
     table.add_row("Dependencies", f"{fp.dependency_count} packages")

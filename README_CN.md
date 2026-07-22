@@ -15,7 +15,7 @@ SmartBench 将确定性仓库指纹、代码结构解析、可选 RAG 检索、�
 
 ## 当前已经实现
 
-- 确定性识别语言、框架、构建系统、入口、依赖和 Git 信号。
+- 通过依赖目录剪枝与明确扫描上限，确定性识别语言、框架、构建系统、入口、依赖和 Git 信号。
 - 安装 `graph` 可选依赖后，对 Python、Go、JavaScript、TypeScript 和 Rust 使用 tree-sitter 提取符号。
 - 其他语言使用正则启发式回退，并提取近似调用关系。
 - Proposer、Critique、Judge 三个审查角色，可共用模型，也可分别配置模型。

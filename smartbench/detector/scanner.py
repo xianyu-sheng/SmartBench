@@ -7,6 +7,7 @@ from manifest files, directory conventions, build systems, and git history.
 
 import os
 import subprocess
+from heapq import nsmallest
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlsplit, urlunsplit
@@ -17,7 +18,15 @@ from smartbench.detector.fingerprint import (
     ProjectFingerprint,
     ProjectType,
 )
-from smartbench.path_safety import is_project_file, resolve_project_file
+from smartbench.path_safety import (
+    is_project_file,
+    read_text_bounded,
+    resolve_project_file,
+)
+
+_DEFAULT_SCAN_MAX_FILES = 100_000
+_DEFAULT_SCAN_MAX_FILE_BYTES = 2 * 1024 * 1024
+_SCAN_MAX_DIRECTORIES = 20_000
 
 _EXCLUDED_DIRS = {
     ".git", "node_modules", "__pycache__", "target", "build", "vendor",
@@ -156,24 +165,41 @@ class ProjectScanner:
         print(fingerprint.summary())
     """
 
-    def __init__(self, project_path: str):
+    def __init__(
+        self,
+        project_path: str,
+        max_files: int = _DEFAULT_SCAN_MAX_FILES,
+        max_file_bytes: int = _DEFAULT_SCAN_MAX_FILE_BYTES,
+    ):
         self.root = Path(project_path).resolve()
         if not self.root.exists():
             raise FileNotFoundError(f"Project path does not exist: {self.root}")
         if not self.root.is_dir():
             raise NotADirectoryError(f"Not a directory: {self.root}")
+        try:
+            self.max_files = max(1, int(max_files))
+        except (TypeError, ValueError, OverflowError):
+            self.max_files = _DEFAULT_SCAN_MAX_FILES
+        try:
+            self.max_file_bytes = max(1, int(max_file_bytes))
+        except (TypeError, ValueError, OverflowError):
+            self.max_file_bytes = _DEFAULT_SCAN_MAX_FILE_BYTES
         self._project_files: List[Path] = []
+        self._scan_truncated = False
 
     # ── Public API ────────────────────────────────────────────────────
 
     def scan(self) -> ProjectFingerprint:
         """Run all detection passes and return a complete fingerprint."""
+        self._scan_truncated = False
         fp = ProjectFingerprint(
             project_path=self.root,
             project_name=self.root.name,
         )
 
         self._project_files = self._collect_project_files()
+        fp.scan_truncated = self._scan_truncated
+        fp.scan_file_limit = self.max_files
         self._detect_languages(fp)
         self._detect_manifests(fp)
         self._detect_framework(fp)
@@ -196,9 +222,14 @@ class ProjectScanner:
     def _collect_project_files(self) -> List[Path]:
         """Walk the repository once while pruning dependency and cache trees."""
         files: List[Path] = []
+        visited_directories = 0
         for current, dirnames, filenames in os.walk(
             self.root, topdown=True, followlinks=False
         ):
+            visited_directories += 1
+            if visited_directories > _SCAN_MAX_DIRECTORIES:
+                self._scan_truncated = True
+                break
             current_path = Path(current)
             safe_dirs = []
             for dirname in sorted(dirnames):
@@ -216,7 +247,24 @@ class ProjectScanner:
                 candidate = current_path / filename
                 if is_project_file(self.root, candidate):
                     files.append(candidate)
+                    if len(files) > self.max_files:
+                        self._scan_truncated = True
+                        return files[:self.max_files]
         return files
+
+    def _root_directories(self, limit: int) -> List[Path]:
+        """Return a bounded deterministic sample of immediate directories."""
+        try:
+            with os.scandir(self.root) as entries:
+                directories = (
+                    Path(entry.path)
+                    for entry in entries
+                    if entry.is_dir(follow_symlinks=False)
+                    and entry.name not in _EXCLUDED_DIRS
+                )
+                return nsmallest(limit, directories, key=lambda path: path.name)
+        except OSError:
+            return []
 
     def _detect_languages(self, fp: ProjectFingerprint) -> None:
         """Count source extensions from the single repository walk."""
@@ -248,7 +296,7 @@ class ProjectScanner:
 
     def _detect_manifests(self, fp: ProjectFingerprint) -> None:
         """Find manifest / dependency files at root and common subdirs."""
-        search_dirs = [self.root] + list(self.root.glob("*"))[:20]
+        search_dirs = [self.root, *self._root_directories(20)]
 
         # Manifest files that should NOT override language (too generic)
         GENERIC_MANIFESTS = {"Makefile"}  # noqa: N806
@@ -288,10 +336,10 @@ class ProjectScanner:
                 if manifest_name in ("requirements.txt", "pyproject.toml"):
                     signals = _FRAMEWORK_SIGNALS.get("requirements.txt", [])
 
-            try:
-                content = manifest_path.read_text(encoding="utf-8", errors="ignore").lower()
-            except (OSError, PermissionError):
+            content = read_text_bounded(manifest_path, self.max_file_bytes)
+            if content is None:
                 continue
+            content = content.lower()
 
             for keyword, framework in signals:
                 if keyword.lower() in content:
@@ -327,7 +375,10 @@ class ProjectScanner:
 
     def _detect_project_type(self, fp: ProjectFingerprint) -> None:
         """Infer the project type from structure and dependencies."""
-        root_dirs = {d.name.lower() for d in self.root.iterdir() if d.is_dir()}
+        root_dirs = {
+            directory.name.lower()
+            for directory in self._root_directories(500)
+        }
 
         # Strong signals from directory layout
         if {"raft", "consensus", "paxos"} & root_dirs:
@@ -390,18 +441,18 @@ class ProjectScanner:
         ]
         fp.source_files = len(source_files)
 
-        sample_size = min(20, len(source_files))
         total_lines = 0
         successful_samples = 0
-        for path in source_files[:sample_size]:
-            try:
-                lines = path.read_text(
-                    encoding="utf-8", errors="ignore"
-                ).count("\n")
-                total_lines += max(1, lines)
-                successful_samples += 1
-            except (OSError, PermissionError):
-                pass
+        attempted_samples = 0
+        for path in source_files:
+            if successful_samples >= 20 or attempted_samples >= 200:
+                break
+            attempted_samples += 1
+            content = read_text_bounded(path, self.max_file_bytes)
+            if content is None:
+                continue
+            total_lines += max(1, content.count("\n"))
+            successful_samples += 1
 
         if successful_samples:
             avg_lines = total_lines / successful_samples
@@ -432,8 +483,12 @@ class ProjectScanner:
         ]
         for pattern in config_patterns:
             if "*" in pattern:
-                candidates = list(self.root.glob(pattern))
-                for c in candidates[:5]:
+                candidates = nsmallest(
+                    5,
+                    self.root.glob(pattern),
+                    key=lambda path: path.name,
+                )
+                for c in candidates:
                     if is_project_file(self.root, c):
                         fp.config_files.append(str(c.relative_to(self.root)))
             else:
@@ -520,8 +575,8 @@ class ProjectScanner:
         # Go: go.mod
         go_mod = resolve_project_file(self.root, "go.mod")
         if go_mod is not None:
-            try:
-                content = go_mod.read_text(encoding="utf-8", errors="ignore")
+            content = read_text_bounded(go_mod, self.max_file_bytes)
+            if content is not None:
                 for line in content.split("\n"):
                     line = line.strip()
                     if line and not line.startswith("module") and not line.startswith("go "):
@@ -530,23 +585,19 @@ class ProjectScanner:
                         if "//" in line:
                             line = line[:line.index("//")].strip()
                         parts = line.split()
-                        if parts:
+                        if parts and len(fp.dependencies) < 500:
                             fp.dependencies.append(parts[0].strip('"'))
                 fp.dependency_count = len(fp.dependencies)
-            except (OSError, PermissionError):
-                pass
 
         # Python: requirements.txt
         req_file = resolve_project_file(self.root, "requirements.txt")
         if req_file is not None:
-            try:
-                content = req_file.read_text(encoding="utf-8", errors="ignore")
+            content = read_text_bounded(req_file, self.max_file_bytes)
+            if content is not None:
                 for line in content.split("\n"):
                     line = line.strip()
                     if line and not line.startswith("#"):
                         pkg = line.split("==")[0].split(">=")[0].split("<")[0].strip()
-                        if pkg:
+                        if pkg and len(fp.dependencies) < 500:
                             fp.dependencies.append(pkg)
                 fp.dependency_count = len(fp.dependencies)
-            except (OSError, PermissionError):
-                pass

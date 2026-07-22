@@ -38,13 +38,19 @@ class PromptFactory:
         lang = self.fp.primary_language.value
         fw = self.fp.framework.value
         ptype = self.fp.project_type.value
+        source_count = (
+            f"至少 {self.fp.source_files}"
+            if self.fp.scan_truncated
+            else str(self.fp.source_files)
+        )
 
         signals = f"""- **主要语言**：{lang}（置信度：{self.fp.language_confidence:.0%}）
 - **次要语言**：{[lang.value for lang in self.fp.secondary_languages] or '无'}
 - **框架**：{fw}（置信度：{self.fp.framework_confidence:.0%}）
 - **项目类型**：{ptype}
 - **构建系统**：{self.fp.build_system or '未知'}
-- **源文件**：{self.fp.source_files} 个（预估约 {self.fp.lines_of_code_estimate:,} 行）
+- **源文件**：{source_count} 个（预估约 {self.fp.lines_of_code_estimate:,} 行）
+- **扫描是否达到上限**：{self.fp.scan_truncated}
 - **入口文件**：{', '.join(self.fp.entry_points[:5]) or '未检测到'}
 - **依赖项**：{', '.join(self.fp.dependencies[:20]) or '未检测到'}
 
@@ -93,6 +99,11 @@ class PromptFactory:
         """让 LLM 选择并参数化诊断策略。"""
         lang = self.fp.primary_language.value
         fw = self.fp.framework.value
+        source_count = (
+            f"至少 {self.fp.source_files}"
+            if self.fp.scan_truncated
+            else str(self.fp.source_files)
+        )
 
         strategy_list = "\n".join(
             f"- **{s['name']}**：{s['description']}（工具：{', '.join(s.get('tools', []))}）"
@@ -102,7 +113,7 @@ class PromptFactory:
             f"- 语言：{lang}\n"
             f"- 框架：{fw}\n"
             f"- 类型：{self.fp.project_type.value}\n"
-            f"- 规模：{self.fp.source_files} 个文件，"
+            f"- 规模：{source_count} 个文件，"
             f"约 {self.fp.lines_of_code_estimate:,} 行代码"
         )
 

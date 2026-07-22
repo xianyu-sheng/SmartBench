@@ -15,7 +15,7 @@ SmartBench combines deterministic repository fingerprinting, structural code par
 
 ## What works today
 
-- Deterministic language, framework, build-system, entry-point, dependency, and Git-signal detection.
+- Deterministic language, framework, build-system, entry-point, dependency, and Git-signal detection with dependency pruning and explicit scan limits.
 - Tree-sitter symbol extraction for Python, Go, JavaScript, TypeScript, and Rust when the `graph` extra is installed.
 - Regex fallback for broader language coverage and approximate call relationships.
 - Three review roles: Proposer, Critique, and Judge. They can share one model or use separate models.
