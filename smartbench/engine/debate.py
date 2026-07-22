@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from smartbench.detector.fingerprint import ProjectFingerprint
+from smartbench.llm.client import parse_json_safe
 from smartbench.prompts.factory import PromptFactory
 
 
@@ -114,16 +115,21 @@ class DebateEngine:
         proposer_prompt = self.factory.build_proposer_prompt(
             analysis_context, target, strategy=strategy,
         )
-        proposer_raw = self._safe_call(proposer_prompt, model_name, role="proposer")
-        proposer_json = self._parse_json(proposer_raw)
+        proposer_raw, proposer_json = self._safe_json_call(
+            proposer_prompt,
+            model_name,
+            role="proposer",
+            required_list_field="proposals",
+        )
         total_chars += len(proposer_prompt) + len(proposer_raw or "")
         proposer_log = {"role": "proposer", "input": proposer_prompt[:500],
                         "output": proposer_raw[:500] if proposer_raw else ""}
         if self._last_call_error:
             proposer_log["error"] = self._last_call_error
         log.append(proposer_log)
-        if on_progress:
-            on_progress("proposer", proposer_json, proposer_raw)
+        self._emit_progress(
+            on_progress, "proposer", proposer_json, proposer_raw, log
+        )
 
         if not proposer_json:
             return DebateResult(
@@ -134,6 +140,7 @@ class DebateEngine:
             )
 
         # ── Round 1.5: Verify Proposer claims ── (NEW)
+        verification_summary = ""
         if self.verifier:
             try:
                 proposals = proposer_json.get("proposals", [])
@@ -149,18 +156,24 @@ class DebateEngine:
                         "type": "proposer_check",
                         "verification_summary": verification_summary[:500],
                     })
-                    if on_progress:
-                        on_progress("verifier", {
+                    self._emit_progress(
+                        on_progress,
+                        "verifier",
+                        {
                             "type": "proposer_check",
                             "proposals": verified_proposals,
                             "summary": verification_summary,
-                        }, None)
+                        },
+                        None,
+                        log,
+                    )
                     total_chars += len(verification_summary)
             except Exception as e:
-                log.append({"role": "verifier", "error": str(e)})
+                log.append({
+                    "role": "verifier",
+                    "error": self._format_call_error(e),
+                })
                 verification_summary = ""
-        else:
-            verification_summary = ""
 
         # ── Round 2: Critique (with verification context) ─────────────
         critique_prompt = self.factory.build_critique_prompt(
@@ -168,16 +181,21 @@ class DebateEngine:
             analysis_context,
             verification_summary=verification_summary,
         )
-        critique_raw = self._safe_call(critique_prompt, model_name, role="critique")
-        critique_json = self._parse_json(critique_raw)
+        critique_raw, critique_json = self._safe_json_call(
+            critique_prompt,
+            model_name,
+            role="critique",
+            required_list_field="verdicts",
+        )
         total_chars += len(critique_prompt) + len(critique_raw or "")
         critique_log = {"role": "critique", "input": critique_prompt[:500],
                         "output": critique_raw[:500] if critique_raw else ""}
         if self._last_call_error:
             critique_log["error"] = self._last_call_error
         log.append(critique_log)
-        if on_progress:
-            on_progress("critique", critique_json, critique_raw)
+        self._emit_progress(
+            on_progress, "critique", critique_json, critique_raw, log
+        )
 
         # ── Round 2.5: Verify Critique claims ── (NEW)
         if self.verifier and critique_json:
@@ -192,7 +210,10 @@ class DebateEngine:
                     "type": "critique_check",
                 })
             except Exception as e:
-                log.append({"role": "verifier", "error": str(e)})
+                log.append({
+                    "role": "verifier",
+                    "error": self._format_call_error(e),
+                })
 
         # ── Round 3: Judge (with full verification trail) ──────────────
         judge_prompt = self.factory.build_judge_prompt(
@@ -201,16 +222,19 @@ class DebateEngine:
             analysis_context,
             verification_summary=verification_summary,
         )
-        judge_raw = self._safe_call(judge_prompt, model_name, role="judge")
-        judge_json = self._parse_json(judge_raw)
+        judge_raw, judge_json = self._safe_json_call(
+            judge_prompt,
+            model_name,
+            role="judge",
+            required_list_field="final_suggestions",
+        )
         total_chars += len(judge_prompt) + len(judge_raw or "")
         judge_log = {"role": "judge", "input": judge_prompt[:500],
                      "output": judge_raw[:500] if judge_raw else ""}
         if self._last_call_error:
             judge_log["error"] = self._last_call_error
         log.append(judge_log)
-        if on_progress:
-            on_progress("judge", judge_json, judge_raw)
+        self._emit_progress(on_progress, "judge", judge_json, judge_raw, log)
 
         # ── Extract final suggestions with final verification ────────
         final_suggestions = []
@@ -222,8 +246,12 @@ class DebateEngine:
                     final_suggestions = self.verifier.verify_proposals(
                         final_suggestions
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.append({
+                        "role": "verifier",
+                        "type": "final_check",
+                        "error": self._format_call_error(exc),
+                    })
         elif proposer_json:
             # Fallback: use proposer suggestions directly if judge fails
             final_suggestions = proposer_json.get("proposals", [])
@@ -232,8 +260,12 @@ class DebateEngine:
                     final_suggestions = self.verifier.verify_proposals(
                         final_suggestions
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    log.append({
+                        "role": "verifier",
+                        "type": "fallback_check",
+                        "error": self._format_call_error(exc),
+                    })
 
         elapsed = int((time.time() - start_time) * 1000)
 
@@ -250,63 +282,101 @@ class DebateEngine:
 
     def _safe_call(self, prompt: str, model_name: str, role: str = "") -> str:
         """Call an LLM safely, forwarding role and timeout when supported."""
-        import inspect
-
         self._last_call_error = None
         for _attempt in range(self.max_call_attempts):
             try:
-                signature = inspect.signature(self.llm_call)
-                parameters = signature.parameters
-                accepts_kwargs = any(
-                    parameter.kind == inspect.Parameter.VAR_KEYWORD
-                    for parameter in parameters.values()
-                )
-                kwargs = {}
-                if "role" in parameters or accepts_kwargs:
-                    kwargs["role"] = role
-                if "timeout_seconds" in parameters or accepts_kwargs:
-                    kwargs["timeout_seconds"] = self.timeout
-                response = self.llm_call(prompt, **kwargs)
+                response = self._invoke_llm(prompt, role)
                 if response:
+                    self._last_call_error = None
                     return response
                 self._last_call_error = "LLM returned an empty response"
             except Exception as exc:
-                self._last_call_error = str(exc)
+                self._last_call_error = self._format_call_error(exc)
         return ""
+
+    def _safe_json_call(
+        self,
+        prompt: str,
+        model_name: str,
+        role: str,
+        required_list_field: str,
+    ) -> tuple[str, Optional[Dict]]:
+        """Retry a role until it returns the required JSON object schema."""
+        self._last_call_error = None
+        last_raw = ""
+        for _attempt in range(self.max_call_attempts):
+            try:
+                response = self._invoke_llm(prompt, role)
+            except Exception as exc:
+                self._last_call_error = self._format_call_error(exc)
+                continue
+
+            if not response:
+                self._last_call_error = "LLM returned an empty response"
+                continue
+            last_raw = response
+            parsed = self._parse_json(response)
+            values = parsed.get(required_list_field) if parsed else None
+            if isinstance(values, list) and all(
+                isinstance(item, dict) for item in values
+            ):
+                self._last_call_error = None
+                return response, parsed
+            self._last_call_error = (
+                f"Invalid {role} response: expected JSON object with "
+                f"a '{required_list_field}' list of objects"
+            )
+        return last_raw, None
+
+    def _invoke_llm(self, prompt: str, role: str) -> str:
+        """Invoke callables with only the optional arguments they support."""
+        import inspect
+
+        kwargs = {}
+        try:
+            parameters = inspect.signature(self.llm_call).parameters
+        except (TypeError, ValueError):
+            parameters = {}
+        accepts_kwargs = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in parameters.values()
+        )
+        if "role" in parameters or accepts_kwargs:
+            kwargs["role"] = role
+        if "timeout_seconds" in parameters or accepts_kwargs:
+            kwargs["timeout_seconds"] = self.timeout
+        return self.llm_call(prompt, **kwargs)
+
+    @staticmethod
+    def _format_call_error(exc: Exception) -> str:
+        """Bound exception text so logs and JSON reports cannot grow unbounded."""
+        message = str(exc).replace("\n", " ")[:300]
+        return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+
+    @staticmethod
+    def _emit_progress(
+        callback,
+        role: str,
+        parsed_json: Optional[Dict],
+        raw_text: Optional[str],
+        log: List[Dict[str, Any]],
+    ) -> None:
+        """Keep presentation callback failures from aborting the diagnosis."""
+        if callback is None:
+            return
+        try:
+            callback(role, parsed_json, raw_text)
+        except Exception as exc:
+            log.append({
+                "role": "progress_callback",
+                "source_role": role,
+                "error": DebateEngine._format_call_error(exc),
+            })
 
     @staticmethod
     def _parse_json(raw: str) -> Optional[Dict]:
         """Robust JSON parsing from LLM output."""
-        import re
-
-        if not raw:
+        parsed = parse_json_safe(raw)
+        if parsed is None or set(parsed) == {"error"}:
             return None
-
-        cleaned = raw.strip()
-
-        # Remove markdown code fences
-        if cleaned.startswith("```"):
-            cleaned = re.sub(r"^```(?:json)?\s*\n?", "", cleaned)
-            cleaned = re.sub(r"\n?```\s*$", "", cleaned)
-
-        # Try direct parse
-        try:
-            parsed = json.loads(cleaned)
-            if not isinstance(parsed, dict) or set(parsed) == {"error"}:
-                return None
-            return parsed
-        except json.JSONDecodeError:
-            pass
-
-        # Try to extract JSON block
-        match = re.search(r"\{[\s\S]*\}", cleaned)
-        if match:
-            try:
-                parsed = json.loads(match.group())
-                if not isinstance(parsed, dict) or set(parsed) == {"error"}:
-                    return None
-                return parsed
-            except json.JSONDecodeError:
-                pass
-
-        return None
+        return parsed

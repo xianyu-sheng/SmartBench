@@ -484,6 +484,18 @@ def _create_testable_python_project(tmp_path: Path, expected: int = 1) -> Path:
 class TestSandboxVerifier:
     """Only explicit unified diffs may be reported as test-verified."""
 
+    def test_copy_keeps_legacy_source_files(self, tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "legacy").mkdir()
+        (project / "legacy" / "old.py").write_text("value = 1\n")
+        destination = tmp_path / "copy"
+        destination.mkdir()
+
+        SandboxVerifier(str(project))._copy_project(destination)
+
+        assert (destination / "legacy" / "old.py").read_text() == "value = 1\n"
+
     def test_skips_natural_language_only_suggestion(self, tmp_path: Path):
         project = _create_testable_python_project(tmp_path)
         verifier = SandboxVerifier(str(project))

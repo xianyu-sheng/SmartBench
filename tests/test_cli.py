@@ -4,11 +4,14 @@ CLI integration tests.
 Tests SmartBench CLI commands via typer's CliRunner.
 """
 
+import json
+
 import pytest
 from rich.text import Text
 from typer.testing import CliRunner
 
 from smartbench.cli.main import app
+from smartbench.engine.debate import DebateResult
 
 
 @pytest.fixture
@@ -134,3 +137,29 @@ class TestCLIMain:
         """--quick flag should trigger quick mode."""
         result = runner.invoke(app, ["--quick"])
         assert result.exit_code in (0, 1, 2)
+
+
+class TestReportOutput:
+    def test_report_is_written_as_json_atomically(self, tmp_path):
+        from smartbench.cli.main import _maybe_save_output
+
+        destination = tmp_path / "report.json"
+        _maybe_save_output(
+            DebateResult(final_suggestions=[{"title": "Fix"}]),
+            str(destination),
+        )
+
+        assert json.loads(destination.read_text())["final_suggestions"] == [
+            {"title": "Fix"}
+        ]
+        assert list(tmp_path.glob(".report.json.*.tmp")) == []
+
+    def test_report_write_failure_exits_nonzero(self, tmp_path):
+        from smartbench.cli.main import _maybe_save_output
+
+        with pytest.raises(Exception) as caught:
+            _maybe_save_output(
+                {"ok": True}, str(tmp_path / "missing" / "report.json")
+            )
+
+        assert getattr(caught.value, "exit_code", None) == 1

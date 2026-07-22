@@ -102,6 +102,8 @@ verified.
 
 Credential variables are `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GLM_API_KEY`, `DOUBAO_API_KEY`, `MOONSHOT_API_KEY`, and `DASHSCOPE_API_KEY`. Anthropic uses its native Messages protocol; the others use their OpenAI-compatible chat endpoints. Override a quick-mode default with `SMARTBENCH_<PROVIDER>_MODEL`, for example `SMARTBENCH_ANTHROPIC_MODEL`. The wizard keeps entered keys in process memory.
 
+Each debate role is accepted only after its JSON object matches the required schema; malformed or wrong-shaped responses are retried and an invalid Judge response is never reported as consensus. `--output` is written atomically, and a write failure returns a non-zero CLI status.
+
 ## Optional RAG
 
 ```bash

@@ -236,11 +236,18 @@ def parse_json_safe(raw: str) -> Optional[Dict]:
         return parsed if isinstance(parsed, dict) else None
     except json.JSONDecodeError:
         pass
-    match = re.search(r"\{[\s\S]*\}", cleaned)
-    if match:
+
+    # Decode the first complete object instead of greedily taking everything
+    # between the first and last brace. Models often add prose or a second
+    # example object after the requested answer.
+    decoder = json.JSONDecoder()
+    for index, character in enumerate(cleaned):
+        if character != "{":
+            continue
         try:
-            parsed = json.loads(match.group())
-            return parsed if isinstance(parsed, dict) else None
+            parsed, _ = decoder.raw_decode(cleaned, index)
         except json.JSONDecodeError:
-            pass
+            continue
+        if isinstance(parsed, dict):
+            return parsed
     return None

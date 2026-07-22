@@ -186,7 +186,7 @@ class SandboxVerifier:
         skip_dirs = {
             ".git", "node_modules", "__pycache__", ".venv", "venv",
             "target", "build", "dist", ".smartbench", ".pytest_cache",
-            "legacy", ".mypy_cache", ".ruff_cache",
+            ".mypy_cache", ".ruff_cache",
         }
         skip_suffixes = {".pyc", ".pyo", ".so", ".o", ".a", ".whl", ".egg"}
 

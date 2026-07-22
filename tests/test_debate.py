@@ -558,6 +558,63 @@ class TestDebateFullPipeline:
 
 
 class TestDebateErrorHandling:
+    def test_invalid_proposer_json_is_retried_before_stopping(
+        self, sample_factory, sample_analysis_context, mock_llm
+    ):
+        llm = mock_llm([
+            "not JSON",
+            json.dumps(PROPOSER_RESPONSE, ensure_ascii=False),
+            json.dumps(CRITIQUE_RESPONSE, ensure_ascii=False),
+            json.dumps(JUDGE_RESPONSE, ensure_ascii=False),
+        ])
+        engine = DebateEngine(llm_call_fn=llm, prompt_factory=sample_factory)
+
+        result = engine.debate(sample_analysis_context)
+
+        assert result.consensus_reached is True
+        assert len(result.final_suggestions) == 1
+
+    def test_judge_requires_final_suggestions_schema(
+        self, sample_factory, sample_analysis_context, mock_llm
+    ):
+        llm = mock_llm([
+            json.dumps(PROPOSER_RESPONSE, ensure_ascii=False),
+            json.dumps(CRITIQUE_RESPONSE, ensure_ascii=False),
+            '{"decision": "accepted"}',
+            '{"reasoning": "still missing final_suggestions"}',
+        ])
+        engine = DebateEngine(llm_call_fn=llm, prompt_factory=sample_factory)
+
+        result = engine.debate(sample_analysis_context)
+
+        assert result.consensus_reached is False
+        assert result.final_suggestions == PROPOSER_RESPONSE["proposals"]
+        assert "Invalid judge response" in result.debate_log[-1]["error"]
+
+    def test_progress_callback_failure_does_not_abort_debate(
+        self, sample_factory, sample_analysis_context, mock_llm
+    ):
+        llm = mock_llm([
+            json.dumps(PROPOSER_RESPONSE, ensure_ascii=False),
+            json.dumps(CRITIQUE_RESPONSE, ensure_ascii=False),
+            json.dumps(JUDGE_RESPONSE, ensure_ascii=False),
+        ])
+
+        def broken_callback(*args):
+            raise RuntimeError("display failed")
+
+        engine = DebateEngine(llm_call_fn=llm, prompt_factory=sample_factory)
+        result = engine.debate(
+            sample_analysis_context, on_progress=broken_callback
+        )
+
+        assert result.consensus_reached is True
+        callback_errors = [
+            item for item in result.debate_log
+            if item["role"] == "progress_callback"
+        ]
+        assert len(callback_errors) == 3
+
     def test_proposer_non_json_returns_partial(self, sample_factory, sample_analysis_context):
         """When proposer returns non-JSON, the engine returns early with empty
         suggestions and the debate log captures the failure."""
@@ -645,6 +702,32 @@ class TestDebateErrorHandling:
 
 
 class TestDebateEdgeCases:
+    def test_empty_proposals_with_verifier_does_not_leave_summary_unbound(
+        self, sample_factory, sample_analysis_context, mock_llm
+    ):
+        no_proposals = {"analysis": {}, "proposals": []}
+        no_suggestions = {"decision": "accepted", "final_suggestions": []}
+
+        class Verifier:
+            def verify_critique(self, critique, proposals):
+                return critique
+
+        llm = mock_llm([
+            json.dumps(no_proposals),
+            json.dumps(CRITIQUE_RESPONSE, ensure_ascii=False),
+            json.dumps(no_suggestions),
+        ])
+        engine = DebateEngine(
+            llm_call_fn=llm,
+            prompt_factory=sample_factory,
+            verifier=Verifier(),
+        )
+
+        result = engine.debate(sample_analysis_context)
+
+        assert result.consensus_reached is True
+        assert result.final_suggestions == []
+
     def test_empty_analysis_context(self, sample_factory, mock_llm):
         """Pipeline completes even with an empty context string."""
         llm = mock_llm([

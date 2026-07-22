@@ -101,6 +101,8 @@ smartbench eval-rag --project . --queries tests/fixtures/rag_eval_queries.json
 
 凭证环境变量包括 `DEEPSEEK_API_KEY`、`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`GLM_API_KEY`、`DOUBAO_API_KEY`、`MOONSHOT_API_KEY` 和 `DASHSCOPE_API_KEY`。Anthropic 使用原生 Messages 协议，其余供应商使用各自的 OpenAI 兼容聊天端点。快速模式的默认模型可通过 `SMARTBENCH_<PROVIDER>_MODEL` 覆盖，例如 `SMARTBENCH_ANTHROPIC_MODEL`。向导输入的 Key 只保存在当前进程内存中。
 
+每个辩论角色的输出只有在 JSON 对象符合所需结构后才会被接受；格式错误或字段形状错误会重试，无效的 Judge 输出不会被标记为“达成共识”。`--output` 使用原子写入，保存失败时 CLI 返回非零状态码。
+
 ## 可选 RAG
 
 ```bash

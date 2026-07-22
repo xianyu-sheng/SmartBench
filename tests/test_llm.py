@@ -168,6 +168,12 @@ def test_parse_json_safe_rejects_invalid_and_accepts_fences():
     assert parse_json_safe('```json\n{"ok": true}\n```') == {"ok": True}
 
 
+def test_parse_json_safe_extracts_first_complete_object_from_prose():
+    raw = 'Result: {"ok": true}\nExample: {"ok": false}'
+
+    assert parse_json_safe(raw) == {"ok": True}
+
+
 def test_errors_do_not_include_api_key(monkeypatch):
     errors = []
     monkeypatch.setattr(

@@ -310,6 +310,11 @@ def run_diagnosis_with_graph(
         console.print(f"\n  [cyan]Strategy:[/cyan] {selected}")
         if reasoning:
             console.print(f"  [dim]{reasoning}[/dim]")
+    else:
+        console.print(
+            f"\n  [cyan]Strategy:[/cyan] {selected} "
+            "[dim](deterministic fallback)[/dim]"
+        )
 
     # Hybrid context retrieval (graph + RAG)
     retriever = GraphRetriever(graph, project_path, max_tokens_estimate=4000)
@@ -408,6 +413,7 @@ def run_diagnosis_with_graph(
             )
             sv = SandboxVerifier(project_path, timeout_seconds=30)
             sandboxed = sv.verify_all_proposals(result.final_suggestions)
+            result.final_suggestions = sandboxed
             statuses = Counter(
                 s.get("__sandbox_verification", {}).get("status", "skipped")
                 for s in sandboxed if isinstance(s, dict)

@@ -189,20 +189,44 @@ def check():
 
 
 def _maybe_save_output(result, output_path: Optional[str]) -> None:
-    """Save diagnosis result to a JSON file if --output is specified."""
+    """Atomically save JSON output and fail the command on write errors."""
     if not output_path or result is None:
         return
 
     import json as _json
+    import tempfile
     from dataclasses import asdict, is_dataclass
+    from pathlib import Path
 
+    temporary_path = None
     try:
         data = asdict(result) if is_dataclass(result) else result
-        with open(output_path, "w", encoding="utf-8") as f:
-            _json.dump(data, f, ensure_ascii=False, indent=2)
-        console.print(f"[green]Report saved to: {output_path}[/green]")
+        payload = _json.dumps(data, ensure_ascii=False, indent=2)
+        destination = Path(output_path).expanduser()
+        parent = destination.parent
+        if not parent.is_dir():
+            raise FileNotFoundError(f"parent directory does not exist: {parent}")
+        descriptor, temporary_path = tempfile.mkstemp(
+            dir=parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            text=True,
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(payload)
+            handle.write("\n")
+        os.replace(temporary_path, destination)
+        temporary_path = None
+        console.print(f"[green]Report saved to: {destination}[/green]")
     except Exception as e:
         console.print(f"[red]Failed to save output: {e}[/red]")
+        raise typer.Exit(1) from e
+    finally:
+        if temporary_path:
+            try:
+                Path(temporary_path).unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":

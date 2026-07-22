@@ -448,7 +448,51 @@ class TestPhaseOrchestration:
         assert graph is not None
         assert len(graph.nodes) > 0
         # RAG should be None since we passed build_rag=False
-        # (but it might still be None if dependencies are missing)
+        assert retriever is None
+
+    def test_sandbox_annotations_are_kept_in_returned_report(
+        self,
+        monkeypatch,
+        null_console,
+        project_path,
+        fingerprint,
+        code_graph,
+    ):
+        import smartbench.cli.phases as phases
+        import smartbench.diagnostics.executor as diagnostic_executor
+
+        responses = iter([
+            STRATEGY_RESPONSE,
+            PROPOSER_RESPONSE,
+            CRITIQUE_RESPONSE,
+            JUDGE_RESPONSE,
+        ])
+        monkeypatch.setattr(
+            phases, "call_llm", lambda *args, **kwargs: next(responses)
+        )
+        monkeypatch.setattr(
+            phases, "display_diagnosis_results", lambda *args, **kwargs: None
+        )
+        monkeypatch.setattr(
+            diagnostic_executor,
+            "run_tools_for_strategy",
+            lambda *args, **kwargs: "",
+        )
+
+        result = phases.run_diagnosis_with_graph(
+            null_console,
+            project_path,
+            fingerprint,
+            code_graph,
+            api_config={"models": [{"api_key": "test"}]},
+            concern="review correctness",
+            enable_verify=False,
+            enable_sandbox=True,
+        )
+
+        annotation = result.final_suggestions[0]["__sandbox_verification"]
+        assert annotation["status"] == "skipped"
+        assert "unified diff" in annotation["error"]
 
     def test_fallback_analysis_no_api(self, null_console, project_path, fingerprint):
         from smartbench.cli.phases import run_fallback_analysis
