@@ -341,6 +341,20 @@ class TestGitDetection:
             assert fp.recent_commit_count >= 1
             assert "example.com" in fp.git_remote_url
 
+    def test_git_remote_credentials_are_not_stored(self, tmp_path: Path):
+        p = tmp_path / "credentialed-remote"
+        p.mkdir()
+        create_python_project(p)
+        _git_init_and_commit(
+            p,
+            "https://user:super-secret@example.com/repo.git?token=also-secret",
+        )
+
+        fingerprint = ProjectScanner(str(p)).scan()
+
+        assert fingerprint.git_remote_url == "https://example.com/repo.git"
+        assert "secret" not in fingerprint.git_remote_url
+
     def test_no_git(self, tmp_path: Path):
         """Without .git, all git fields should keep their defaults."""
         p = tmp_path / "no-git"

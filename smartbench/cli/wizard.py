@@ -20,6 +20,7 @@ from smartbench.cli.phases import (
     run_phase1_detection,
     run_phase4_graph,
 )
+from smartbench.cli.text import safe_terminal_text
 from smartbench.llm.client import call_llm, parse_json_safe
 from smartbench.llm.provider import configure_api_keys
 from smartbench.path_safety import resolve_project_file
@@ -52,9 +53,13 @@ def run_interactive_wizard(
 
     project_path = resolve_project_path(console, project_input)
     if not project_path:
-        console.print(f"[red]Cannot access: {project_input}[/red]")
+        console.print(
+            f"[red]Cannot access: {safe_terminal_text(project_input)}[/red]"
+        )
         raise typer.Exit(1)
-    console.print(f"  [green]OK[/green] Project: {project_path}")
+    console.print(
+        f"  [green]OK[/green] Project: {safe_terminal_text(project_path)}"
+    )
 
     # ── Step 2: API keys ──────────────────────────────────────────
     console.print("\n[bold]Step 2/4[/bold] — Configure LLM API keys")
@@ -119,7 +124,9 @@ def run_interactive_wizard(
     )
 
     if graph and len(graph.nodes) > 0:
-        console.print(f"  [green]OK[/green] {graph.summary()}")
+        console.print(
+            f"  [green]OK[/green] {safe_terminal_text(graph.summary())}"
+        )
         result = run_diagnosis_with_graph(
             console, project_path, fingerprint, graph, api_config,
             user_concern, hybrid_retriever=hybrid_retriever,

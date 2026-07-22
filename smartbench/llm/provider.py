@@ -12,6 +12,8 @@ from typing import Dict, List, Optional, Tuple
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
 
+from smartbench.cli.text import safe_terminal_text
+
 # ═══════════════════════════════════════════════════════════════════════
 # Provider Registry
 # ═══════════════════════════════════════════════════════════════════════
@@ -185,12 +187,17 @@ def configure_api_keys(console: Console) -> Optional[Dict]:
                     "base_url": info.get("base_url", ""),
                     "role": "all",
                 })
-                console.print(f"    [green]OK[/green] {display}")
+                console.print(
+                    f"    [green]OK[/green] {safe_terminal_text(display)}"
+                )
 
     if len(models_list) >= 3:
         for i, m in enumerate(models_list[:3]):
             m["role"] = ROLE_KEYS[i]
-            console.print(f"    [dim]{ROLE_NAMES_CN[i]} → {m.get('model', 'auto')}[/dim]")
+            console.print(
+                f"    [dim]{ROLE_NAMES_CN[i]} → "
+                f"{safe_terminal_text(m.get('model', 'auto'))}[/dim]"
+            )
 
     # Step B: Choose config mode
     console.print("\n  [bold]How to configure?[/bold]")
@@ -207,7 +214,10 @@ def configure_api_keys(console: Console) -> Optional[Dict]:
         if model:
             model["role"] = "all"
             models_list.append(model)
-            console.print(f"    [green]OK[/green] Proposer / Critique / Judge 共用 [{model['model']}]")
+            console.print(
+                "    [green]OK[/green] Proposer / Critique / Judge 共用 "
+                f"{safe_terminal_text(model['model'])}"
+            )
     else:
         console.print("\n  [bold]Configure one model per role:[/bold]")
         console.print("  [dim]For maximum credibility, use different models for each role.[/dim]")
@@ -230,7 +240,11 @@ def configure_api_keys(console: Console) -> Optional[Dict]:
         for m in models_list:
             role = m.get("role", "?")
             role_display = dict(zip(ROLE_KEYS, ROLE_NAMES_CN)).get(role, role)
-            console.print(f"  [dim]{role_display} → {m['model']} ({m.get('provider', '?')})[/dim]")
+            console.print(
+                f"  [dim]{safe_terminal_text(role_display)} → "
+                f"{safe_terminal_text(m['model'])} "
+                f"({safe_terminal_text(m.get('provider', '?'))})[/dim]"
+            )
 
     return {"models": models_list}
 
@@ -242,7 +256,10 @@ def _prompt_single_model(console: Console) -> Optional[Dict]:
         return None
 
     provider_key, base_url, display = detect_provider(model)
-    console.print(f"      [dim]Provider: {display} → {base_url}[/dim]")
+    console.print(
+        f"      [dim]Provider: {safe_terminal_text(display)} → "
+        f"{safe_terminal_text(base_url)}[/dim]"
+    )
     override = Prompt.ask("      Base URL (Enter to confirm)", default="").strip()
     if override:
         base_url = override
@@ -273,7 +290,7 @@ def masked_input(console: Console, prompt_text: str) -> str:
     Returns:
         The entered string (never displayed in plaintext).
     """
-    console.print(f"  {prompt_text}: ", end="")
+    console.print(f"  {safe_terminal_text(prompt_text)}: ", end="")
 
     if _sys.platform == "win32":
         value = _masked_input_windows()
@@ -282,8 +299,7 @@ def masked_input(console: Console, prompt_text: str) -> str:
 
     # Show masked confirmation
     if value:
-        mask = value[:3] + "****" + value[-4:] if len(value) > 10 else "****"
-        console.print(f"    [dim]saved: {mask}[/dim]")
+        console.print("    [dim]saved: ****[/dim]")
     return value
 
 
@@ -321,6 +337,9 @@ def _masked_input_unix() -> str:
         chars = []
         while True:
             ch = _sys.stdin.read(1)
+            if ch in ("", "\x04"):  # EOF / Ctrl+D
+                print()
+                break
             if ch in ("\r", "\n"):
                 print()
                 break

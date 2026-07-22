@@ -29,6 +29,7 @@ from smartbench.cli.display import (
     display_graph_stats,
     show_debate_round,
 )
+from smartbench.cli.text import safe_terminal_text
 from smartbench.detector.fingerprint import ProjectFingerprint
 from smartbench.detector.scanner import ProjectScanner
 from smartbench.diagnostics.registry import (
@@ -174,7 +175,9 @@ def run_phase4_graph(
             breakdown = ", ".join(
                 f"{lang}:{count}" for lang, count in sorted(lang_counts.items())
             )
-            console.print(f"    [dim]语言分布: {breakdown}[/dim]")
+            console.print(
+                f"    [dim]语言分布: {safe_terminal_text(breakdown)}[/dim]"
+            )
 
         # RAG vector index
         hybrid_retriever = None
@@ -185,7 +188,9 @@ def run_phase4_graph(
 
         return main_graph, hybrid_retriever
     except Exception as e:
-        console.print(f"  [yellow]代码图构建问题: {e}[/yellow]")
+        console.print(
+            f"  [yellow]代码图构建问题: {safe_terminal_text(e)}[/yellow]"
+        )
         return None, None
 
 
@@ -219,13 +224,17 @@ def _build_rag_index(
         )
         return HybridRetriever(graph, project_path, store, rag_embedder)
     except ImportError as e:
-        console.print(f"    [yellow]RAG 依赖未安装: {e}[/yellow]")
+        console.print(
+            f"    [yellow]RAG 依赖未安装: {safe_terminal_text(e)}[/yellow]"
+        )
         console.print(
             "    [dim]安装可选依赖: pip install smartbench[rag] 或"
             " pip install chromadb sentence-transformers[/dim]"
         )
     except Exception as e:
-        console.print(f"    [yellow]RAG 索引跳过: {e}[/yellow]")
+        console.print(
+            f"    [yellow]RAG 索引跳过: {safe_terminal_text(e)}[/yellow]"
+        )
     return None
 
 
@@ -299,20 +308,25 @@ def run_diagnosis_with_graph(
 
     if strategy:
         candidate = strategy.get("selected_strategy", "")
+        if not isinstance(candidate, str):
+            candidate = ""
         valid_strategies = {item["name"] for item in strategies}
         if candidate in valid_strategies:
             selected = candidate
         elif candidate:
             console.print(
-                f"  [dim]未知策略 {candidate!r}，使用确定性回退 {selected}[/dim]"
+                f"  [dim]未知策略 {safe_terminal_text(repr(candidate))}，"
+                f"使用确定性回退 {safe_terminal_text(selected)}[/dim]"
             )
         reasoning = strategy.get("reasoning", "")
-        console.print(f"\n  [cyan]Strategy:[/cyan] {selected}")
+        console.print(
+            f"\n  [cyan]Strategy:[/cyan] {safe_terminal_text(selected)}"
+        )
         if reasoning:
-            console.print(f"  [dim]{reasoning}[/dim]")
+            console.print(f"  [dim]{safe_terminal_text(reasoning)}[/dim]")
     else:
         console.print(
-            f"\n  [cyan]Strategy:[/cyan] {selected} "
+            f"\n  [cyan]Strategy:[/cyan] {safe_terminal_text(selected)} "
             "[dim](deterministic fallback)[/dim]"
         )
 
@@ -338,7 +352,7 @@ def run_diagnosis_with_graph(
             if tool_context:
                 console.print("  [dim]诊断工具已执行[/dim]")
         except Exception as e:
-            console.print(f"  [dim]工具执行跳过: {e}[/dim]")
+            console.print(f"  [dim]工具执行跳过: {safe_terminal_text(e)}[/dim]")
 
     analysis_context = factory.build_analysis_context(
         code_context=code_context + tool_context,
@@ -357,9 +371,11 @@ def run_diagnosis_with_graph(
                 hybrid_retriever=hybrid_retriever,
             )
         except ImportError as e:
-            console.print(f"  [dim]验证模块未加载: {e}[/dim]")
+            console.print(f"  [dim]验证模块未加载: {safe_terminal_text(e)}[/dim]")
         except Exception as e:
-            console.print(f"  [yellow]验证器初始化跳过: {e}[/yellow]")
+            console.print(
+                f"  [yellow]验证器初始化跳过: {safe_terminal_text(e)}[/yellow]"
+            )
 
     # Phase 5: Multi-agent debate
     console.print("\n[bold]多 Agent 辩论中...[/bold]\n")
@@ -426,7 +442,9 @@ def run_diagnosis_with_graph(
                 f"{statuses['skipped']} 跳过[/dim]"
             )
         except Exception as exc:
-            console.print(f"  [yellow]补丁验证未完成: {exc}[/yellow]")
+            console.print(
+                f"  [yellow]补丁验证未完成: {safe_terminal_text(exc)}[/yellow]"
+            )
 
     return result
 
@@ -523,7 +541,7 @@ def run_quick_mode(
 
     project_path = resolve_project_path(console, project)
     if not project_path:
-        console.print(f"[red]Cannot access: {project}[/red]")
+        console.print(f"[red]Cannot access: {safe_terminal_text(project)}[/red]")
         return
 
     api_config = load_api_keys_from_env()
@@ -568,7 +586,7 @@ def run_diagnose_mode(
     """
     project_path = resolve_project_path(console, project)
     if not project_path:
-        console.print(f"[red]Cannot access: {project}[/red]")
+        console.print(f"[red]Cannot access: {safe_terminal_text(project)}[/red]")
         return
 
     fingerprint = run_phase1_detection(console, project_path)
@@ -594,19 +612,24 @@ def run_diagnose_mode(
     for r in results:
         if r.success:
             console.print(
-                f"  [green]OK[/green] {r.tool_name}: "
+                f"  [green]OK[/green] {safe_terminal_text(r.tool_name)}: "
                 f"{len(r.symptoms)} findings"
             )
             for s in r.symptoms:
-                console.print(f"    - {s}")
+                console.print(f"    - {safe_terminal_text(s)}")
             for sug in r.suggestions:
-                console.print(f"    [cyan]tip[/cyan] {sug.get('title', '')}")
+                console.print(
+                    f"    [cyan]tip[/cyan] "
+                    f"{safe_terminal_text(sug.get('title', ''))}"
+                )
                 if sug.get("command"):
-                    console.print(f"      [dim]{sug['command']}[/dim]")
+                    console.print(
+                        f"      [dim]{safe_terminal_text(sug['command'])}[/dim]"
+                    )
         elif not r.success:
             console.print(
-                f"  [dim]--[/dim] {r.tool_name}: "
-                f"{r.error or 'not available'}"
+                f"  [dim]--[/dim] {safe_terminal_text(r.tool_name)}: "
+                f"{safe_terminal_text(r.error or 'not available')}"
             )
 
     # Health check
@@ -615,7 +638,8 @@ def run_diagnose_mode(
     table = Table("Tool", "Available")
     for name, available in health.items():
         table.add_row(
-            name, "[green]yes[/green]" if available else "[red]no[/red]"
+            safe_terminal_text(name),
+            "[green]yes[/green]" if available else "[red]no[/red]",
         )
     console.print(table)
     return {"tool_results": [r.to_dict() for r in results]}

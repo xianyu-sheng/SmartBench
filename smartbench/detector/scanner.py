@@ -8,6 +8,7 @@ from manifest files, directory conventions, build systems, and git history.
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import urlsplit, urlunsplit
 
 from smartbench.detector.fingerprint import (
     Framework,
@@ -31,6 +32,37 @@ def _is_excluded(root: Path, path: Path) -> bool:
     except ValueError:
         return True
     return bool(set(relative.parts[:-1]) & _EXCLUDED_DIRS)
+
+
+def _sanitize_git_remote(remote: str) -> str:
+    """Remove URL credentials, query parameters, and fragments from remotes."""
+    value = remote.strip()
+    if not value:
+        return ""
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return "<invalid remote>"
+    if parsed.scheme and parsed.netloc:
+        hostname = parsed.hostname or ""
+        if ":" in hostname and not hostname.startswith("["):
+            hostname = f"[{hostname}]"
+        try:
+            port = parsed.port
+        except ValueError:
+            port = None
+        host = f"{hostname}:{port}" if port else hostname
+        username = parsed.username if parsed.scheme not in {"http", "https"} else None
+        netloc = f"{username}@{host}" if username else host
+        return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+
+    # SCP-style remotes normally use ``git@host:path``. If the userinfo
+    # contains a colon, treat it as a credential pair and remove it entirely.
+    if "@" in value:
+        userinfo, host_path = value.rsplit("@", 1)
+        if ":" in userinfo:
+            return f"***@{host_path.split('?', 1)[0].split('#', 1)[0]}"
+    return value.split("?", 1)[0].split("#", 1)[0]
 
 # ── Language detection: extension → Language ──────────────────────────
 _EXTENSION_MAP: Dict[str, Language] = {
@@ -448,7 +480,7 @@ class ProjectScanner:
                 cwd=str(self.root), capture_output=True, text=True, timeout=10,
             )
             if result.returncode == 0:
-                fp.git_remote_url = result.stdout.strip()
+                fp.git_remote_url = _sanitize_git_remote(result.stdout)
         except (subprocess.SubprocessError, FileNotFoundError, OSError):
             pass
 

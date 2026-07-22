@@ -22,6 +22,7 @@ from smartbench.cli.phases import (
     run_phase4_graph,
     run_quick_mode,
 )
+from smartbench.cli.text import safe_terminal_text
 from smartbench.cli.wizard import run_interactive_wizard
 from smartbench.detector.scanner import ProjectScanner
 from smartbench.diagnostics.registry import DiagnosticRegistry
@@ -137,7 +138,7 @@ def evaluate_rag(
 
     project_path = resolve_project_path(console, project)
     if not project_path:
-        console.print(f"[red]Cannot access: {project}[/red]")
+        console.print(f"[red]Cannot access: {safe_terminal_text(project)}[/red]")
         raise typer.Exit(1)
     try:
         fingerprint = run_phase1_detection(console, project_path)
@@ -154,10 +155,12 @@ def evaluate_rag(
         evaluator.load_queries(queries)
         report = evaluator.evaluate()
     except (OSError, ValueError, RuntimeError) as exc:
-        console.print(f"[red]Evaluation failed: {exc}[/red]")
+        console.print(
+            f"[red]Evaluation failed: {safe_terminal_text(exc)}[/red]"
+        )
         raise typer.Exit(1) from exc
 
-    console.print(report.summary())
+    console.print(safe_terminal_text(report.summary()))
     _maybe_save_output(report, output)
 
 
@@ -179,13 +182,13 @@ def check():
                 if tool else ""
             )
             table.add_row(
-                name,
+                safe_terminal_text(name),
                 "[green]OK[/green]" if available else "[red]NO[/red]",
-                langs,
+                safe_terminal_text(langs),
             )
         console.print(table)
     except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
+        console.print(f"[red]Error: {safe_terminal_text(e)}[/red]")
 
 
 def _maybe_save_output(result, output_path: Optional[str]) -> None:
@@ -217,9 +220,13 @@ def _maybe_save_output(result, output_path: Optional[str]) -> None:
             handle.write("\n")
         os.replace(temporary_path, destination)
         temporary_path = None
-        console.print(f"[green]Report saved to: {destination}[/green]")
+        console.print(
+            f"[green]Report saved to: {safe_terminal_text(destination)}[/green]"
+        )
     except Exception as e:
-        console.print(f"[red]Failed to save output: {e}[/red]")
+        console.print(
+            f"[red]Failed to save output: {safe_terminal_text(e)}[/red]"
+        )
         raise typer.Exit(1) from e
     finally:
         if temporary_path:

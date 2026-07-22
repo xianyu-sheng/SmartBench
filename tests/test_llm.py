@@ -1,9 +1,17 @@
 """Protocol and reliability tests for the LLM integration layer."""
 
 import json
+from io import StringIO
 
+from rich.console import Console
+
+import smartbench.llm.provider as provider_module
 from smartbench.llm.client import call_llm, parse_json_safe
-from smartbench.llm.provider import detect_provider, load_api_keys_from_env
+from smartbench.llm.provider import (
+    detect_provider,
+    load_api_keys_from_env,
+    masked_input,
+)
 
 
 class FakeResponse:
@@ -186,3 +194,25 @@ def test_errors_do_not_include_api_key(monkeypatch):
     assert errors
     assert all("secret-key" not in message for message in errors)
     assert json.dumps(errors)
+
+
+def test_masked_input_does_not_echo_any_key_fragment(monkeypatch):
+    stream = StringIO()
+    console = Console(file=stream, color_system=None)
+    secret = "sk-super-secret-last4"
+    monkeypatch.setattr(provider_module._sys, "platform", "linux")
+    monkeypatch.setattr(provider_module, "_masked_input_unix", lambda: secret)
+
+    assert masked_input(
+        console,
+        "API key [link=https://evil.example]click[/link] "
+        "\x1b]8;;https://evil.example\x1b\\hidden\x1b]8;;\x1b\\",
+    ) == secret
+
+    output = stream.getvalue()
+    assert "sk-" not in output
+    assert "last4" not in output
+    assert "saved: ****" in output
+    assert "[link=https://evil.example]click[/link]" in output
+    assert "hidden" in output
+    assert "\x1b" not in output
