@@ -23,7 +23,10 @@ class SandboxVerifier:
 
     def __init__(self, project_path: str, timeout_seconds: int = 60):
         self.project_path = Path(project_path).resolve()
-        self.timeout = timeout_seconds
+        try:
+            self.timeout = max(1, int(timeout_seconds))
+        except (TypeError, ValueError):
+            self.timeout = 60
 
     def verify_fix(
         self,
@@ -48,6 +51,13 @@ class SandboxVerifier:
             "error": None,
         }
 
+        if not isinstance(file_path, str) or not file_path.strip():
+            result["error"] = "A non-empty string file path is required"
+            return result
+        if not isinstance(patch, str):
+            result["error"] = "Patch must be a unified-diff string"
+            return result
+
         target, error = self._resolve_project_file(file_path)
         if error:
             result["error"] = error
@@ -65,7 +75,7 @@ class SandboxVerifier:
             result["error"] = "test_command must be an argument list, not a shell string"
             return result
         command = list(test_command) if test_command else self._detect_test_command()
-        if not command:
+        if not command or not all(isinstance(part, str) and part for part in command):
             result["error"] = "No test command detected for this project"
             return result
 
@@ -112,7 +122,7 @@ class SandboxVerifier:
             return result
         except Exception as exc:
             result["status"] = "error"
-            result["error"] = str(exc)
+            result["error"] = str(exc)[:500]
             return result
         finally:
             if sandbox_root is not None:
@@ -133,15 +143,21 @@ class SandboxVerifier:
                 }
                 continue
 
-            proposal["__sandbox_verification"] = self.verify_fix(
-                file_path=file_path,
-                original_line=line or 1,
-                suggestion=(
-                    proposal.get("implementation", "")
-                    or proposal.get("solution", "")
-                ),
-                patch=proposal.get("patch", "") or "",
-            )
+            try:
+                proposal["__sandbox_verification"] = self.verify_fix(
+                    file_path=file_path,
+                    original_line=line or 1,
+                    suggestion=(
+                        proposal.get("implementation", "")
+                        or proposal.get("solution", "")
+                    ),
+                    patch=proposal.get("patch", "") or "",
+                )
+            except Exception as exc:
+                proposal["__sandbox_verification"] = {
+                    "status": "error",
+                    "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+                }
         return proposals
 
     def _resolve_project_file(self, file_path: str) -> Tuple[Optional[Path], Optional[str]]:
@@ -152,7 +168,7 @@ class SandboxVerifier:
         try:
             target = (self.project_path / raw).resolve(strict=True)
             target.relative_to(self.project_path)
-        except (FileNotFoundError, ValueError):
+        except (OSError, RuntimeError, ValueError):
             return None, f"File is missing or outside the project: {file_path}"
         if not target.is_file():
             return None, f"Not a regular file: {file_path}"
@@ -297,7 +313,7 @@ class SandboxVerifier:
 
     @staticmethod
     def _parse_location(location: str) -> Tuple[Optional[str], Optional[int]]:
-        if not location:
+        if not isinstance(location, str) or not location.strip():
             return None, None
         match = re.search(r"^(.+?):(\d+)(?:-\d+)?$", location.strip())
         if match:

@@ -223,7 +223,7 @@ class GoPProfTool(DiagnosticTool):
             output = result.stdout + result.stderr
             findings.evidence = "\n".join(output.splitlines()[:50])[:3000]
             findings.commands_used = ["go test -race ./..."]
-            if "WARNING: DATA RACE" in result.stdout:
+            if "WARNING: DATA RACE" in output:
                 findings.symptoms.append("Data race detected")
                 findings.severity = Severity.CRITICAL
                 findings.confidence = 0.95

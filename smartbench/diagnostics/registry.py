@@ -91,7 +91,7 @@ class DiagnosisResult:
             "confidence": self.confidence,
             "commands_used": self.commands_used,
             "success": self.success,
-            "error": self.error,
+            "error": self.error[:1000],
         }
 
 
@@ -243,12 +243,17 @@ class DiagnosticRegistry:
                     symptoms,
                     extra_args={"language": language},
                 )
+                if not isinstance(result, DiagnosisResult):
+                    raise TypeError(
+                        f"diagnostic tool returned {type(result).__name__}, "
+                        "expected DiagnosisResult"
+                    )
                 results.append(result)
             except Exception as e:
                 results.append(DiagnosisResult(
                     tool_name=tool.name,
                     problem_category=category,
                     success=False,
-                    error=str(e),
+                    error=str(e)[:1000],
                 ))
         return results

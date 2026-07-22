@@ -168,3 +168,38 @@ def test_go_diagnostic_preserves_race_test_failure(monkeypatch, tmp_path: Path):
 
     assert result.success is False
     assert result.error == "tests failed"
+
+
+def test_go_diagnostic_detects_race_warning_from_stderr(monkeypatch, tmp_path: Path):
+    tool = GoPProfTool()
+    responses = iter([
+        subprocess.CompletedProcess(["go", "version"], 0, "go1.test", ""),
+        subprocess.CompletedProcess(
+            ["go", "test", "-race", "./..."],
+            1,
+            "",
+            "WARNING: DATA RACE\nstack trace",
+        ),
+    ])
+    monkeypatch.setattr(tool, "_run_command", lambda *args, **kwargs: next(responses))
+
+    result = tool.diagnose(str(tmp_path), ProblemCategory.CONCURRENCY)
+
+    assert result.success is True
+    assert result.severity.value == "critical"
+    assert result.symptoms == ["Data race detected"]
+
+
+def test_registry_isolates_invalid_plugin_return_value(monkeypatch):
+    tool = StaticAnalysisTool()
+    registry = DiagnosticRegistry()
+    registry.register(tool)
+    monkeypatch.setattr(tool, "diagnose", lambda *args, **kwargs: "not-a-result")
+
+    results = registry.diagnose(
+        Language.PYTHON, ProblemCategory.CODE_QUALITY, "."
+    )
+
+    assert len(results) == 1
+    assert results[0].success is False
+    assert "expected DiagnosisResult" in results[0].error

@@ -682,3 +682,29 @@ class TestSandboxVerifier:
 
         assert result["status"] == "skipped"
         assert "argument list" in result["error"]
+
+    def test_batch_isolates_malformed_proposal_fields(self, tmp_path: Path):
+        project = _create_testable_python_project(tmp_path)
+        proposals = [
+            {"location": None, "patch": ""},
+            {"location": "sample.py:1", "patch": ["not", "text"]},
+        ]
+
+        result = SandboxVerifier(str(project)).verify_all_proposals(proposals)
+
+        assert result[0]["__sandbox_verification"]["status"] == "skipped"
+        assert result[1]["__sandbox_verification"]["status"] == "skipped"
+        assert "unified-diff string" in result[1]["__sandbox_verification"]["error"]
+
+    def test_rejects_non_string_test_command_elements(self, tmp_path: Path):
+        project = _create_testable_python_project(tmp_path)
+        result = SandboxVerifier(str(project)).verify_fix(
+            "sample.py",
+            1,
+            "test",
+            patch="--- a/sample.py\n+++ b/sample.py\n",
+            test_command=["pytest", None],
+        )
+
+        assert result["status"] == "skipped"
+        assert "No test command" in result["error"]
