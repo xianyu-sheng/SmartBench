@@ -262,7 +262,6 @@ class GoPProfTool(DiagnosticTool):
                 "description": "Profile heap allocations to find memory leaks",
             })
 
-        findings.success = True
         return findings
 
 

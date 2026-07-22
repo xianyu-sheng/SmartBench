@@ -17,6 +17,7 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
+import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -542,7 +543,7 @@ def run_quick_mode(
     project_path = resolve_project_path(console, project)
     if not project_path:
         console.print(f"[red]Cannot access: {safe_terminal_text(project)}[/red]")
-        return
+        raise typer.Exit(1)
 
     api_config = load_api_keys_from_env()
     if not api_config:
@@ -587,7 +588,7 @@ def run_diagnose_mode(
     project_path = resolve_project_path(console, project)
     if not project_path:
         console.print(f"[red]Cannot access: {safe_terminal_text(project)}[/red]")
-        return
+        raise typer.Exit(1)
 
     fingerprint = run_phase1_detection(console, project_path)
     display_fingerprint(console, fingerprint)

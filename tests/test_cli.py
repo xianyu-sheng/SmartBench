@@ -79,6 +79,17 @@ class TestCLICheck:
         # Output should not be empty
         assert len(result.output) > 10
 
+    def test_check_internal_error_returns_failure(self, runner, monkeypatch):
+        def fail_scan(*args, **kwargs):
+            raise OSError("scan failed")
+
+        monkeypatch.setattr("smartbench.cli.main.ProjectScanner", fail_scan)
+
+        result = runner.invoke(app, ["check"])
+
+        assert result.exit_code == 1
+        assert "scan failed" in result.output
+
 
 class TestCLIQuick:
     """Test the 'quick' command."""
@@ -94,8 +105,8 @@ class TestCLIQuick:
         result = runner.invoke(
             app, ["quick", "--project", "/nonexistent/path/xyz"]
         )
-        # Should not crash
-        assert result.exit_code in (0, 1, 2)
+        assert result.exit_code == 1
+        assert "Cannot access" in result.output
 
 
 class TestCLIDiagnose:
@@ -111,7 +122,8 @@ class TestCLIDiagnose:
         result = runner.invoke(
             app, ["diagnose", "--project", "/nonexistent/path"]
         )
-        assert result.exit_code in (0, 1)  # Should not crash
+        assert result.exit_code == 1
+        assert "Cannot access" in result.output
 
     def test_diagnose_with_valid_project(self, runner):
         """Diagnose on self should work."""

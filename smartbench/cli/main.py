@@ -189,6 +189,7 @@ def check():
         console.print(table)
     except Exception as e:
         console.print(f"[red]Error: {safe_terminal_text(e)}[/red]")
+        raise typer.Exit(1) from e
 
 
 def _maybe_save_output(result, output_path: Optional[str]) -> None:

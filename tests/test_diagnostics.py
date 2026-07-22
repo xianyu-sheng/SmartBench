@@ -136,3 +136,35 @@ def test_go_diagnostic_passes_project_as_cwd(monkeypatch, tmp_path: Path):
     assert calls[0][0] == ["go", "version"]
     assert calls[1][0] == ["go", "build", "./..."]
     assert calls[1][2] == malicious_path
+
+
+def test_go_diagnostic_preserves_build_failure(monkeypatch, tmp_path: Path):
+    tool = GoPProfTool()
+    responses = iter([
+        subprocess.CompletedProcess(["go", "version"], 0, "go1.test", ""),
+        subprocess.CompletedProcess(
+            ["go", "build", "./..."], 1, "", "compile failed"
+        ),
+    ])
+    monkeypatch.setattr(tool, "_run_command", lambda *args, **kwargs: next(responses))
+
+    result = tool.diagnose(str(tmp_path), ProblemCategory.PERFORMANCE)
+
+    assert result.success is False
+    assert result.error == "compile failed"
+
+
+def test_go_diagnostic_preserves_race_test_failure(monkeypatch, tmp_path: Path):
+    tool = GoPProfTool()
+    responses = iter([
+        subprocess.CompletedProcess(["go", "version"], 0, "go1.test", ""),
+        subprocess.CompletedProcess(
+            ["go", "test", "-race", "./..."], 1, "", "tests failed"
+        ),
+    ])
+    monkeypatch.setattr(tool, "_run_command", lambda *args, **kwargs: next(responses))
+
+    result = tool.diagnose(str(tmp_path), ProblemCategory.CONCURRENCY)
+
+    assert result.success is False
+    assert result.error == "tests failed"
