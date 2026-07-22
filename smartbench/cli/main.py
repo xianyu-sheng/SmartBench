@@ -173,7 +173,10 @@ def check():
         registry = DiagnosticRegistry()
         for tool in ALL_TOOLS:
             registry.register(tool)
-        health = registry.health_check(fp.primary_language)
+        health = registry.health_check(
+            fp.primary_language,
+            fp.secondary_languages,
+        )
         table = Table("Tool", "Available", "Language")
         for name, available in health.items():
             tool = registry.get_tool(name)

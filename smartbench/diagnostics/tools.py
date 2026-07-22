@@ -531,7 +531,18 @@ class StaticAnalysisTool(DiagnosticTool):
         if extra_args and "language" in extra_args:
             lang = extra_args["language"]
 
-        suggestions = self._SUGGESTIONS.get(lang, [])
+        languages = [lang]
+        if extra_args and isinstance(extra_args.get("languages"), list):
+            languages = extra_args["languages"]
+        suggestions = []
+        seen_commands = set()
+        for candidate in languages:
+            for suggestion in self._SUGGESTIONS.get(candidate, []):
+                command = suggestion.get("command", "")
+                if command in seen_commands:
+                    continue
+                seen_commands.add(command)
+                suggestions.append(dict(suggestion))
         return DiagnosisResult(
             tool_name=self.name,
             problem_category=category,

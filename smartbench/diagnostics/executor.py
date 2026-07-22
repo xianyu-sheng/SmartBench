@@ -37,6 +37,7 @@ def run_tools_for_strategy(
     language: Language,
     strategy: str,
     symptoms: List[str] | None = None,
+    additional_languages: List[Language] | None = None,
 ) -> str:
     """Execute diagnostic tools for a given strategy and return formatted context.
 
@@ -57,7 +58,12 @@ def run_tools_for_strategy(
     for tool in ALL_TOOLS:
         registry.register(tool)
 
-    applicable = registry.find_tools(language, category)
+    languages = registry.resolve_languages(language, additional_languages)
+    applicable = registry.find_tools(
+        language,
+        category,
+        additional_languages=additional_languages,
+    )
     if not applicable:
         return ""
 
@@ -77,7 +83,7 @@ def run_tools_for_strategy(
                     project_path,
                     category,
                     symptoms=symptoms,
-                    extra_args={"language": language},
+                    extra_args={"language": language, "languages": languages},
                 )
                 results.append(result)
             except Exception as e:

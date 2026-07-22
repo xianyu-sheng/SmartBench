@@ -349,6 +349,7 @@ def run_diagnosis_with_graph(
                 fingerprint.primary_language,
                 selected,
                 symptoms=[concern],
+                additional_languages=fingerprint.secondary_languages,
             )
             if tool_context:
                 console.print("  [dim]诊断工具已执行[/dim]")
@@ -607,6 +608,7 @@ def run_diagnose_mode(
         str(project_path),
         symptoms=[symptoms] if symptoms else None,
         include_system=system_probes,
+        additional_languages=fingerprint.secondary_languages,
     )
 
     console.print("\n[bold]Diagnostic Results:[/bold]")
@@ -635,7 +637,10 @@ def run_diagnose_mode(
 
     # Health check
     console.print("\n[bold]Tool Availability:[/bold]")
-    health = registry.health_check(fingerprint.primary_language)
+    health = registry.health_check(
+        fingerprint.primary_language,
+        fingerprint.secondary_languages,
+    )
     table = Table("Tool", "Available")
     for name, available in health.items():
         table.add_row(

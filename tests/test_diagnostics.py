@@ -43,6 +43,40 @@ def test_unknown_category_defaults_to_code_quality_and_preserves_language():
     assert all("ruff" not in command for command in commands)
 
 
+def test_mixed_language_diagnosis_combines_real_language_suggestions():
+    registry = DiagnosticRegistry()
+    registry.register(StaticAnalysisTool())
+
+    results = registry.diagnose(
+        Language.MIXED,
+        ProblemCategory.CODE_QUALITY,
+        ".",
+        additional_languages=[Language.GO, Language.PYTHON, Language.GO],
+    )
+
+    commands = [item["command"] for item in results[0].suggestions]
+    assert "go vet ./..." in commands
+    assert "pip install ruff && ruff check ." in commands
+    assert len(commands) == len(set(commands))
+
+
+def test_mixed_language_tool_routing_uses_detected_languages(monkeypatch):
+    registry = DiagnosticRegistry()
+    go_tool = GoPProfTool()
+    python_tool = PythonDiagTool()
+    registry.register(go_tool)
+    registry.register(python_tool)
+    monkeypatch.setattr(go_tool, "is_available", lambda: True)
+
+    tools = registry.find_tools(
+        Language.MIXED,
+        ProblemCategory.PERFORMANCE,
+        additional_languages=[Language.GO, Language.PYTHON],
+    )
+
+    assert tools == [go_tool, python_tool]
+
+
 def test_system_probes_require_explicit_opt_in(monkeypatch):
     registry = DiagnosticRegistry()
     probe = ProcessTool()

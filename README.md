@@ -22,6 +22,7 @@ SmartBench combines deterministic repository fingerprinting, structural code par
 - Deterministic checks for cited paths, line ranges, symbols, and selected call chains; fuzzy path corrections are marked partial.
 - Optional graph plus local-vector hybrid retrieval, with a labeled retrieval-evaluation fixture.
 - Strategy-based local diagnostic probes and recommendations for Python, Go, C/C++, Java/Kotlin, and system signals.
+- Mixed-language repositories route local diagnostics across every detected language instead of collapsing to an empty generic result.
 - JSON report output for non-interactive workflows.
 
 ## How it works

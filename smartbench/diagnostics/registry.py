@@ -200,11 +200,13 @@ class DiagnosticRegistry:
         language: Language,
         category: Optional[ProblemCategory] = None,
         include_system: bool = False,
+        additional_languages: Optional[List[Language]] = None,
     ) -> List[DiagnosticTool]:
         """Find tools matching a language and optional category."""
+        languages = self.resolve_languages(language, additional_languages)
         matches = []
         for tool in self._tools.values():
-            if language not in tool.applicable_languages:
+            if not any(lang in tool.applicable_languages for lang in languages):
                 continue
             if category and category not in tool.applicable_categories:
                 continue
@@ -214,11 +216,33 @@ class DiagnosticRegistry:
                 matches.append(tool)
         return matches
 
-    def health_check(self, language: Language) -> Dict[str, bool]:
+    @staticmethod
+    def resolve_languages(
+        language: Language,
+        additional_languages: Optional[List[Language]] = None,
+    ) -> List[Language]:
+        """Return concrete detected languages in stable, duplicate-free order."""
+        candidates = [language, *(additional_languages or [])]
+        concrete = []
+        for candidate in candidates:
+            if not isinstance(candidate, Language):
+                continue
+            if candidate in {Language.MIXED, Language.UNKNOWN}:
+                continue
+            if candidate not in concrete:
+                concrete.append(candidate)
+        return concrete or [language]
+
+    def health_check(
+        self,
+        language: Language,
+        additional_languages: Optional[List[Language]] = None,
+    ) -> Dict[str, bool]:
         """Check which tools are available for a language."""
+        languages = self.resolve_languages(language, additional_languages)
         result = {}
         for tool in self._tools.values():
-            if language in tool.applicable_languages:
+            if any(lang in tool.applicable_languages for lang in languages):
                 result[tool.name] = tool.is_available()
         return result
 
@@ -229,11 +253,18 @@ class DiagnosticRegistry:
         target_path: str,
         symptoms: Optional[List[str]] = None,
         include_system: bool = False,
+        additional_languages: Optional[List[Language]] = None,
     ) -> List[DiagnosisResult]:
         """Run all applicable tools for a language + category."""
         if category == ProblemCategory.UNKNOWN:
             category = infer_problem_category(symptoms)
-        tools = self.find_tools(language, category, include_system=include_system)
+        languages = self.resolve_languages(language, additional_languages)
+        tools = self.find_tools(
+            language,
+            category,
+            include_system=include_system,
+            additional_languages=additional_languages,
+        )
         results = []
         for tool in tools:
             try:
@@ -241,7 +272,7 @@ class DiagnosticRegistry:
                     target_path,
                     category,
                     symptoms,
-                    extra_args={"language": language},
+                    extra_args={"language": language, "languages": languages},
                 )
                 if not isinstance(result, DiagnosisResult):
                     raise TypeError(
