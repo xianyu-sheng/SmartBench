@@ -14,10 +14,32 @@ Usage:
 """
 
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+from smartbench.path_safety import is_project_file
+
+_EVAL_EXCLUDED_DIRS = {
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".smartbench",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "node_modules",
+    "target",
+    "vendor",
+    "venv",
+}
+_EVAL_MAX_DIRECTORIES = 2_000
+_EVAL_MAX_DISCOVERED_FILES = 20_000
+_EVAL_MAX_PYTHON_FILES = 30
 
 
 @dataclass
@@ -254,13 +276,14 @@ def create_eval_queries(project_path: str, output_path: str) -> None:
         project_path: Root of the project to generate queries for.
         output_path: Where to write the JSON template.
     """
-    root = Path(project_path)
-    py_files = sorted(root.rglob("*.py"))[:30]
-    py_files = [
-        str(f.relative_to(root))
-        for f in py_files
-        if "test_" not in f.name and "__pycache__" not in str(f)
-    ]
+    try:
+        root = Path(project_path).resolve(strict=True)
+    except (OSError, RuntimeError):
+        raise ValueError(f"Project path does not exist: {project_path}") from None
+    if not root.is_dir():
+        raise ValueError(f"Project path is not a directory: {project_path}")
+
+    py_files = _discover_eval_python_files(root)
 
     queries = []
     for f in py_files[:15]:
@@ -277,3 +300,52 @@ def create_eval_queries(project_path: str, output_path: str) -> None:
 
     print(f"Generated {len(queries)} template queries → {output_path}")
     print("Edit the 'expected_file' field with the correct answer for each query.")
+
+
+def _discover_eval_python_files(root: Path) -> List[str]:
+    """Discover a bounded set of project-owned Python source files."""
+    files: List[str] = []
+    visited_directories = 0
+    discovered_files = 0
+
+    for current, dirnames, filenames in os.walk(
+        root, topdown=True, followlinks=False
+    ):
+        visited_directories += 1
+        if visited_directories > _EVAL_MAX_DIRECTORIES:
+            break
+
+        current_path = Path(current)
+        safe_dirs = []
+        for dirname in sorted(dirnames):
+            candidate = current_path / dirname
+            if dirname in _EVAL_EXCLUDED_DIRS or candidate.is_symlink():
+                continue
+            try:
+                candidate.resolve().relative_to(root)
+            except (OSError, RuntimeError, ValueError):
+                continue
+            safe_dirs.append(dirname)
+        dirnames[:] = safe_dirs
+
+        for filename in sorted(filenames):
+            discovered_files += 1
+            if discovered_files > _EVAL_MAX_DISCOVERED_FILES:
+                return files
+            if not filename.endswith(".py"):
+                continue
+            if filename.startswith("test_") or filename.endswith("_test.py"):
+                continue
+
+            candidate = current_path / filename
+            if not is_project_file(root, candidate):
+                continue
+            try:
+                relative = candidate.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            files.append(relative)
+            if len(files) >= _EVAL_MAX_PYTHON_FILES:
+                return files
+
+    return files

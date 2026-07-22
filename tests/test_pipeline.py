@@ -853,6 +853,43 @@ class TestRAGPipeline:
         assert report.hit_rates[1] == 0.0
         assert report.per_query[0]["retrieved_files"] == ["real.py"]
 
+    def test_eval_query_generation_prunes_dependencies_and_symlinks(
+        self, tmp_path, monkeypatch
+    ):
+        from smartbench.rag.evaluator import create_eval_queries
+
+        project = tmp_path / "project"
+        source = project / "src"
+        source.mkdir(parents=True)
+        (source / "app.py").write_text("def run():\n    pass\n")
+        (source / "test_app.py").write_text("def test_run():\n    pass\n")
+        dependency = project / "node_modules" / "package"
+        dependency.mkdir(parents=True)
+        (dependency / "vendored.py").write_text("VALUE = 'dependency'\n")
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "secret.py").write_text("SECRET = True\n")
+        (project / "linked").symlink_to(outside, target_is_directory=True)
+
+        def fail_rglob(*args, **kwargs):
+            raise AssertionError("query generation must use a pruned walk")
+
+        monkeypatch.setattr(Path, "rglob", fail_rglob)
+        output = tmp_path / "queries.json"
+
+        create_eval_queries(str(project), str(output))
+
+        queries = json.loads(output.read_text())
+        assert [item["expected_file"] for item in queries] == ["src/app.py"]
+
+    def test_eval_query_generation_rejects_invalid_project_path(self, tmp_path):
+        from smartbench.rag.evaluator import create_eval_queries
+
+        with pytest.raises(ValueError, match="does not exist"):
+            create_eval_queries(
+                str(tmp_path / "missing"), str(tmp_path / "queries.json")
+            )
+
     def test_hybrid_deduplication_uses_exact_file_paths(self, tmp_path):
         from smartbench.graph.schema import CodeGraph
         from smartbench.rag.retriever import HybridRetriever
