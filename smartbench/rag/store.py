@@ -1,9 +1,9 @@
 """
 VectorStore — persistent vector storage with multiple backends.
 
-Backends (tried in order):
-  1. ChromaDB — full-featured vector DB
-  2. SimpleVectorStore — numpy + json fallback (core dependencies only)
+Backends:
+  1. SimpleVectorStore — deterministic numpy + JSON default
+  2. ChromaDB — optional when SMARTBENCH_CHROMADB is enabled
 
 Persisted to: <project_path>/.smartbench/vector_store/
 """
@@ -64,10 +64,23 @@ class SimpleVectorStore:
         if self._vectors is None or len(self._vectors) == 0:
             return []
         q = np.array(query_embedding, dtype=np.float32)
+        if (
+            q.ndim != 1
+            or self._vectors.ndim != 2
+            or q.shape[0] != self._vectors.shape[1]
+        ):
+            logger.warning("Query embedding dimension does not match vector index")
+            return []
+        try:
+            requested = int(n_results)
+        except (TypeError, ValueError):
+            return []
+        if requested <= 0:
+            return []
         q_norm = q / (np.linalg.norm(q) + 1e-10)
         v_norms = self._vectors / (np.linalg.norm(self._vectors, axis=1, keepdims=True) + 1e-10)
         similarities = np.dot(v_norms, q_norm)
-        top_k = min(n_results, len(similarities))
+        top_k = min(requested, len(similarities))
         indices = np.argsort(-similarities)[:top_k]
         results = []
         for idx in indices:
@@ -91,7 +104,8 @@ class SimpleVectorStore:
         if self._vectors is not None:
             return len(self._vectors)
         if self.index_file.exists():
-            return len(self._load_meta_only())
+            self._load()
+            return len(self._vectors) if self._vectors is not None else 0
         return 0
 
     def clear(self):
@@ -107,22 +121,26 @@ class SimpleVectorStore:
 
     def _load(self):
         import numpy as np
-        if not self.index_file.exists():
+        self._vectors = None
+        self._metadata = []
+        if not self.index_file.exists() or not self.meta_file.exists():
             return
         try:
-            data = np.load(self.index_file)
-            self._vectors = data["vectors"]
+            with np.load(self.index_file) as data:
+                vectors = data["vectors"]
             with open(self.meta_file, 'r', encoding='utf-8') as f:
-                self._metadata = json.load(f)
+                metadata = json.load(f)
+            if (
+                not isinstance(metadata, list)
+                or not all(isinstance(item, dict) for item in metadata)
+                or vectors.ndim != 2
+                or len(vectors) != len(metadata)
+            ):
+                raise ValueError("vector and metadata files are inconsistent")
+            self._vectors = vectors
+            self._metadata = metadata
         except Exception as e:
             logger.warning(f"Failed to load vector index: {e}")
-
-    def _load_meta_only(self) -> list:
-        try:
-            with open(self.meta_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            return []
 
 
 class VectorStore:
@@ -223,7 +241,11 @@ class VectorStore:
         # A persisted Chroma collection must also be removed even when this
         # process has not initialized the client yet. Otherwise deleted source
         # chunks survive a rebuild.
-        if state.get("storage_backend") == "chromadb" and self._client is None:
+        chroma_files_exist = (self.store_path / "chroma.sqlite3").exists()
+        if (
+            self._client is None
+            and (state.get("storage_backend") == "chromadb" or chroma_files_exist)
+        ):
             try:
                 self._ensure_chroma_client()
             except Exception:

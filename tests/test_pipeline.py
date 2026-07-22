@@ -660,6 +660,10 @@ class TestRAGPipeline:
         assert first.needs_reindex() is False
         state = store.load_index_state()
         assert state["source_hash"]
+        assert state["schema_version"] == IndexPipeline.INDEX_SCHEMA_VERSION
+        assert state["max_files"] == first.chunker.max_files
+        assert state["max_file_bytes"] == first.chunker.max_file_bytes
+        assert state["max_chunks"] == first.chunker.max_chunks
         assert state["embedding_backend"] in {
             "hash", "tfidf", "sentence-transformers"
         }
@@ -678,6 +682,66 @@ class TestRAGPipeline:
             rebuilt_store.load_index_state()["source_hash"]
             != state["source_hash"]
         )
+
+    def test_rag_resource_limit_change_invalidates_index_state(self, tmp_path):
+        from smartbench.rag.chunker import CodeChunker
+        from smartbench.rag.indexer import IndexPipeline
+
+        project = tmp_path / "limit-cache"
+        project.mkdir()
+        (project / "main.py").write_text("value = 1\n")
+        fingerprint = ProjectScanner(str(project)).scan()
+        first = IndexPipeline(
+            str(project), fingerprint, chunker=CodeChunker(max_files=10)
+        )
+        store, _ = first.index()
+
+        changed = IndexPipeline(
+            str(project), fingerprint, chunker=CodeChunker(max_files=11)
+        )
+
+        assert store.load_index_state()["max_files"] == 10
+        assert changed.needs_reindex() is True
+
+    def test_simple_vector_store_rejects_inconsistent_cache(self, tmp_path):
+        import json
+
+        import numpy as np
+
+        from smartbench.rag.store import SimpleVectorStore
+
+        store = SimpleVectorStore(str(tmp_path), "corrupt-cache")
+        store.store_path.mkdir(parents=True)
+        np.savez_compressed(store.index_file, vectors=np.array([[1.0, 0.0]]))
+        store.meta_file.write_text(
+            json.dumps([{"id": "one"}, {"id": "two"}]), encoding="utf-8"
+        )
+
+        assert store.count() == 0
+        assert store.search([1.0, 0.0]) == []
+
+    def test_clear_removes_chroma_collection_when_state_is_corrupt(
+        self, tmp_path, monkeypatch
+    ):
+        from smartbench.rag.store import VectorStore
+
+        store = VectorStore(str(tmp_path), "chroma-cache")
+        store.store_path.mkdir(parents=True)
+        (store.store_path / "chroma.sqlite3").touch()
+        store.state_file.write_text("not json", encoding="utf-8")
+        deleted = []
+
+        class FakeClient:
+            def delete_collection(self, name):
+                deleted.append(name)
+
+        monkeypatch.setattr(
+            store, "_ensure_chroma_client", lambda: setattr(store, "_client", FakeClient())
+        )
+
+        store.clear()
+
+        assert deleted == [store.collection_name]
 
     def test_tfidf_vocabulary_uses_validated_json(self, tmp_path):
         from types import SimpleNamespace

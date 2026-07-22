@@ -35,7 +35,7 @@ class IndexPipeline:
     and can be reused across SmartBench sessions.
     """
 
-    INDEX_SCHEMA_VERSION = 3
+    INDEX_SCHEMA_VERSION = 4
 
     def __init__(self, project_path: str,
                  fingerprint: ProjectFingerprint,
@@ -198,6 +198,9 @@ class IndexPipeline:
             "chunk_size": self.chunker.chunk_size,
             "overlap": self.chunker.overlap,
             "max_chunk_chars": self.chunker.max_chunk_chars,
+            "max_files": self.chunker.max_files,
+            "max_file_bytes": self.chunker.max_file_bytes,
+            "max_chunks": self.chunker.max_chunks,
         }
 
     def _restore_embedder_state(self, state: dict) -> None:
