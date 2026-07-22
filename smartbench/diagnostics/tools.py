@@ -8,7 +8,9 @@ Each tool inherits from DiagnosticTool and declares:
 """
 
 import ast
+import os
 import re
+import shlex
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -20,6 +22,35 @@ from smartbench.diagnostics.registry import (
     Severity,
 )
 from smartbench.path_safety import is_project_file
+
+_PYTHON_SCAN_EXCLUDED_DIRS = {
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".smartbench",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "node_modules",
+    "target",
+    "vendor",
+    "venv",
+}
+_PYTHON_SCAN_MAX_DIRECTORIES = 2_000
+_PYTHON_SCAN_MAX_DISCOVERED_FILES = 20_000
+_PYTHON_SCAN_MAX_FILES = 500
+_PYTHON_SCAN_MAX_FILE_BYTES = 2 * 1024 * 1024
+_PYTHON_ENTRY_POINTS = (
+    "main.py",
+    "app.py",
+    "server.py",
+    "cli.py",
+    "start.py",
+    "run.py",
+    "__main__.py",
+)
 
 # ── Linux / Unix system tools ─────────────────────────────────────────
 
@@ -281,6 +312,103 @@ class PythonDiagTool(DiagnosticTool):
         """Always available — gives suggestions even without specific tools."""
         return True
 
+    @staticmethod
+    def _discover_python_files(target_path: str) -> List[Path]:
+        """Return a bounded list of project-owned Python files."""
+        supplied = Path(target_path)
+        try:
+            if supplied.is_symlink():
+                return []
+            root = supplied.resolve(strict=True)
+        except (OSError, RuntimeError):
+            return []
+
+        if root.is_file():
+            try:
+                if (
+                    root.suffix.lower() == ".py"
+                    and root.stat().st_size <= _PYTHON_SCAN_MAX_FILE_BYTES
+                ):
+                    return [root]
+            except OSError:
+                pass
+            return []
+        if not root.is_dir():
+            return []
+
+        paths: List[Path] = []
+        visited_directories = 0
+        discovered_files = 0
+        for current, dirnames, filenames in os.walk(
+            root, topdown=True, followlinks=False
+        ):
+            visited_directories += 1
+            if visited_directories > _PYTHON_SCAN_MAX_DIRECTORIES:
+                break
+
+            current_path = Path(current)
+            safe_dirs = []
+            for dirname in sorted(dirnames):
+                candidate = current_path / dirname
+                if (
+                    dirname in _PYTHON_SCAN_EXCLUDED_DIRS
+                    or candidate.is_symlink()
+                ):
+                    continue
+                try:
+                    candidate.resolve().relative_to(root)
+                except (OSError, RuntimeError, ValueError):
+                    continue
+                safe_dirs.append(dirname)
+            dirnames[:] = safe_dirs
+
+            for filename in sorted(filenames):
+                discovered_files += 1
+                if discovered_files > _PYTHON_SCAN_MAX_DISCOVERED_FILES:
+                    return paths
+                if not filename.lower().endswith(".py"):
+                    continue
+                path = current_path / filename
+                if not is_project_file(root, path):
+                    continue
+                try:
+                    if path.stat().st_size > _PYTHON_SCAN_MAX_FILE_BYTES:
+                        continue
+                except OSError:
+                    continue
+                paths.append(path)
+                if len(paths) >= _PYTHON_SCAN_MAX_FILES:
+                    return paths
+        return paths
+
+    @classmethod
+    def _profile_target(cls, target_path: str) -> tuple[str, bool]:
+        """Choose a runnable Python file, or return an explicit placeholder."""
+        supplied = Path(target_path)
+        try:
+            if supplied.is_symlink():
+                raise ValueError("symlink targets are not inferred")
+            resolved = supplied.resolve(strict=True)
+        except (OSError, RuntimeError, ValueError):
+            return "path/to/entry_script.py", True
+
+        if resolved.is_file():
+            if resolved.suffix.lower() == ".py":
+                return shlex.quote(str(resolved)), False
+            return "path/to/entry_script.py", True
+
+        if resolved.is_dir():
+            for name in _PYTHON_ENTRY_POINTS:
+                candidate = resolved / name
+                if is_project_file(resolved, candidate):
+                    return shlex.quote(str(candidate)), False
+
+            for candidate in cls._discover_python_files(str(resolved)):
+                if candidate.name == "__main__.py":
+                    return shlex.quote(str(candidate)), False
+
+        return "path/to/entry_script.py", True
+
     def diagnose(self, target_path: str, category: ProblemCategory,
                  symptoms: Optional[List[str]] = None,
                  extra_args: Optional[Dict] = None) -> DiagnosisResult:
@@ -291,31 +419,31 @@ class PythonDiagTool(DiagnosticTool):
 
         if category == ProblemCategory.STARTUP_FAILURE:
             root = Path(target_path).resolve()
-            excluded = {
-                ".git", ".venv", "venv", "__pycache__", "build", "dist",
-                "node_modules", "legacy",
-            }
             checked = 0
             syntax_errors = []
-            for path in root.rglob("*.py"):
-                if not is_project_file(root, path):
-                    continue
-                if set(path.relative_to(root).parts[:-1]) & excluded:
-                    continue
+            for path in self._discover_python_files(target_path):
                 try:
                     ast.parse(
                         path.read_text(encoding="utf-8", errors="ignore"),
-                        filename=str(path.relative_to(root)),
+                        filename=(
+                            str(path.relative_to(root))
+                            if root.is_dir()
+                            else path.name
+                        ),
                     )
                     checked += 1
                 except SyntaxError as exc:
+                    try:
+                        display_path = (
+                            path.relative_to(root) if root.is_dir() else path.name
+                        )
+                    except ValueError:
+                        display_path = path.name
                     syntax_errors.append(
-                        f"{path.relative_to(root)}:{exc.lineno}: {exc.msg}"
+                        f"{display_path}:{exc.lineno}: {exc.msg}"
                     )
                 except OSError:
                     continue
-                if checked + len(syntax_errors) >= 500:
-                    break
             findings.evidence = (
                 "\n".join(syntax_errors)
                 if syntax_errors else f"Parsed {checked} Python files without syntax errors"
@@ -339,15 +467,33 @@ class PythonDiagTool(DiagnosticTool):
             })
 
         elif category == ProblemCategory.PERFORMANCE:
+            profile_target, is_placeholder = self._profile_target(target_path)
+            target_note = (
+                "Replace path/to/entry_script.py with the real Python entry point"
+                if is_placeholder
+                else "The Python entry point was inferred from the diagnostic target"
+            )
             findings.suggestions.append({
                 "title": "Profile with py-spy",
-                "command": f"py-spy record -o profile.svg -- python {target_path}",
-                "description": "Generate flame graph with py-spy (pip install py-spy)",
+                "command": (
+                    "py-spy record -o profile.svg -- python "
+                    f"{profile_target}"
+                ),
+                "description": (
+                    "Generate a flame graph with py-spy (pip install py-spy). "
+                    f"{target_note}."
+                ),
             })
             findings.suggestions.append({
                 "title": "Profile with cProfile",
-                "command": f"python -m cProfile -o profile.out {target_path}",
-                "description": "Use built-in cProfile for function-level profiling",
+                "command": (
+                    "python -m cProfile -o profile.out "
+                    f"{profile_target}"
+                ),
+                "description": (
+                    "Use built-in cProfile for function-level profiling. "
+                    f"{target_note}."
+                ),
             })
 
         elif category == ProblemCategory.MEMORY_LEAK:

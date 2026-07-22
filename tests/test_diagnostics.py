@@ -138,6 +138,67 @@ def test_python_startup_diagnostic_parses_project_without_executing_it(
     assert not marker.exists()
 
 
+def test_python_startup_diagnostic_prunes_dependency_trees(tmp_path: Path):
+    (tmp_path / "main.py").write_text("print('ok')\n")
+    dependency = tmp_path / "node_modules" / "vendored"
+    dependency.mkdir(parents=True)
+    (dependency / "broken.py").write_text("def broken(:\n")
+
+    result = PythonDiagTool().diagnose(
+        str(tmp_path), ProblemCategory.STARTUP_FAILURE
+    )
+
+    assert result.success is True
+    assert result.evidence == "Parsed 1 Python files without syntax errors"
+
+
+def test_python_performance_diagnostic_uses_inferred_entry_point(tmp_path: Path):
+    entry_point = tmp_path / "main.py"
+    entry_point.write_text("print('ok')\n")
+
+    result = PythonDiagTool().diagnose(
+        str(tmp_path), ProblemCategory.PERFORMANCE
+    )
+
+    commands = [suggestion["command"] for suggestion in result.suggestions]
+    assert all(str(entry_point) in command for command in commands)
+    assert all(str(tmp_path) != command.rsplit(" ", 1)[-1] for command in commands)
+    assert all("inferred" in item["description"] for item in result.suggestions)
+
+
+def test_python_performance_diagnostic_marks_unknown_entry_point(tmp_path: Path):
+    (tmp_path / "library.py").write_text("VALUE = 1\n")
+
+    result = PythonDiagTool().diagnose(
+        str(tmp_path), ProblemCategory.PERFORMANCE
+    )
+
+    assert all(
+        "path/to/entry_script.py" in suggestion["command"]
+        for suggestion in result.suggestions
+    )
+    assert all(
+        "Replace path/to/entry_script.py" in suggestion["description"]
+        for suggestion in result.suggestions
+    )
+
+
+def test_python_performance_diagnostic_quotes_entry_point(tmp_path: Path):
+    project = tmp_path / "project; echo unsafe"
+    project.mkdir()
+    entry_point = project / "main.py"
+    entry_point.write_text("print('ok')\n")
+
+    result = PythonDiagTool().diagnose(
+        str(project), ProblemCategory.PERFORMANCE
+    )
+
+    assert all(
+        f"'{entry_point}'" in suggestion["command"]
+        for suggestion in result.suggestions
+    )
+
+
 def test_python_dependency_diagnostic_does_not_check_host_environment(
     monkeypatch, tmp_path: Path
 ):
