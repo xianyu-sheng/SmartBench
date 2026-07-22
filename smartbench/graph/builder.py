@@ -41,13 +41,17 @@ _DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024
 _PATTERNS = {
     Language.PYTHON: {
         "function": re.compile(
-            r'^\s*def\s+(?P<name>\w+)\s*\(', re.MULTILINE
+            r'^[ \t]*(?:async[ \t]+)?def[ \t]+(?P<name>\w+)[ \t]*\(',
+            re.MULTILINE,
         ),
         "class": re.compile(
-            r'^\s*class\s+(?P<name>\w+)\s*[(:]', re.MULTILINE
+            r'^[ \t]*class[ \t]+(?P<name>\w+)[ \t]*'
+            r'(?:\([^\r\n]*\))?[ \t]*:',
+            re.MULTILINE,
         ),
         "import": re.compile(
-            r'^(?:from\s+(?P<module>\S+)\s+)?import\s+(?P<names>[\w\s,]+)',
+            r'^[ \t]*(?:from[ \t]+(?P<module>\S+)[ \t]+)?'
+            r'import[ \t]+(?P<names>[^\r\n#]+)',
             re.MULTILINE,
         ),
         "call": re.compile(
@@ -65,8 +69,9 @@ _PATTERNS = {
             r'type\s+(?P<name>\w+)\s+interface\s*\{', re.MULTILINE
         ),
         "import": re.compile(
-            r'import\s+\(\s*((?:"[^"]+"\s*)+)\)|import\s+"(?P<pkg>[^"]+)"',
-            re.MULTILINE,
+            r'^[ \t]*import[ \t]*\((?P<packages>.*?)\)'
+            r'|^[ \t]*import[ \t]+(?:[\w.]+[ \t]+)?"(?P<pkg>[^"]+)"',
+            re.MULTILINE | re.DOTALL,
         ),
         "call": re.compile(
             r'(?P<name>\w+)\s*\(', re.MULTILINE
@@ -131,7 +136,9 @@ _PATTERNS = {
             r'class\s+(?P<name>\w+)', re.MULTILINE
         ),
         "import": re.compile(
-            r'import\s+.*?\s+from\s+[\'"](?P<module>[^\'"]+)[\'"]',
+            r'^[ \t]*import[ \t]+'
+            r'(?:(?:[^;\r\n]+?)[ \t]+from[ \t]+)?'
+            r'[\'"](?P<module>[^\'"\r\n]+)[\'"]',
             re.MULTILINE,
         ),
         "call": re.compile(
@@ -150,7 +157,9 @@ _PATTERNS = {
             r'class\s+(?P<name>\w+)', re.MULTILINE
         ),
         "import": re.compile(
-            r'import\s+.*?\s+from\s+[\'"](?P<module>[^\'"]+)[\'"]',
+            r'^[ \t]*import[ \t]+'
+            r'(?:(?:[^;\r\n]+?)[ \t]+from[ \t]+)?'
+            r'[\'"](?P<module>[^\'"\r\n]+)[\'"]',
             re.MULTILINE,
         ),
         "call": re.compile(
@@ -601,7 +610,6 @@ class CodeGraphBuilder:
                        language: Language, patterns: Dict) -> List[CodeNode]:
         """Extract class/struct/interface definitions."""
         nodes = []
-        seen: Set[str] = set()
 
         for pattern_key in ("class", "struct", "interface", "trait", "impl"):
             pat = patterns.get(pattern_key)
@@ -610,9 +618,8 @@ class CodeGraphBuilder:
 
             for match in pat.finditer(content):
                 name = match.group("name")
-                if not name or name in seen:
+                if not name:
                     continue
-                seen.add(name)
 
                 line_no = content[:match.start()].count("\n") + 1
                 node = CodeNode(
@@ -705,18 +712,13 @@ class CodeGraphBuilder:
             if content is None:
                 continue
 
+            seen_modules: Set[str] = set()
             for match in import_pattern.finditer(content):
-                # Extract module name from whichever group matched
-                module_name = None
-                for gname in ("module", "pkg", "names"):
-                    try:
-                        module_name = match.group(gname)
-                        if module_name:
-                            break
-                    except IndexError:
+                module_names = self._import_names_from_match(language, match)
+                for module_name in module_names:
+                    if module_name in seen_modules:
                         continue
-
-                if module_name:
+                    seen_modules.add(module_name)
                     # Create a MODULE node for the import
                     module_id = CodeNode.make_id(
                         rel_path, f"import:{module_name}", NodeType.IMPORT,
@@ -724,8 +726,9 @@ class CodeGraphBuilder:
                     module_node = CodeNode(
                         id=module_id,
                         node_type=NodeType.IMPORT,
-                        name=module_name.strip().strip('"').strip("'"),
+                        name=module_name,
                         file_path=rel_path,
+                        line_start=content.count("\n", 0, match.start()) + 1,
                         language=language.value,
                     )
                     graph.add_node(module_node)
@@ -734,6 +737,35 @@ class CodeGraphBuilder:
                         target_id=module_id,
                         edge_type=EdgeType.IMPORTS,
                     ))
+
+    @staticmethod
+    def _import_names_from_match(language: Language, match: re.Match) -> List[str]:
+        """Normalize one language-specific import match into module names."""
+        groups = match.groupdict()
+
+        if language == Language.PYTHON:
+            module = groups.get("module")
+            if module:
+                return [module.strip()]
+
+            names = groups.get("names") or ""
+            modules = []
+            for imported in names.split(","):
+                # ``import package as alias`` still refers to ``package``.
+                module_name = imported.strip().split(maxsplit=1)[0]
+                if module_name:
+                    modules.append(module_name)
+            return modules
+
+        if language == Language.GO:
+            package = groups.get("pkg")
+            if package:
+                return [package.strip()]
+            package_block = groups.get("packages") or ""
+            return [name.strip() for name in re.findall(r'"([^"]+)"', package_block)]
+
+        module = groups.get("module") or groups.get("pkg")
+        return [module.strip()] if module and module.strip() else []
 
     # ── Tree-sitter language mapping ───────────────────────────────────
 

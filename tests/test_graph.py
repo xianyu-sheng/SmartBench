@@ -832,8 +832,22 @@ class TestCodeGraphBuilderPython:
             n.name: n for n in graph.nodes.values()
             if n.node_type == NodeType.FUNCTION
         }
-        assert isinstance(funcs["helper"].line_start, int)
-        assert funcs["helper"].line_start > 0
+        assert funcs["method"].line_start == 5
+        assert funcs["helper"].line_start == 8
+        assert funcs["main"].line_start == 11
+
+    def test_detects_async_function(self, test_dir, builder):
+        (test_dir / "async_worker.py").write_text(
+            "async def fetch():\n"
+            "    return 1\n"
+        )
+
+        graph = builder.build(str(test_dir), Language.PYTHON)
+
+        assert any(
+            node.name == "fetch" and node.node_type == NodeType.FUNCTION
+            for node in graph.nodes.values()
+        )
 
     def test_function_has_signature_property(self, python_file, builder):
         """Signature may be empty for some functions due to regex newline matching."""
@@ -859,17 +873,44 @@ class TestCodeGraphBuilderPython:
         }
         assert "MyClass" in class_names
 
+    def test_retains_redefined_class_symbols(self, test_dir, builder):
+        (test_dir / "classes.py").write_text(
+            "class Worker:\n"
+            "    pass\n\n"
+            "class Worker:\n"
+            "    pass\n"
+        )
+
+        graph = builder.build(str(test_dir), Language.PYTHON)
+        workers = [
+            node for node in graph.nodes.values()
+            if node.node_type == NodeType.CLASS and node.name == "Worker"
+        ]
+
+        assert [node.line_start for node in workers] == [1, 4]
+
     def test_detects_imports(self, python_file, builder):
-        r"""Import regex [\w\s,]+ is greedy across newlines, so the captured
-        import name may include content past the import line."""
         graph = builder.build(str(python_file.parent), Language.PYTHON)
         import_nodes = [
             n for n in graph.nodes.values()
             if n.node_type == NodeType.IMPORT
         ]
-        assert len(import_nodes) >= 1
-        # The import name includes multi-line content due to greedy regex
-        assert any("os" in n.name for n in import_nodes)
+        assert {node.name for node in import_nodes} == {"os", "typing"}
+        assert {node.line_start for node in import_nodes} == {1, 2}
+
+    def test_splits_python_import_list_and_drops_alias(self, test_dir, builder):
+        (test_dir / "imports.py").write_text(
+            "import os, sys as system\n"
+            "import os\n"
+        )
+
+        graph = builder.build(str(test_dir), Language.PYTHON)
+        imports = [
+            node.name for node in graph.nodes.values()
+            if node.node_type == NodeType.IMPORT
+        ]
+
+        assert imports == ["os", "sys"]
 
     def test_detects_function_calls(self, python_file, builder):
         graph = builder.build(str(python_file.parent), Language.PYTHON)
@@ -960,6 +1001,24 @@ class TestCodeGraphBuilderGo:
         imported_names = {n.name for n in import_nodes}
         assert "os" in imported_names
 
+    def test_detects_grouped_and_aliased_go_imports(self, test_dir, builder):
+        (test_dir / "imports.go").write_text(
+            "package sample\n\n"
+            "import (\n"
+            '    "fmt"\n'
+            '    httpclient "net/http"\n'
+            '    _ "embed"\n'
+            ")\n"
+        )
+
+        graph = builder.build(str(test_dir), Language.GO)
+        imported_names = {
+            node.name for node in graph.nodes.values()
+            if node.node_type == NodeType.IMPORT
+        }
+
+        assert imported_names == {"fmt", "net/http", "embed"}
+
     def test_detects_go_function_calls(self, go_file, builder):
         graph = builder.build(str(go_file.parent), Language.GO)
         main_node = next(
@@ -969,6 +1028,22 @@ class TestCodeGraphBuilderGo:
         callees = graph.get_callees(main_node.id)
         callee_names = {n.name for n in callees}
         assert "Greet" in callee_names
+
+
+class TestCodeGraphBuilderJavaScript:
+    def test_detects_standard_and_side_effect_imports(self, test_dir, builder):
+        (test_dir / "main.js").write_text(
+            'import { render } from "ui-kit";\n'
+            'import "polyfill";\n'
+        )
+
+        graph = builder.build(str(test_dir), Language.JAVASCRIPT)
+        imported_names = {
+            node.name for node in graph.nodes.values()
+            if node.node_type == NodeType.IMPORT
+        }
+
+        assert imported_names == {"ui-kit", "polyfill"}
 
 
 # -- Edge cases --

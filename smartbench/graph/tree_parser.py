@@ -111,6 +111,11 @@ _CLASS_NODE_TYPES = {
     "interface_declaration",    # TS
 }
 
+_VARIABLE_FUNCTION_VALUE_TYPES = {
+    "arrow_function",
+    "function_expression",
+}
+
 
 def extract_symbols(
     parser: Any, source: bytes, file_path: str
@@ -213,6 +218,27 @@ def _walk_tree(
                 "end_line": node.end_point[0] + 1,
                 "signature": sig.strip(),
             })
+
+    # ── JS/TS functions assigned to variables ─────────────────────
+    elif node_type == "variable_declarator":
+        value_node = node.child_by_field_name("value")
+        if (
+            value_node is not None
+            and value_node.type in _VARIABLE_FUNCTION_VALUE_TYPES
+        ):
+            name = _get_node_name(node, source_bytes)
+            if name:
+                line = node.start_point[0] + 1
+                sig_end = min(node.start_byte + 200, node.end_byte)
+                sig = source_bytes[node.start_byte:sig_end].decode(
+                    "utf-8", errors="replace"
+                ).split("\n")[0]
+                result["functions"].append({
+                    "name": name,
+                    "line": line,
+                    "end_line": node.end_point[0] + 1,
+                    "signature": sig.strip(),
+                })
 
     # ── Class / struct / interface definitions ─────────────────────
     elif node_type in _CLASS_NODE_TYPES:

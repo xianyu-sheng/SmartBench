@@ -41,3 +41,22 @@ def test_python_adapter_extracts_class():
     symbols = extract_symbols(parser, b"class Worker:\n    pass\n", "worker.py")
 
     assert any(code_class["name"] == "Worker" for code_class in symbols["classes"])
+
+
+@pytest.mark.parametrize(
+    ("language", "source"),
+    [
+        ("javascript", b"const alpha = async (value) => value + 1;\n"),
+        ("typescript", b"const alpha = (value: number): number => value + 1;\n"),
+    ],
+)
+def test_javascript_adapter_extracts_arrow_function(language, source):
+    parser = get_parser(language)
+    if parser is None:
+        if os.environ.get("SMARTBENCH_REQUIRE_TREE_SITTER") == "1":
+            pytest.fail(f"missing tree-sitter adapter for {language}")
+        pytest.skip(f"optional tree-sitter adapter not installed: {language}")
+
+    symbols = extract_symbols(parser, source, f"sample.{language}")
+
+    assert any(function["name"] == "alpha" for function in symbols["functions"])
