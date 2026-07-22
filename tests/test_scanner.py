@@ -6,6 +6,7 @@ All scanning is deterministic (zero LLM calls).  These tests use
 tmp_path to create minimal project directories on the fly.
 """
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -430,6 +431,58 @@ class TestManifestDetection:
         fp = scanner.scan()
         assert "pyproject.toml" in fp.manifest_files
         assert "requirements.txt" in fp.manifest_files
+
+
+class TestDependencyDetection:
+    def test_non_git_python_project_still_reports_dependencies(self, tmp_path):
+        project = tmp_path / "python-deps"
+        project.mkdir()
+        (project / "main.py").write_text("print('ok')\n")
+        (project / "requirements.txt").write_text(
+            "Flask==3.0\nrequests[security]>=2\n-r dev.txt\n"
+        )
+
+        fingerprint = ProjectScanner(str(project)).scan()
+
+        assert fingerprint.is_git_repo is False
+        assert fingerprint.dependencies == ["Flask", "requests"]
+        assert fingerprint.dependency_count == 2
+
+    def test_go_require_block_excludes_directives_and_parenthesis(self, tmp_path):
+        project = tmp_path / "go-deps"
+        project.mkdir()
+        (project / "main.go").write_text("package main\n")
+        (project / "go.mod").write_text(
+            "module example.test/app\n\n"
+            "go 1.22\n\n"
+            "require (\n"
+            "    github.com/gin-gonic/gin v1.10.0\n"
+            "    golang.org/x/sync v0.7.0 // indirect\n"
+            ")\n"
+            "replace golang.org/x/sync => ./local-sync\n"
+        )
+
+        fingerprint = ProjectScanner(str(project)).scan()
+
+        assert fingerprint.dependencies == [
+            "github.com/gin-gonic/gin",
+            "golang.org/x/sync",
+        ]
+
+    def test_package_json_dependency_sections_are_deduplicated(self, tmp_path):
+        project = tmp_path / "node-deps"
+        project.mkdir()
+        (project / "index.js").write_text("console.log('ok')\n")
+        (project / "package.json").write_text(json.dumps({
+            "dependencies": {"react": "18", "zod": "3"},
+            "devDependencies": {"React": "18", "vitest": "2"},
+            "peerDependencies": ["malformed"],
+        }))
+
+        fingerprint = ProjectScanner(str(project)).scan()
+
+        assert fingerprint.dependencies == ["react", "zod", "vitest"]
+        assert fingerprint.dependency_count == 3
 
 
 # ── Entry point detection ──────────────────────────────────────────────────

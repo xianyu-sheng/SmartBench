@@ -5,7 +5,9 @@ Walks the filesystem once and populates a ProjectFingerprint
 from manifest files, directory conventions, build systems, and git history.
 """
 
+import json
 import os
+import re
 import subprocess
 from heapq import nsmallest
 from pathlib import Path
@@ -208,6 +210,7 @@ class ProjectScanner:
         self._count_files(fp)
         self._detect_readme(fp)
         self._detect_git(fp)
+        self._detect_dependencies(fp)
         self._detect_configs(fp)
         self._detect_entry_points(fp)
 
@@ -567,37 +570,86 @@ class ProjectScanner:
         except (subprocess.SubprocessError, FileNotFoundError, OSError):
             pass
 
-        # Dependencies
-        self._detect_dependencies(fp)
-
     def _detect_dependencies(self, fp: ProjectFingerprint) -> None:
         """Extract dependency names from manifests."""
+        dependencies: List[str] = []
+        seen = set()
+
+        def add_dependency(name: str) -> None:
+            normalized = name.strip().strip('"').strip("'")
+            key = normalized.lower()
+            if normalized and key not in seen and len(dependencies) < 500:
+                seen.add(key)
+                dependencies.append(normalized)
+
         # Go: go.mod
         go_mod = resolve_project_file(self.root, "go.mod")
         if go_mod is not None:
             content = read_text_bounded(go_mod, self.max_file_bytes)
             if content is not None:
-                for line in content.split("\n"):
-                    line = line.strip()
-                    if line and not line.startswith("module") and not line.startswith("go "):
-                        if "require" in line:
+                in_require_block = False
+                for raw_line in content.splitlines():
+                    line = raw_line.split("//", 1)[0].strip()
+                    if not line:
+                        continue
+                    if line == "require (":
+                        in_require_block = True
+                        continue
+                    if in_require_block and line == ")":
+                        in_require_block = False
+                        continue
+                    if line.startswith("require "):
+                        requirement = line[len("require "):].strip()
+                        if requirement == "(":
+                            in_require_block = True
                             continue
-                        if "//" in line:
-                            line = line[:line.index("//")].strip()
+                        parts = requirement.split()
+                        if parts:
+                            add_dependency(parts[0])
+                    elif in_require_block:
                         parts = line.split()
-                        if parts and len(fp.dependencies) < 500:
-                            fp.dependencies.append(parts[0].strip('"'))
-                fp.dependency_count = len(fp.dependencies)
+                        if parts:
+                            add_dependency(parts[0])
 
         # Python: requirements.txt
         req_file = resolve_project_file(self.root, "requirements.txt")
         if req_file is not None:
             content = read_text_bounded(req_file, self.max_file_bytes)
             if content is not None:
-                for line in content.split("\n"):
-                    line = line.strip()
-                    if line and not line.startswith("#"):
-                        pkg = line.split("==")[0].split(">=")[0].split("<")[0].strip()
-                        if pkg and len(fp.dependencies) < 500:
-                            fp.dependencies.append(pkg)
-                fp.dependency_count = len(fp.dependencies)
+                for raw_line in content.splitlines():
+                    line = re.split(r"\s+#", raw_line, maxsplit=1)[0].strip()
+                    if not line or line.startswith(("#", "-")):
+                        continue
+                    egg_match = re.search(r"[#&]egg=([A-Za-z0-9._-]+)", line)
+                    if egg_match:
+                        add_dependency(egg_match.group(1))
+                        continue
+                    name_match = re.match(r"([A-Za-z0-9][A-Za-z0-9._-]*)", line)
+                    if name_match:
+                        add_dependency(name_match.group(1))
+
+        # Node.js: package.json dependency sections
+        package_json = resolve_project_file(self.root, "package.json")
+        if package_json is not None:
+            content = read_text_bounded(package_json, self.max_file_bytes)
+            if content is not None:
+                try:
+                    package_data = json.loads(content)
+                except (json.JSONDecodeError, TypeError):
+                    package_data = {}
+                if isinstance(package_data, dict):
+                    for section_name in (
+                        "dependencies",
+                        "devDependencies",
+                        "peerDependencies",
+                        "optionalDependencies",
+                    ):
+                        section = package_data.get(section_name, {})
+                        if not isinstance(section, dict):
+                            continue
+                        for name in sorted(section):
+                            if isinstance(name, str):
+                                add_dependency(name)
+
+        fp.dependencies = dependencies
+        fp.dependency_count = len(dependencies)
