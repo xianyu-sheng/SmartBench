@@ -73,3 +73,26 @@ def read_text_bounded(
     if len(payload) > limit:
         return None
     return payload.decode("utf-8", errors="ignore")
+
+
+def read_text_prefix(
+    file_path: PathLike,
+    max_bytes: int = 64 * 1024,
+) -> Optional[str]:
+    """Read at most a byte prefix from a regular non-symlink file."""
+    try:
+        limit = int(max_bytes)
+    except (TypeError, ValueError):
+        return None
+    if limit < 1:
+        return None
+
+    path = Path(file_path)
+    try:
+        if path.is_symlink() or not path.is_file():
+            return None
+        with path.open("rb") as handle:
+            payload = handle.read(limit)
+    except OSError:
+        return None
+    return payload.decode("utf-8", errors="ignore")

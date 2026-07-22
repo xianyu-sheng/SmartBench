@@ -22,7 +22,7 @@ from smartbench.cli.phases import (
 )
 from smartbench.llm.client import call_llm, parse_json_safe
 from smartbench.llm.provider import configure_api_keys
-from smartbench.path_safety import resolve_project_file
+from smartbench.path_safety import read_text_prefix, resolve_project_file
 from smartbench.prompts.factory import PromptFactory
 from smartbench.terminal import safe_terminal_text
 
@@ -87,8 +87,8 @@ def run_interactive_wizard(
                 project_path, fingerprint.readme_path
             )
             if readme_path is not None:
-                readme_content = readme_path.read_text(
-                    encoding="utf-8", errors="ignore"
+                readme_content = (
+                    read_text_prefix(readme_path, 64 * 1024) or ""
                 )[:4000]
         except Exception:
             pass

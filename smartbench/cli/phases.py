@@ -43,7 +43,7 @@ from smartbench.graph.builder import CodeGraphBuilder
 from smartbench.graph.retriever import GraphRetriever
 from smartbench.llm.client import call_llm, parse_json_safe
 from smartbench.llm.provider import load_api_keys_from_env
-from smartbench.path_safety import resolve_project_file
+from smartbench.path_safety import read_text_prefix, resolve_project_file
 from smartbench.prompts.factory import PromptFactory
 from smartbench.terminal import safe_terminal_text
 
@@ -477,7 +477,9 @@ def run_fallback_analysis(
             entry_path = resolve_project_file(project_path, entry_file)
             if entry_path is None:
                 continue
-            content = entry_path.read_text(encoding="utf-8", errors="ignore")
+            content = read_text_prefix(entry_path, 64 * 1024)
+            if content is None:
+                continue
             code_context += f"\n// {entry_file}\n{content[:2000]}\n"
         except Exception:
             pass
@@ -489,7 +491,9 @@ def run_fallback_analysis(
             )
             if readme_path is None:
                 raise OSError("README escaped project boundary")
-            readme = readme_path.read_text(encoding="utf-8", errors="ignore")
+            readme = read_text_prefix(readme_path, 64 * 1024)
+            if readme is None:
+                raise OSError("README could not be read safely")
             code_context = (
                 f"// {fingerprint.readme_path}\n{readme[:2000]}\n"
                 + code_context

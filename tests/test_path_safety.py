@@ -9,7 +9,11 @@ from smartbench.diagnostics.tools import PythonDiagTool
 from smartbench.graph.builder import CodeGraphBuilder
 from smartbench.graph.retriever import GraphRetriever
 from smartbench.graph.schema import CodeGraph
-from smartbench.path_safety import is_project_file, resolve_project_file
+from smartbench.path_safety import (
+    is_project_file,
+    read_text_prefix,
+    resolve_project_file,
+)
 from smartbench.rag.chunker import CodeChunker
 from smartbench.rag.retriever import HybridRetriever
 from smartbench.verifier.extractor import EvidenceExtractor
@@ -35,6 +39,8 @@ def test_path_helpers_reject_escape_absolute_and_external_symlink(tmp_path):
     assert resolve_project_file(project, "leak.py") is None
     assert is_project_file(project, project / "main.py") is True
     assert is_project_file(project, project / "leak.py") is False
+    assert read_text_prefix(project / "main.py", 3) == "def"
+    assert read_text_prefix(project / "leak.py", 3) is None
 
 
 def test_scanner_graph_and_chunker_skip_external_symlink(tmp_path):

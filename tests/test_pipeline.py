@@ -502,6 +502,54 @@ class TestPhaseOrchestration:
         )
         # If it doesn't raise, it passes
 
+    def test_fallback_analysis_reads_only_file_prefixes(
+        self, tmp_path, monkeypatch, null_console
+    ):
+        import smartbench.cli.phases as phases
+        from smartbench.detector.fingerprint import ProjectFingerprint
+        from smartbench.engine.debate import DebateResult
+
+        entry = tmp_path / "main.py"
+        entry.write_text("ENTRY_MARKER\n" + "x" * 100_000)
+        readme = tmp_path / "README.md"
+        readme.write_text("README_MARKER\n" + "y" * 100_000)
+        fingerprint = ProjectFingerprint(
+            project_path=tmp_path,
+            entry_points=["main.py"],
+            has_readme=True,
+            readme_path="README.md",
+        )
+        captured = {}
+
+        class FakeDebateEngine:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def debate(self, context, **kwargs):
+                captured["context"] = context
+                return DebateResult()
+
+        def fail_read_text(*args, **kwargs):
+            raise AssertionError("fallback must not read whole source files")
+
+        monkeypatch.setattr(phases, "DebateEngine", FakeDebateEngine)
+        monkeypatch.setattr(
+            phases, "display_diagnosis_results", lambda *args, **kwargs: None
+        )
+        monkeypatch.setattr(Path, "read_text", fail_read_text)
+
+        phases.run_fallback_analysis(
+            null_console,
+            str(tmp_path),
+            fingerprint,
+            {"models": [{"api_key": "unused"}]},
+            "review",
+        )
+
+        assert "ENTRY_MARKER" in captured["context"]
+        assert "README_MARKER" in captured["context"]
+        assert len(captured["context"]) < 10_000
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Tool execution integration
