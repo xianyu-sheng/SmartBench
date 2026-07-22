@@ -8,6 +8,7 @@ Focuses on pure I/O verification (no LLM involvement):
   - VerificationResult — serialization roundtrip
 """
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -770,6 +771,29 @@ class TestSandboxVerifier:
         assert result["status"] == "skipped"
         assert "outside the project" in result["error"]
 
+    def test_rejects_patch_that_also_modifies_tests(self, tmp_path: Path):
+        project = _create_testable_python_project(tmp_path)
+        patch = """--- a/sample.py
++++ b/sample.py
+@@ -1,2 +1,2 @@
+ def value():
+-    return 1
++    return 2
+--- a/tests/test_sample.py
++++ b/tests/test_sample.py
+@@ -3,2 +3,2 @@
+ def test_value():
+-    assert value() == 1
++    assert value() == 2
+"""
+
+        result = SandboxVerifier(str(project)).verify_fix(
+            "sample.py", 1, "Change behavior and test", patch=patch
+        )
+
+        assert result["status"] == "skipped"
+        assert "unexpected file" in result["error"]
+
     def test_rejects_shell_string_test_command(self, tmp_path: Path):
         project = _create_testable_python_project(tmp_path)
         patch = """--- a/sample.py
@@ -815,3 +839,39 @@ class TestSandboxVerifier:
 
         assert result["status"] == "skipped"
         assert "No test command" in result["error"]
+
+    def test_test_process_does_not_inherit_credentials(
+        self, tmp_path: Path, monkeypatch
+    ):
+        project = _create_testable_python_project(tmp_path)
+        verifier = SandboxVerifier(str(project))
+        monkeypatch.setenv("SMARTBENCH_TEST_SECRET", "must-not-leak")
+        monkeypatch.setenv("SMARTBENCH_SAFE_MARKER", "safe-value")
+
+        result = verifier._run_process(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import os; "
+                    "print(os.getenv('SMARTBENCH_TEST_SECRET')); "
+                    "print(os.getenv('SMARTBENCH_SAFE_MARKER')); "
+                    "print(os.getenv('SMARTBENCH_SANDBOX'))"
+                ),
+            ],
+            project,
+        )
+
+        assert result["status"] == "passed"
+        assert "must-not-leak" not in result["output"]
+        assert "safe-value" in result["output"]
+        assert result["output"].endswith("1")
+
+    def test_project_copy_has_explicit_size_limit(self, tmp_path: Path):
+        project = _create_testable_python_project(tmp_path)
+        destination = tmp_path / "copy"
+        destination.mkdir()
+        verifier = SandboxVerifier(str(project), max_copy_bytes=10)
+
+        with pytest.raises(RuntimeError, match="copy byte limit"):
+            verifier._copy_project(destination)

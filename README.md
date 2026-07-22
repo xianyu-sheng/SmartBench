@@ -122,7 +122,7 @@ SmartBench uses graph-only retrieval when the optional RAG stack is unavailable.
 - Git remote credentials plus URL query/fragment data are removed before the remote is stored in the fingerprint or displayed.
 - Project-scoped diagnostics can execute installed compilers or analyzers inside the target path. Use SmartBench only on repositories you trust.
 - Host process, memory, and kernel probes (`ps`, `vmstat`, and `dmesg`) are disabled by default. `diagnose --system-probes` explicitly enables them and their output may expose host information.
-- `--sandbox` is explicit opt-in. It protects the working tree, but it is not an OS security boundary: repository tests still run with your user permissions.
+- `--sandbox` is explicit opt-in. It protects the working tree, restricts patches to the declared target file, and removes credential-like environment variables, but it is not an OS security boundary: repository tests still run with your user permissions and may access the network or user files.
 - Evidence status describes whether a reference is grounded, not whether a vulnerability or fix has been formally proven.
 
 ## Project layout

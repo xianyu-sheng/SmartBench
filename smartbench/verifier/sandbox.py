@@ -7,7 +7,9 @@ only enable it for repositories they trust.
 """
 
 import logging
+import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -17,16 +19,62 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_MAX_COPY_FILES = 20_000
+_DEFAULT_MAX_COPY_BYTES = 512 * 1024 * 1024
+_DEFAULT_MAX_PATCH_BYTES = 1024 * 1024
+_SENSITIVE_ENV_MARKERS = (
+    "API_KEY",
+    "AUTH",
+    "COOKIE",
+    "CREDENTIAL",
+    "PASSWORD",
+    "PRIVATE_KEY",
+    "SECRET",
+    "SESSION",
+    "TOKEN",
+)
+_SENSITIVE_ENV_PREFIXES = (
+    "AWS_",
+    "AZURE_",
+    "GITHUB_",
+    "GITLAB_",
+    "GOOGLE_",
+    "OPENAI_",
+)
+
 
 class SandboxVerifier:
     """Apply a unified diff in a temporary project copy and validate tests."""
 
-    def __init__(self, project_path: str, timeout_seconds: int = 60):
+    def __init__(
+        self,
+        project_path: str,
+        timeout_seconds: int = 60,
+        max_copy_files: int = _DEFAULT_MAX_COPY_FILES,
+        max_copy_bytes: int = _DEFAULT_MAX_COPY_BYTES,
+        max_patch_bytes: int = _DEFAULT_MAX_PATCH_BYTES,
+    ):
         self.project_path = Path(project_path).resolve()
         try:
             self.timeout = max(1, int(timeout_seconds))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             self.timeout = 60
+        self.max_copy_files = self._positive_limit(
+            max_copy_files, _DEFAULT_MAX_COPY_FILES
+        )
+        self.max_copy_bytes = self._positive_limit(
+            max_copy_bytes, _DEFAULT_MAX_COPY_BYTES
+        )
+        self.max_patch_bytes = self._positive_limit(
+            max_patch_bytes, _DEFAULT_MAX_PATCH_BYTES
+        )
+
+    @staticmethod
+    def _positive_limit(value: int, default: int) -> int:
+        try:
+            return max(1, int(value))
+        except (TypeError, ValueError, OverflowError):
+            return default
 
     def verify_fix(
         self,
@@ -65,8 +113,12 @@ class SandboxVerifier:
         if not patch or not patch.strip():
             result["error"] = "No machine-applicable unified diff was provided"
             return result
+        if len(patch.encode("utf-8", errors="ignore")) > self.max_patch_bytes:
+            result["error"] = "Patch exceeds the safe size limit"
+            return result
 
-        patch_error = self._validate_patch_paths(patch)
+        target_relative = target.relative_to(self.project_path).as_posix()
+        patch_error = self._validate_patch_paths(patch, target_relative)
         if patch_error:
             result["error"] = patch_error
             return result
@@ -176,18 +228,32 @@ class SandboxVerifier:
             return None, f"Symlink targets are not allowed: {file_path}"
         return target, None
 
-    def _validate_patch_paths(self, patch: str) -> Optional[str]:
-        """Reject absolute and parent-traversing paths before invoking git."""
+    def _validate_patch_paths(
+        self,
+        patch: str,
+        allowed_path: Optional[str] = None,
+    ) -> Optional[str]:
+        """Reject unsafe paths and edits outside the proposal target."""
         paths = []
         for line in patch.splitlines():
-            if not line.startswith(("--- ", "+++ ")):
-                continue
-            value = line[4:].split("\t", 1)[0].strip()
-            if value == "/dev/null":
-                continue
-            if value.startswith(("a/", "b/")):
-                value = value[2:]
-            paths.append(value)
+            values = []
+            if line.startswith(("--- ", "+++ ")):
+                values = [line[4:].split("\t", 1)[0].strip()]
+            elif line.startswith("diff --git "):
+                try:
+                    parts = shlex.split(line)
+                except ValueError:
+                    return "Patch has malformed diff headers"
+                if len(parts) != 4:
+                    return "Patch has malformed diff headers"
+                values = parts[2:]
+
+            for value in values:
+                if value == "/dev/null":
+                    continue
+                if value.startswith(("a/", "b/")):
+                    value = value[2:]
+                paths.append(value)
 
         if not paths:
             return "Patch has no unified-diff file headers"
@@ -195,10 +261,12 @@ class SandboxVerifier:
             path = PurePosixPath(value)
             if path.is_absolute() or ".." in path.parts or not value:
                 return f"Patch path is outside the project: {value}"
+            if allowed_path is not None and path.as_posix() != allowed_path:
+                return f"Patch modifies an unexpected file: {value}"
         return None
 
     def _copy_project(self, sandbox: Path) -> None:
-        """Copy regular project files, excluding generated dirs and symlinks."""
+        """Copy a bounded set of regular project files without symlinks."""
         skip_dirs = {
             ".git", "node_modules", "__pycache__", ".venv", "venv",
             "target", "build", "dist", ".smartbench", ".pytest_cache",
@@ -206,25 +274,41 @@ class SandboxVerifier:
         }
         skip_suffixes = {".pyc", ".pyo", ".so", ".o", ".a", ".whl", ".egg"}
 
-        def ignore_unsafe(directory: str, names: List[str]) -> set[str]:
-            base = Path(directory)
-            ignored = set()
-            for name in names:
-                candidate = base / name
-                if name in skip_dirs or candidate.is_symlink():
-                    ignored.add(name)
-                elif candidate.is_file() and candidate.suffix in skip_suffixes:
-                    ignored.add(name)
-            return ignored
+        copied_files = 0
+        copied_bytes = 0
+        for current, dirnames, filenames in os.walk(
+            self.project_path, topdown=True, followlinks=False
+        ):
+            current_path = Path(current)
+            relative_dir = current_path.relative_to(self.project_path)
+            destination_dir = sandbox / relative_dir
+            destination_dir.mkdir(parents=True, exist_ok=True)
+            dirnames[:] = [
+                dirname
+                for dirname in sorted(dirnames)
+                if dirname not in skip_dirs
+                and not (current_path / dirname).is_symlink()
+            ]
 
-        for item in self.project_path.iterdir():
-            if item.name in skip_dirs or item.is_symlink():
-                continue
-            destination = sandbox / item.name
-            if item.is_dir():
-                shutil.copytree(item, destination, ignore=ignore_unsafe)
-            elif item.is_file() and item.suffix not in skip_suffixes:
-                shutil.copy2(item, destination)
+            for filename in sorted(filenames):
+                source = current_path / filename
+                if (
+                    source.is_symlink()
+                    or not source.is_file()
+                    or source.suffix in skip_suffixes
+                ):
+                    continue
+                try:
+                    size = source.stat().st_size
+                except OSError:
+                    continue
+                copied_files += 1
+                copied_bytes += size
+                if copied_files > self.max_copy_files:
+                    raise RuntimeError("Project exceeds sandbox copy file limit")
+                if copied_bytes > self.max_copy_bytes:
+                    raise RuntimeError("Project exceeds sandbox copy byte limit")
+                shutil.copy2(source, destination_dir / filename)
 
     def _detect_test_command(self) -> Optional[List[str]]:
         """Return a shell-free test command for a recognized project."""
@@ -283,6 +367,7 @@ class SandboxVerifier:
                 text=True,
                 timeout=self.timeout,
                 shell=False,
+                env=self._subprocess_environment(),
             )
             output = (proc.stdout[-3000:] + "\n" + proc.stderr[-1000:]).strip()
             return {
@@ -310,6 +395,25 @@ class SandboxVerifier:
                 "exit_code": -1,
                 "error": str(exc),
             }
+
+    @staticmethod
+    def _subprocess_environment() -> Dict[str, str]:
+        """Drop credential-like variables before repository code executes."""
+        environment = {}
+        for name, value in os.environ.items():
+            upper_name = name.upper()
+            if upper_name.startswith(_SENSITIVE_ENV_PREFIXES):
+                continue
+            if any(marker in upper_name for marker in _SENSITIVE_ENV_MARKERS):
+                continue
+            environment[name] = value
+        environment.update({
+            "CI": "1",
+            "GIT_TERMINAL_PROMPT": "0",
+            "PIP_NO_INPUT": "1",
+            "SMARTBENCH_SANDBOX": "1",
+        })
+        return environment
 
     @staticmethod
     def _parse_location(location: str) -> Tuple[Optional[str], Optional[int]]:
