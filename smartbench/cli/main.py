@@ -22,11 +22,11 @@ from smartbench.cli.phases import (
     run_phase4_graph,
     run_quick_mode,
 )
-from smartbench.cli.text import safe_terminal_text
 from smartbench.cli.wizard import run_interactive_wizard
 from smartbench.detector.scanner import ProjectScanner
 from smartbench.diagnostics.registry import DiagnosticRegistry
 from smartbench.diagnostics.tools import ALL_TOOLS
+from smartbench.terminal import safe_terminal_text
 
 app = typer.Typer(
     name="smartbench",

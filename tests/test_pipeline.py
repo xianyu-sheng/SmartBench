@@ -568,6 +568,43 @@ class TestRAGPipeline:
 
         assert any(chunk.file_path == "legacy/old.py" for chunk in chunks)
 
+    @pytest.mark.parametrize(
+        ("kwargs", "message"),
+        [
+            ({"chunk_size": 0}, "chunk_size"),
+            ({"chunk_size": 20, "overlap": 20}, "overlap"),
+            ({"chunk_size": 20, "overlap": -1}, "overlap"),
+            ({"max_chunks": 0}, "resource limits"),
+        ],
+    )
+    def test_chunker_rejects_parameters_that_can_hang_or_exhaust_resources(
+        self, kwargs, message
+    ):
+        from smartbench.rag.chunker import CodeChunker
+
+        with pytest.raises(ValueError, match=message):
+            CodeChunker(**kwargs)
+
+    def test_chunker_enforces_file_size_and_chunk_limits(self, tmp_path):
+        from smartbench.rag.chunker import CodeChunker
+
+        (tmp_path / "large.py").write_text("x" * 500)
+        for index in range(5):
+            (tmp_path / f"small_{index}.py").write_text(
+                "\n".join(f"value_{line} = {line}" for line in range(20))
+            )
+
+        chunks = CodeChunker(
+            chunk_size=5,
+            overlap=1,
+            max_files=3,
+            max_file_bytes=400,
+            max_chunks=4,
+        ).chunk_project(str(tmp_path))
+
+        assert len(chunks) == 4
+        assert all(chunk.file_path != "large.py" for chunk in chunks)
+
     def test_embedder_hash_fallback_without_optional_ml_dependencies(
         self, monkeypatch
     ):

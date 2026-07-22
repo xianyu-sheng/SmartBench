@@ -8,6 +8,7 @@ Strategy:
   4. For files without parseable functions: line-count chunking with overlap
 """
 
+import os
 import re
 from pathlib import Path
 from typing import Dict, List, Optional, Set
@@ -93,17 +94,38 @@ class CodeChunker:
     with overlap for continuous coverage.
     """
 
-    def __init__(self, chunk_size: int = 200, overlap: int = 30,
-                 max_chunk_chars: int = 3000):
+    def __init__(
+        self,
+        chunk_size: int = 200,
+        overlap: int = 30,
+        max_chunk_chars: int = 3000,
+        max_files: int = 2000,
+        max_file_bytes: int = 2_000_000,
+        max_chunks: int = 10_000,
+    ):
         """
         Args:
             chunk_size: Target lines per chunk (for non-structured files)
             overlap: Overlapping lines between adjacent chunks
             max_chunk_chars: Maximum characters per chunk (truncation threshold)
+            max_files: Maximum number of repository files to index
+            max_file_bytes: Skip individual files larger than this many bytes
+            max_chunks: Maximum number of chunks returned for one project
         """
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be greater than zero")
+        if overlap < 0 or overlap >= chunk_size:
+            raise ValueError("overlap must satisfy 0 <= overlap < chunk_size")
+        if max_chunk_chars <= 0:
+            raise ValueError("max_chunk_chars must be greater than zero")
+        if max_files <= 0 or max_file_bytes <= 0 or max_chunks <= 0:
+            raise ValueError("RAG resource limits must be greater than zero")
         self.chunk_size = chunk_size
         self.overlap = overlap
         self.max_chunk_chars = max_chunk_chars
+        self.max_files = max_files
+        self.max_file_bytes = max_file_bytes
+        self.max_chunks = max_chunks
 
     # ── Public API ──────────────────────────────────────────────────────
 
@@ -159,7 +181,10 @@ class CodeChunker:
                     rel_path, lang, content
                 )
 
-            chunks.extend(file_chunks)
+            remaining = self.max_chunks - len(chunks)
+            if remaining <= 0:
+                break
+            chunks.extend(file_chunks[:remaining])
 
         return chunks
 
@@ -192,14 +217,32 @@ class CodeChunker:
             List of (relative_path, absolute_path) tuples
         """
         files = []
-        for path in root.rglob('*'):
-            if is_project_file(root, path) and _should_index(path):
+        for current, dirnames, filenames in os.walk(
+            root, topdown=True, followlinks=False
+        ):
+            current_path = Path(current)
+            dirnames[:] = [
+                dirname
+                for dirname in sorted(dirnames)
+                if dirname not in EXCLUDED_DIRS
+                and not (current_path / dirname).is_symlink()
+            ]
+            for filename in sorted(filenames):
+                path = current_path / filename
+                if not is_project_file(root, path):
+                    continue
                 try:
+                    if path.stat().st_size > self.max_file_bytes:
+                        continue
                     rel = path.relative_to(root)
-                    files.append((str(rel).replace('\\', '/'), path))
-                except ValueError:
-                    pass
-        return sorted(files)
+                except (OSError, ValueError):
+                    continue
+                if not _should_index(path):
+                    continue
+                files.append((str(rel).replace('\\', '/'), path))
+                if len(files) >= self.max_files:
+                    return files
+        return files
 
     # ── Chunking strategies ─────────────────────────────────────────────
 

@@ -10,9 +10,9 @@ from smartbench.cli.display import (
     display_fingerprint,
     show_debate_round,
 )
-from smartbench.cli.text import safe_terminal_text
 from smartbench.detector.fingerprint import ProjectFingerprint
 from smartbench.engine.debate import DebateResult
+from smartbench.terminal import safe_terminal_text
 
 
 def _console() -> tuple[Console, StringIO]:

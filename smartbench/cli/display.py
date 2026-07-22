@@ -11,9 +11,9 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from smartbench.cli.text import safe_terminal_text
 from smartbench.detector.fingerprint import ProjectFingerprint
 from smartbench.engine.debate import DebateResult
+from smartbench.terminal import safe_terminal_text
 
 
 def _safe(value: Any) -> str:

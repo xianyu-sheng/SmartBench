@@ -109,7 +109,7 @@ smartbench eval-rag --project . --queries tests/fixtures/rag_eval_queries.json
 python -m pip install -e ".[rag]"
 ```
 
-未安装可选依赖时，SmartBench 会使用仅代码图检索。启用后，本地向量存储会在被分析仓库的 `.smartbench/` 目录中写入索引；如有需要，请将该目录加入目标仓库的忽略规则。
+未安装可选依赖时，SmartBench 会使用仅代码图检索。启用后，本地向量存储会在被分析仓库的 `.smartbench/` 目录中写入索引；如有需要，请将该目录加入目标仓库的忽略规则。索引会剪枝依赖与缓存目录，并默认限制为最多 2,000 个文件、单文件 2 MB、10,000 个分块。
 
 ## 安全边界
 

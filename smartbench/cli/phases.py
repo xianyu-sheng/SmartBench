@@ -30,7 +30,6 @@ from smartbench.cli.display import (
     display_graph_stats,
     show_debate_round,
 )
-from smartbench.cli.text import safe_terminal_text
 from smartbench.detector.fingerprint import ProjectFingerprint
 from smartbench.detector.scanner import ProjectScanner
 from smartbench.diagnostics.registry import (
@@ -46,6 +45,7 @@ from smartbench.llm.client import call_llm, parse_json_safe
 from smartbench.llm.provider import load_api_keys_from_env
 from smartbench.path_safety import resolve_project_file
 from smartbench.prompts.factory import PromptFactory
+from smartbench.terminal import safe_terminal_text
 
 
 def _fallback_strategy(concern: str) -> str:

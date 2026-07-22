@@ -110,7 +110,7 @@ Each debate role is accepted only after its JSON object matches the required sch
 python -m pip install -e ".[rag]"
 ```
 
-SmartBench uses graph-only retrieval when the optional RAG stack is unavailable. When enabled, its local vector store writes an index under the analyzed repository's `.smartbench/` directory; add that directory to the target repository's ignore rules if needed.
+SmartBench uses graph-only retrieval when the optional RAG stack is unavailable. When enabled, its local vector store writes an index under the analyzed repository's `.smartbench/` directory; add that directory to the target repository's ignore rules if needed. Indexing prunes dependency/cache directories and defaults to at most 2,000 files, 2 MB per file, and 10,000 chunks.
 
 ## Safety boundary
 

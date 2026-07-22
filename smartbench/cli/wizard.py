@@ -20,11 +20,11 @@ from smartbench.cli.phases import (
     run_phase1_detection,
     run_phase4_graph,
 )
-from smartbench.cli.text import safe_terminal_text
 from smartbench.llm.client import call_llm, parse_json_safe
 from smartbench.llm.provider import configure_api_keys
 from smartbench.path_safety import resolve_project_file
 from smartbench.prompts.factory import PromptFactory
+from smartbench.terminal import safe_terminal_text
 
 
 def run_interactive_wizard(

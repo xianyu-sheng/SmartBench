@@ -155,6 +155,21 @@ class TestLanguageDetection:
         assert fingerprint.primary_language == Language.JAVASCRIPT
         assert fingerprint.source_files == 11
 
+    def test_scanner_uses_pruned_walk_instead_of_repeated_rglob(
+        self, tmp_path: Path, monkeypatch
+    ):
+        project = create_python_project(tmp_path / "single-walk")
+
+        def fail_rglob(*args, **kwargs):
+            raise AssertionError("scanner must not recursively glob per extension")
+
+        monkeypatch.setattr(Path, "rglob", fail_rglob)
+
+        fingerprint = ProjectScanner(str(project)).scan()
+
+        assert fingerprint.primary_language == Language.PYTHON
+        assert fingerprint.source_files == 2
+
 
 # ── Framework detection ─────────────────────────────────────────────────────
 

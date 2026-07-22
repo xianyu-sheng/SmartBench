@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Tuple
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
 
-from smartbench.cli.text import safe_terminal_text
+from smartbench.terminal import safe_terminal_text
 
 # ═══════════════════════════════════════════════════════════════════════
 # Provider Registry

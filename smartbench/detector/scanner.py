@@ -5,6 +5,7 @@ Walks the filesystem once and populates a ProjectFingerprint
 from manifest files, directory conventions, build systems, and git history.
 """
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -24,15 +25,6 @@ _EXCLUDED_DIRS = {
     ".eggs", ".smartbench", ".pytest_cache", ".mypy_cache",
     ".ruff_cache",
 }
-
-
-def _is_excluded(root: Path, path: Path) -> bool:
-    try:
-        relative = path.relative_to(root)
-    except ValueError:
-        return True
-    return bool(set(relative.parts[:-1]) & _EXCLUDED_DIRS)
-
 
 def _sanitize_git_remote(remote: str) -> str:
     """Remove URL credentials, query parameters, and fragments from remotes."""
@@ -170,6 +162,7 @@ class ProjectScanner:
             raise FileNotFoundError(f"Project path does not exist: {self.root}")
         if not self.root.is_dir():
             raise NotADirectoryError(f"Not a directory: {self.root}")
+        self._project_files: List[Path] = []
 
     # ── Public API ────────────────────────────────────────────────────
 
@@ -180,6 +173,7 @@ class ProjectScanner:
             project_name=self.root.name,
         )
 
+        self._project_files = self._collect_project_files()
         self._detect_languages(fp)
         self._detect_manifests(fp)
         self._detect_framework(fp)
@@ -199,21 +193,38 @@ class ProjectScanner:
 
     # ── Detection passes ──────────────────────────────────────────────
 
+    def _collect_project_files(self) -> List[Path]:
+        """Walk the repository once while pruning dependency and cache trees."""
+        files: List[Path] = []
+        for current, dirnames, filenames in os.walk(
+            self.root, topdown=True, followlinks=False
+        ):
+            current_path = Path(current)
+            safe_dirs = []
+            for dirname in sorted(dirnames):
+                candidate = current_path / dirname
+                if dirname in _EXCLUDED_DIRS or candidate.is_symlink():
+                    continue
+                try:
+                    candidate.resolve().relative_to(self.root)
+                except (OSError, RuntimeError, ValueError):
+                    continue
+                safe_dirs.append(dirname)
+            dirnames[:] = safe_dirs
+
+            for filename in sorted(filenames):
+                candidate = current_path / filename
+                if is_project_file(self.root, candidate):
+                    files.append(candidate)
+        return files
+
     def _detect_languages(self, fp: ProjectFingerprint) -> None:
-        """Walk root (depth-limited) and count file extensions."""
+        """Count source extensions from the single repository walk."""
         counts: Dict[Language, int] = {}
-        for ext, lang in _EXTENSION_MAP.items():
-            # Quick glob per extension
-            try:
-                count = sum(
-                    1 for path in self.root.rglob(f"*{ext}")
-                    if is_project_file(self.root, path)
-                    and not _is_excluded(self.root, path)
-                )
-                if count > 0:
-                    counts[lang] = counts.get(lang, 0) + count
-            except (OSError, PermissionError):
-                pass
+        for path in self._project_files:
+            lang = _EXTENSION_MAP.get(path.suffix)
+            if lang is not None:
+                counts[lang] = counts.get(lang, 0) + 1
 
         if not counts:
             return
@@ -371,38 +382,30 @@ class ProjectScanner:
         fp.project_type = ProjectType.UNKNOWN
 
     def _count_files(self, fp: ProjectFingerprint) -> None:
-        """Count total files and source files (limited depth for performance)."""
-        try:
-            all_files = list(self.root.rglob("*"))
-            # Filter out common non-source dirs
-            files = []
-            for f in all_files:
-                if is_project_file(self.root, f) and not _is_excluded(self.root, f):
-                    files.append(f)
+        """Count files and estimate LOC from the cached repository walk."""
+        fp.total_files = len(self._project_files)
+        src_exts = set(_EXTENSION_MAP)
+        source_files = [
+            path for path in self._project_files if path.suffix in src_exts
+        ]
+        fp.source_files = len(source_files)
 
-            fp.total_files = len(files)
+        sample_size = min(20, len(source_files))
+        total_lines = 0
+        successful_samples = 0
+        for path in source_files[:sample_size]:
+            try:
+                lines = path.read_text(
+                    encoding="utf-8", errors="ignore"
+                ).count("\n")
+                total_lines += max(1, lines)
+                successful_samples += 1
+            except (OSError, PermissionError):
+                pass
 
-            # Count source files
-            src_exts = set(_EXTENSION_MAP.keys())
-            source_files = [f for f in files if f.suffix in src_exts]
-            fp.source_files = len(source_files)
-
-            # Rough LOC estimate (sample first 20 source files, extrapolate)
-            sample_size = min(20, len(source_files))
-            total_lines = 0
-            for f in source_files[:sample_size]:
-                try:
-                    # Count non-blank lines
-                    lines = f.read_text(encoding="utf-8", errors="ignore").count("\n")
-                    total_lines += max(1, lines)
-                except (OSError, PermissionError):
-                    pass
-
-            if sample_size > 0 and len(source_files) > 0:
-                avg_lines = total_lines / sample_size
-                fp.lines_of_code_estimate = int(avg_lines * len(source_files))
-        except (OSError, PermissionError):
-            pass
+        if successful_samples:
+            avg_lines = total_lines / successful_samples
+            fp.lines_of_code_estimate = int(avg_lines * len(source_files))
 
     def _detect_readme(self, fp: ProjectFingerprint) -> None:
         """Check for README existence (content analysis left to LLM)."""
@@ -452,9 +455,9 @@ class ProjectScanner:
 
         # Language-specific entry points
         if fp.primary_language == Language.GO:
-            for f in self.root.glob("**/main.go"):
-                if is_project_file(self.root, f):
-                    fp.entry_points.append(str(f.relative_to(self.root)))
+            for path in self._project_files:
+                if path.name == "main.go":
+                    fp.entry_points.append(str(path.relative_to(self.root)))
         elif fp.primary_language == Language.PYTHON:
             for name in ["main.py", "app.py", "server.py", "cli.py", "run.py"]:
                 if resolve_project_file(self.root, name) is not None:
