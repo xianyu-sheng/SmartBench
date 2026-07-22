@@ -13,7 +13,9 @@ from pathlib import Path
 from typing import List, Optional, Tuple
 
 from smartbench.graph.schema import CodeGraph, CodeNode, EdgeType, NodeType
-from smartbench.path_safety import resolve_project_file
+from smartbench.path_safety import read_text_bounded, resolve_project_file
+
+_MAX_RETRIEVAL_FILE_BYTES = 2 * 1024 * 1024
 
 
 class GraphRetriever:
@@ -124,11 +126,10 @@ class GraphRetriever:
         full_path = resolve_project_file(self.project_path, file_path)
         if full_path is None:
             return f"/* Could not read file: {file_path} */"
-        try:
-            with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
-                lines = f.readlines()
-        except (OSError, FileNotFoundError):
+        content = read_text_bounded(full_path, _MAX_RETRIEVAL_FILE_BYTES)
+        if content is None:
             return f"/* Could not read file: {file_path} */"
+        lines = content.splitlines(keepends=True)
 
         normalized_path = str(
             full_path.relative_to(Path(self.project_path).resolve())
@@ -304,11 +305,10 @@ class GraphRetriever:
             full_path = resolve_project_file(self.project_path, file_path)
             if full_path is None:
                 continue
-            try:
-                with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
-                    all_lines = f.readlines()
-            except (OSError, FileNotFoundError):
+            content = read_text_bounded(full_path, _MAX_RETRIEVAL_FILE_BYTES)
+            if content is None:
                 continue
+            all_lines = content.splitlines(keepends=True)
 
             file_section = f"\n// ── {file_path} ──\n"
             file_chars = len(file_section)

@@ -10,16 +10,41 @@ Key feature: cross-validates structural claims against actual source code.
 
 import logging
 import math
+import os
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from smartbench.graph.retriever import GraphRetriever
 from smartbench.graph.schema import CodeGraph
-from smartbench.path_safety import is_project_file, resolve_project_file
+from smartbench.path_safety import (
+    is_project_file,
+    read_text_bounded,
+    resolve_project_file,
+)
 from smartbench.rag.embedder import CodeEmbedder
 from smartbench.rag.store import VectorStore
 
 logger = logging.getLogger(__name__)
+
+_HYBRID_EXCLUDED_DIRS = {
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".smartbench",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "node_modules",
+    "obj",
+    "target",
+    "vendor",
+    "venv",
+}
+_HYBRID_MAX_DIRECTORIES = 5_000
+_HYBRID_MAX_FILES = 20_000
+_HYBRID_MAX_FILE_BYTES = 2 * 1024 * 1024
 
 
 class HybridRetriever:
@@ -76,6 +101,7 @@ class HybridRetriever:
         except (TypeError, ValueError):
             self.min_score = 0.15
         self.last_retrieved_files: List[str] = []
+        self._project_file_index: Optional[List[str]] = None
 
     @staticmethod
     def _normalize_weights(
@@ -341,6 +367,8 @@ class HybridRetriever:
             "actual_line_exists": False,
             "content_at_line": None,
         }
+        if not isinstance(file_path, str) or not file_path.strip():
+            return result
 
         # Try exact match
         root = Path(self.project_path).resolve()
@@ -359,18 +387,24 @@ class HybridRetriever:
                 full_path = resolve_project_file(root, resolved)
 
         if result["exists"] and line is not None and full_path is not None:
-            try:
-                lines = full_path.read_text(
-                    encoding='utf-8', errors='ignore'
-                ).split('\n')
-                if 1 <= line <= len(lines):
-                    result["actual_line_exists"] = True
-                    # Extract context around the line
-                    ctx_start = max(0, line - 3)
-                    ctx_end = min(len(lines), line + 2)
-                    result["content_at_line"] = '\n'.join(lines[ctx_start:ctx_end])
-            except Exception:
-                pass
+            if isinstance(line, str) and line.strip().isdigit():
+                line = int(line.strip())
+            if not isinstance(line, int) or isinstance(line, bool):
+                result["read_error"] = "line must be an integer"
+                return result
+            content = read_text_bounded(full_path, _HYBRID_MAX_FILE_BYTES)
+            if content is None:
+                result["read_error"] = "file exceeds safe read limit or is unreadable"
+                return result
+            lines = content.split('\n')
+            if 1 <= line <= len(lines):
+                result["actual_line_exists"] = True
+                # Extract context around the line
+                ctx_start = max(0, line - 3)
+                ctx_end = min(len(lines), line + 2)
+                result["content_at_line"] = '\n'.join(
+                    lines[ctx_start:ctx_end]
+                )[:12_000]
 
         return result
 
@@ -385,7 +419,11 @@ class HybridRetriever:
         Returns:
             Dict with verification data or None
         """
+        if not isinstance(claim, dict):
+            return None
         file_path = claim.get("file_path", "") or claim.get("location", "")
+        if not isinstance(file_path, str):
+            file_path = ""
         line = claim.get("line") or claim.get("line_start")
 
         # Parse "file:line" format
@@ -402,20 +440,50 @@ class HybridRetriever:
         # If file not found, try semantic search for the claim's context
         if not verif["exists"] and self.vector_store and self.embedder:
             context = claim.get("context", "") or claim.get("description", "")
-            if context:
-                similar = self.vector_store.search_by_text(
-                    context, self.embedder, n_results=3
-                )
-                if similar:
-                    verif["semantic_matches"] = [
-                        {
-                            "file": s["metadata"].get("file_path", ""),
-                            "line": s["metadata"].get("start_line", 0),
-                            "score": s["score"],
-                            "content": s["content"][:300],
-                        }
-                        for s in similar[:3]
-                    ]
+            if context and isinstance(context, str):
+                try:
+                    similar = self.vector_store.search_by_text(
+                        context, self.embedder, n_results=3
+                    )
+                except Exception as exc:
+                    logger.warning("Claim evidence search failed: %s", exc)
+                    similar = []
+                matches = []
+                if isinstance(similar, list):
+                    for item in similar[:3]:
+                        if not isinstance(item, dict):
+                            continue
+                        metadata = item.get("metadata", {})
+                        if not isinstance(metadata, dict):
+                            metadata = {}
+                        content = item.get("content", "")
+                        if not isinstance(content, str):
+                            content = ""
+                        matched_file = metadata.get("file_path", "")
+                        if not isinstance(matched_file, str):
+                            matched_file = ""
+                        matched_line = metadata.get("start_line", 0)
+                        if (
+                            not isinstance(matched_line, int)
+                            or isinstance(matched_line, bool)
+                            or matched_line < 0
+                        ):
+                            matched_line = 0
+                        try:
+                            matched_score = float(item.get("score", 0.0))
+                        except (TypeError, ValueError):
+                            matched_score = 0.0
+                        if not math.isfinite(matched_score):
+                            matched_score = 0.0
+                        matched_score = max(0.0, min(matched_score, 1.0))
+                        matches.append({
+                            "file": matched_file,
+                            "line": matched_line,
+                            "score": matched_score,
+                            "content": content[:300],
+                        })
+                if matches:
+                    verif["semantic_matches"] = matches
 
         return verif
 
@@ -490,42 +558,44 @@ class HybridRetriever:
           2. Search by path suffix
           3. Levenshtein distance on stem
         """
-        claimed_name = Path(claimed).name
-        claimed_suffix = Path(claimed).suffix
+        if not isinstance(claimed, str) or not claimed.strip():
+            return None
+        normalized_claim = claimed.replace('\\', '/').strip()
+        supplied = Path(normalized_claim)
+        if supplied.is_absolute() or ".." in supplied.parts:
+            return None
+
+        claimed_name = supplied.name
+        claimed_suffix = supplied.suffix
 
         candidates = []
-        root = Path(self.project_path).resolve()
-
-        for f in root.rglob('*'):
-            if not is_project_file(root, f):
-                continue
-
-            try:
-                rel = str(f.relative_to(root)).replace('\\', '/')
-            except ValueError:
-                continue
+        for rel in self._get_project_file_index():
+            candidate_path = Path(rel)
 
             score = 0.0
 
             # Exact path match
-            if rel == claimed:
+            if rel == normalized_claim:
                 return rel
 
             # Exact filename match (highest reward)
-            if f.name == claimed_name:
+            if candidate_path.name == claimed_name:
                 score += 0.7
-            elif f.name.lower() == claimed_name.lower():
+            elif candidate_path.name.lower() == claimed_name.lower():
                 score += 0.6
 
             # Suffix match
-            if claimed_suffix and f.suffix == claimed_suffix:
+            if claimed_suffix and candidate_path.suffix == claimed_suffix:
                 score += 0.1
-            elif claimed_suffix and f.suffix.lower() == claimed_suffix.lower():
+            elif (
+                claimed_suffix
+                and candidate_path.suffix.lower() == claimed_suffix.lower()
+            ):
                 score += 0.05
 
             # Path segment overlap
-            claimed_parts = set(Path(claimed).parts)
-            rel_parts = set(Path(rel).parts)
+            claimed_parts = set(supplied.parts)
+            rel_parts = set(candidate_path.parts)
             overlap = len(claimed_parts & rel_parts)
             if overlap > 0:
                 score += overlap * 0.1
@@ -534,7 +604,46 @@ class HybridRetriever:
                 candidates.append((rel, score))
 
         if candidates:
-            candidates.sort(key=lambda x: -x[1])
-            return candidates[0][0]
+            candidates.sort(key=lambda item: (-item[1], item[0]))
+            if len(candidates) == 1 or candidates[0][1] > candidates[1][1]:
+                return candidates[0][0]
 
         return None
+
+    def _get_project_file_index(self) -> List[str]:
+        """Build a bounded, dependency-pruned relative file index once."""
+        if self._project_file_index is not None:
+            return self._project_file_index
+
+        root = Path(self.project_path).resolve()
+        files: List[str] = []
+        visited_directories = 0
+        for current, dirnames, filenames in os.walk(
+            root, topdown=True, followlinks=False
+        ):
+            visited_directories += 1
+            if visited_directories > _HYBRID_MAX_DIRECTORIES:
+                break
+
+            current_path = Path(current)
+            dirnames[:] = [
+                dirname
+                for dirname in sorted(dirnames)
+                if dirname not in _HYBRID_EXCLUDED_DIRS
+                and not (current_path / dirname).is_symlink()
+            ]
+            for filename in sorted(filenames):
+                candidate = current_path / filename
+                if not is_project_file(root, candidate):
+                    continue
+                try:
+                    relative = candidate.relative_to(root).as_posix()
+                except ValueError:
+                    continue
+                files.append(relative)
+                if len(files) >= _HYBRID_MAX_FILES:
+                    self._project_file_index = files
+                    return files
+
+        self._project_file_index = files
+        return files

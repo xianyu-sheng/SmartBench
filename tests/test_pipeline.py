@@ -906,6 +906,70 @@ class TestRAGPipeline:
 
         assert deduplicated == ["// ── src/myapp.py ──\ncontent"]
 
+    def test_hybrid_fuzzy_path_requires_unambiguous_match(
+        self, tmp_path, monkeypatch
+    ):
+        from smartbench.graph.schema import CodeGraph
+        from smartbench.rag.retriever import HybridRetriever
+
+        for folder in ("api", "worker"):
+            target = tmp_path / folder
+            target.mkdir()
+            (target / "helper.py").write_text(f"SOURCE = {folder!r}\n")
+        dependency = tmp_path / "node_modules" / "package"
+        dependency.mkdir(parents=True)
+        (dependency / "helper.py").write_text("SOURCE = 'dependency'\n")
+
+        def fail_rglob(*args, **kwargs):
+            raise AssertionError("hybrid path lookup must use a pruned walk")
+
+        monkeypatch.setattr(Path, "rglob", fail_rglob)
+        retriever = HybridRetriever(CodeGraph(), str(tmp_path))
+
+        assert retriever._fuzzy_resolve_path("helper.py") is None
+        assert retriever._fuzzy_resolve_path(
+            "worker/missing/helper.py"
+        ) == "worker/helper.py"
+        assert retriever._fuzzy_resolve_path("../helper.py") is None
+
+    def test_hybrid_location_lookup_bounds_source_reads(self, tmp_path):
+        from smartbench.graph.schema import CodeGraph
+        from smartbench.rag.retriever import HybridRetriever
+
+        (tmp_path / "large.py").write_text("x" * (2 * 1024 * 1024 + 1))
+        retriever = HybridRetriever(CodeGraph(), str(tmp_path))
+
+        result = retriever.verify_location("large.py", line=1)
+
+        assert result["exists"] is True
+        assert result["actual_line_exists"] is False
+        assert "safe read limit" in result["read_error"]
+
+    def test_hybrid_claim_evidence_isolates_malformed_vector_results(
+        self, tmp_path
+    ):
+        from smartbench.graph.schema import CodeGraph
+        from smartbench.rag.retriever import HybridRetriever
+
+        class VectorSource:
+            def search_by_text(self, query, embedder, n_results):
+                return [None, {"metadata": "bad", "content": None}]
+
+        retriever = HybridRetriever(
+            CodeGraph(), str(tmp_path), VectorSource(), object()
+        )
+
+        assert retriever.retrieve_claim_evidence(None) is None
+        assert retriever.verify_location(["not", "a", "path"])["exists"] is False
+        result = retriever.retrieve_claim_evidence({"context": "find it"})
+        assert result["exists"] is False
+        assert result["semantic_matches"] == [{
+            "file": "",
+            "line": 0,
+            "score": 0.0,
+            "content": "",
+        }]
+
     def test_hybrid_retriever_validates_and_normalizes_weights(self, tmp_path):
         from smartbench.graph.schema import CodeGraph
         from smartbench.rag.retriever import HybridRetriever
