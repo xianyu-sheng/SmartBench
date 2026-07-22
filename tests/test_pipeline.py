@@ -869,6 +869,115 @@ class TestRAGPipeline:
 
         assert deduplicated == ["// ── src/myapp.py ──\ncontent"]
 
+    def test_hybrid_retriever_validates_and_normalizes_weights(self, tmp_path):
+        from smartbench.graph.schema import CodeGraph
+        from smartbench.rag.retriever import HybridRetriever
+
+        retriever = HybridRetriever(
+            CodeGraph(), str(tmp_path), graph_weight=2, vector_weight=1
+        )
+
+        assert retriever.graph_weight == pytest.approx(2 / 3)
+        assert retriever.vector_weight == pytest.approx(1 / 3)
+        with pytest.raises(ValueError, match="at least one"):
+            HybridRetriever(
+                CodeGraph(), str(tmp_path), graph_weight=0, vector_weight=0
+            )
+        with pytest.raises(ValueError, match="non-negative"):
+            HybridRetriever(
+                CodeGraph(), str(tmp_path), graph_weight=-1, vector_weight=1
+            )
+
+    def test_hybrid_zero_weight_disables_that_source(self, tmp_path):
+        from smartbench.graph.schema import CodeGraph
+        from smartbench.rag.retriever import HybridRetriever
+
+        class GraphSource:
+            last_retrieved_files = ["graph.py"]
+
+            def retrieve(self, query):
+                return "// ── graph.py ──\ngraph evidence"
+
+        class VectorSource:
+            def search_by_text(self, query, embedder, n_results):
+                return [{
+                    "score": 0.9,
+                    "metadata": {
+                        "file_path": "vector.py",
+                        "start_line": 1,
+                        "end_line": 1,
+                    },
+                    "content": "vector evidence",
+                }]
+
+        graph_only = HybridRetriever(
+            CodeGraph(),
+            str(tmp_path),
+            VectorSource(),
+            object(),
+            graph_weight=1,
+            vector_weight=0,
+        )
+        graph_only.graph_retriever = GraphSource()
+        assert "graph evidence" in graph_only.retrieve("query")
+        assert "vector evidence" not in graph_only.retrieve("query")
+
+        vector_only = HybridRetriever(
+            CodeGraph(),
+            str(tmp_path),
+            VectorSource(),
+            object(),
+            graph_weight=0,
+            vector_weight=1,
+        )
+        vector_only.graph_retriever = GraphSource()
+        context = vector_only.retrieve("query")
+        assert "vector evidence" in context
+        assert "graph evidence" not in context
+
+    def test_hybrid_weights_change_source_context_budget(self, tmp_path):
+        from smartbench.graph.schema import CodeGraph
+        from smartbench.rag.retriever import HybridRetriever
+
+        class GraphSource:
+            last_retrieved_files = ["graph.py"]
+
+            def retrieve(self, query):
+                return "// ── graph.py ──\n" + ("G" * 1_000)
+
+        class VectorSource:
+            def search_by_text(self, query, embedder, n_results):
+                return [{
+                    "score": 0.9,
+                    "metadata": {
+                        "file_path": "vector.py",
+                        "start_line": 1,
+                        "end_line": 2,
+                    },
+                    "content": "V" * 1_000,
+                }]
+
+        def retrieve(graph_weight, vector_weight):
+            retriever = HybridRetriever(
+                CodeGraph(),
+                str(tmp_path),
+                VectorSource(),
+                object(),
+                graph_weight=graph_weight,
+                vector_weight=vector_weight,
+                max_context_chars=400,
+            )
+            retriever.graph_retriever = GraphSource()
+            return retriever.retrieve("query")
+
+        graph_heavy = retrieve(0.8, 0.2)
+        vector_heavy = retrieve(0.2, 0.8)
+
+        assert len(graph_heavy) <= 400
+        assert len(vector_heavy) <= 400
+        assert graph_heavy.count("G") > vector_heavy.count("G")
+        assert vector_heavy.count("V") > graph_heavy.count("V")
+
     def test_labeled_graph_retrieval_quality(self, code_graph, project_path):
         from smartbench.rag.evaluator import RAGEvaluator
 

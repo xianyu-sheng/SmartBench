@@ -9,6 +9,7 @@ Key feature: cross-validates structural claims against actual source code.
 """
 
 import logging
+import math
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -28,8 +29,8 @@ class HybridRetriever:
     Merge strategy:
       1. Query graph for structural context (call chains, containment)
       2. Query vector store for semantic similarity
-      3. Deduplicate by file_path + line range
-      4. Rank by combined score (graph_weight * graph_score + vector_weight * vector_score)
+      3. Deduplicate by file path
+      4. Allocate the output budget between sources using the configured weights
       5. Format for LLM prompt injection
 
     Usage:
@@ -50,30 +51,54 @@ class HybridRetriever:
             project_path: Root directory of the project
             vector_store: Optional ChromaDB vector store
             embedder: Optional embedder for query vectorization
-            graph_weight: Weight for graph-based scores (0.0-1.0)
-            vector_weight: Weight for vector-based scores (0.0-1.0)
+            graph_weight: Relative context budget for graph evidence
+            vector_weight: Relative context budget for vector evidence
             min_score: Minimum similarity score to include a result (0.0-1.0)
         """
         self.graph = graph
         self.project_path = project_path
         self.vector_store = vector_store
         self.embedder = embedder
-        self.graph_retriever = GraphRetriever(
-            graph,
-            project_path,
-            max_tokens_estimate=max(1, max_context_chars // 3),
+        self.graph_weight, self.vector_weight = self._normalize_weights(
+            graph_weight, vector_weight
         )
-        self.graph_weight = graph_weight
-        self.vector_weight = vector_weight
-        try:
-            self.min_score = max(0.0, min(float(min_score), 1.0))
-        except (TypeError, ValueError):
-            self.min_score = 0.15
         try:
             self.max_chars = max(1, int(max_context_chars))
         except (TypeError, ValueError):
             self.max_chars = 12000
+        self.graph_retriever = GraphRetriever(
+            graph,
+            project_path,
+            max_tokens_estimate=max(1, self.max_chars // 3),
+        )
+        try:
+            self.min_score = max(0.0, min(float(min_score), 1.0))
+        except (TypeError, ValueError):
+            self.min_score = 0.15
         self.last_retrieved_files: List[str] = []
+
+    @staticmethod
+    def _normalize_weights(
+        graph_weight: float,
+        vector_weight: float,
+    ) -> tuple[float, float]:
+        """Validate and normalize source weights to a total of one."""
+        try:
+            graph_value = float(graph_weight)
+            vector_value = float(vector_weight)
+        except (TypeError, ValueError):
+            raise ValueError("retrieval weights must be finite numbers") from None
+        if (
+            not math.isfinite(graph_value)
+            or not math.isfinite(vector_value)
+            or graph_value < 0
+            or vector_value < 0
+        ):
+            raise ValueError("retrieval weights must be finite and non-negative")
+        total = graph_value + vector_value
+        if total <= 0:
+            raise ValueError("at least one retrieval weight must be positive")
+        return graph_value / total, vector_value / total
 
     # ── Public API ──────────────────────────────────────────────────────
 
@@ -85,9 +110,9 @@ class HybridRetriever:
           1. Query graph for structural context
           2. Query vector store for semantic similarity
           3. Filter low-confidence results (score < min_score)
-          4. Re-rank: prioritize higher scores
+          4. Rank vector results by similarity score
           5. Deduplicate by file (keep highest-scoring chunk per file)
-          6. Merge and format for LLM consumption
+          6. Allocate context between graph and vector evidence by source weight
 
         Args:
             query: Natural language query (user concern or proposal text)
@@ -104,15 +129,17 @@ class HybridRetriever:
         except (TypeError, ValueError):
             n_results = 15
 
-        # Get graph context
-        graph_context = self.graph_retriever.retrieve(query)
-        graph_files = list(self.graph_retriever.last_retrieved_files)
-        self.last_retrieved_files = graph_files
-        graph_had_results = "No relevant" not in graph_context
+        # Get graph context unless graph evidence was explicitly disabled.
+        graph_context = ""
+        graph_files: List[str] = []
+        if self.graph_weight > 0:
+            graph_context = self.graph_retriever.retrieve(query)
+            graph_files = list(self.graph_retriever.last_retrieved_files)
+        graph_had_results = bool(graph_files)
 
         # Get vector results if available
         vector_blocks = []
-        if self.vector_store and self.embedder:
+        if self.vector_weight > 0 and self.vector_store and self.embedder:
             try:
                 vector_results = self.vector_store.search_by_text(
                     query, self.embedder, n_results=n_results
@@ -129,15 +156,33 @@ class HybridRetriever:
                 # ── Deduplicate by file: keep highest score per file ──
                 vector_results = self._deduplicate_by_file(vector_results)
 
-                vector_blocks = self._format_vector_results(
-                    vector_results, already_in_graph=graph_had_results
-                )
+                vector_blocks = self._format_vector_results(vector_results)
             except Exception as e:
                 logger.warning(f"Vector search failed: {e}")
 
-        # Merge
+        # A single available source receives the full output budget.
         if not vector_blocks:
-            return graph_context
+            visible_context = self._truncate_context(
+                graph_context or "/* No retrieval source available */",
+                self.max_chars,
+                "\n// ... (graph context truncated)",
+            )
+            self.last_retrieved_files = self._visible_files(
+                visible_context, graph_files
+            )
+            return visible_context
+
+        if not graph_had_results:
+            vector_context = self._vector_context(vector_blocks)
+            visible_context = self._truncate_context(
+                vector_context,
+                self.max_chars,
+                "\n// ... (semantic context truncated)",
+            )
+            self.last_retrieved_files = self._visible_block_files(
+                visible_context, vector_blocks
+            )
+            return visible_context
 
         # Deduplicate: skip vector results for files already covered by graph
         new_blocks = self._deduplicate_blocks(
@@ -145,36 +190,125 @@ class HybridRetriever:
         )
 
         if not new_blocks:
-            return graph_context
+            visible_context = self._truncate_context(
+                graph_context,
+                self.max_chars,
+                "\n// ... (graph context truncated)",
+            )
+            self.last_retrieved_files = self._visible_files(
+                visible_context, graph_files
+            )
+            return visible_context
 
-        # Combine
-        parts = [graph_context]
-        parts.append("\n// ── Semantic Search Results (RAG) ──")
-        parts.extend(new_blocks)
+        # Both sources are present: divide the bounded context between them.
+        separator = "\n"
+        available_chars = max(1, self.max_chars - len(separator))
+        graph_budget = int(available_chars * self.graph_weight)
+        vector_budget = available_chars - graph_budget
+        graph_display = self._truncate_context(
+            graph_context,
+            graph_budget,
+            "\n// ... (graph context truncated)",
+        )
+        vector_context = self._vector_context(new_blocks)
+        vector_display = self._truncate_context(
+            vector_context,
+            vector_budget,
+            "\n// ... (semantic context truncated)",
+        )
 
-        visible_vector_files = []
-        cursor = 0
-        for index, part in enumerate(parts):
-            if index:
-                cursor += 1  # separator inserted by ``join``
-            if index >= 2:
-                file_path = self._block_file_path(part)
-                header_length = len(part.split('\n', 1)[0])
-                if file_path and cursor + header_length <= self.max_chars:
-                    visible_vector_files.append(file_path)
-            cursor += len(part)
+        # A very small positive budget may not fit useful evidence. Give the
+        # other source the full budget instead of returning a partial header.
+        if not graph_display:
+            return self._use_vector_context(vector_context, new_blocks)
+        if not vector_display:
+            visible_context = self._truncate_context(
+                graph_context,
+                self.max_chars,
+                "\n// ... (graph context truncated)",
+            )
+            self.last_retrieved_files = self._visible_files(
+                visible_context, graph_files
+            )
+            return visible_context
 
-        combined = "\n".join(parts)
-        if len(combined) > self.max_chars:
-            combined = combined[:self.max_chars] + "\n// ... (context truncated)"
-
-        visible_files = list(graph_files)
+        combined = graph_display + separator + vector_display
+        visible_files = self._visible_files(graph_display, graph_files)
+        visible_vector_files = self._visible_block_files(
+            vector_display, new_blocks
+        )
         for file_path in visible_vector_files:
             if file_path not in visible_files:
                 visible_files.append(file_path)
         self.last_retrieved_files = visible_files
-
         return combined
+
+    def _use_vector_context(
+        self,
+        vector_context: str,
+        vector_blocks: List[str],
+    ) -> str:
+        """Use the complete output budget for vector evidence."""
+        visible_context = self._truncate_context(
+            vector_context,
+            self.max_chars,
+            "\n// ... (semantic context truncated)",
+        )
+        self.last_retrieved_files = self._visible_block_files(
+            visible_context, vector_blocks
+        )
+        return visible_context
+
+    @staticmethod
+    def _truncate_context(context: str, budget: int, marker: str) -> str:
+        """Truncate text to an exact character budget."""
+        if budget <= 0:
+            return ""
+        if len(context) <= budget:
+            return context
+        if budget <= len(marker):
+            return context[:budget]
+        return context[:budget - len(marker)] + marker
+
+    @staticmethod
+    def _visible_files(context: str, candidates: List[str]) -> List[str]:
+        """Return graph files whose complete generated header is visible."""
+        visible = []
+        for file_path in candidates:
+            header = f"// ── {file_path} ──"
+            position = context.find(header)
+            if position >= 0 and position + len(header) <= len(context):
+                visible.append(file_path)
+        return visible
+
+    @classmethod
+    def _visible_block_files(
+        cls,
+        context: str,
+        blocks: List[str],
+    ) -> List[str]:
+        """Return vector files whose complete generated header is visible."""
+        visible = []
+        for block in blocks:
+            first_line = block.split("\n", 1)[0]
+            file_path = cls._block_file_path(block)
+            position = context.find(first_line)
+            if (
+                file_path
+                and position >= 0
+                and position + len(first_line) <= len(context)
+                and file_path not in visible
+            ):
+                visible.append(file_path)
+        return visible
+
+    @staticmethod
+    def _vector_context(blocks: List[str]) -> str:
+        """Format vector blocks with a source label."""
+        return "\n".join([
+            "// ── Semantic Search Results (RAG) ──",
+            *blocks,
+        ])
 
     def _deduplicate_by_file(self, results: List[Dict]) -> List[Dict]:
         """Deduplicate vector results: keep only the highest-scoring chunk per file."""
@@ -287,8 +421,7 @@ class HybridRetriever:
 
     # ── Internal formatting ─────────────────────────────────────────────
 
-    def _format_vector_results(self, results: List[Dict],
-                               already_in_graph: bool = False) -> List[str]:
+    def _format_vector_results(self, results: List[Dict]) -> List[str]:
         """Format vector search results as code blocks."""
         blocks = []
         for r in results:
