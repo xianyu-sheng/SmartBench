@@ -335,7 +335,7 @@ class CodeGraphBuilder:
         # 2. Parse each file → nodes + edges
         # Try tree-sitter first for supported languages, fall back to regex
         patterns = _PATTERNS.get(language, {})
-        all_functions: Dict[str, CodeNode] = {}  # name → node for call resolution
+        all_functions: Dict[str, List[CodeNode]] = {}
         file_contents: Dict[str, str] = {}
 
         tree_parser = None
@@ -382,7 +382,7 @@ class CodeGraphBuilder:
                     target_id=fn.id,
                     edge_type=EdgeType.CONTAINS,
                 ))
-                all_functions[fn.name] = fn
+                all_functions.setdefault(fn.name, []).append(fn)
 
             for cn in class_nodes:
                 graph.add_node(cn)
@@ -525,6 +525,7 @@ class CodeGraphBuilder:
                 name=fn["name"],
                 file_path=file_path,
                 line_start=fn["line"],
+                line_end=fn.get("end_line", fn["line"]),
                 language=language.value,
                 properties={"signature": fn.get("signature", "")},
             )
@@ -540,6 +541,7 @@ class CodeGraphBuilder:
                 name=cls["name"],
                 file_path=file_path,
                 line_start=cls["line"],
+                line_end=cls.get("end_line", cls["line"]),
                 language=language.value,
             )
             class_nodes.append(node)
@@ -556,7 +558,6 @@ class CodeGraphBuilder:
             return []
 
         nodes = []
-        seen: Set[str] = set()
         lines = content.split("\n")
 
         for match in func_pattern.finditer(content):
@@ -570,9 +571,8 @@ class CodeGraphBuilder:
                 except IndexError:
                     continue
 
-            if not name or name in seen:
+            if not name:
                 continue
-            seen.add(name)
 
             line_no = content[:match.start()].count("\n") + 1
             node = CodeNode(
@@ -585,6 +585,15 @@ class CodeGraphBuilder:
                 properties={"signature": lines[line_no - 1].strip() if line_no <= len(lines) else ""},
             )
             nodes.append(node)
+
+        nodes.sort(key=lambda node: node.line_start)
+        for index, node in enumerate(nodes):
+            next_line = (
+                nodes[index + 1].line_start
+                if index + 1 < len(nodes)
+                else len(lines) + 1
+            )
+            node.line_end = max(node.line_start, next_line - 1)
 
         return nodes
 
@@ -621,7 +630,7 @@ class CodeGraphBuilder:
     # ── Edge resolution ───────────────────────────────────────────────
 
     def _resolve_calls(self, graph: CodeGraph,
-                       all_functions: Dict[str, CodeNode],
+                       all_functions: Dict[str, List[CodeNode]],
                        patterns: Dict,
                        file_contents: Dict[str, str]) -> None:
         """For each function node, find calls to other known functions."""
@@ -638,9 +647,11 @@ class CodeGraphBuilder:
             if not content:
                 continue
 
-            func_start_line = fn.line_start
             lines = content.split("\n")
-            scope = "\n".join(lines[func_start_line:func_start_line + 200])
+            start_index = max(0, fn.line_start - 1)
+            end_line = fn.line_end or (fn.line_start + 199)
+            end_index = min(len(lines), end_line, start_index + 200)
+            scope = "\n".join(lines[start_index:end_index])
 
             called_names: Set[str] = set()
             for match in call_pattern.finditer(scope):
@@ -649,7 +660,20 @@ class CodeGraphBuilder:
                     called_names.add(name)
 
             for callee_name in called_names:
-                callee = all_functions[callee_name]
+                candidates = all_functions[callee_name]
+                same_file = [
+                    candidate
+                    for candidate in candidates
+                    if candidate.file_path == fn.file_path
+                ]
+                if len(same_file) == 1:
+                    callee = same_file[0]
+                elif len(candidates) == 1:
+                    callee = candidates[0]
+                else:
+                    # A name-only regex cannot safely distinguish duplicate
+                    # definitions in different files.
+                    continue
                 graph.add_edge(CodeEdge(
                     source_id=fn.id,
                     target_id=callee.id,

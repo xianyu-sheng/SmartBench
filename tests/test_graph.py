@@ -16,6 +16,7 @@ import pytest
 
 from smartbench.detector.fingerprint import Language
 from smartbench.graph.builder import CodeGraphBuilder
+from smartbench.graph.retriever import GraphRetriever
 from smartbench.graph.schema import (
     CodeEdge,
     CodeGraph,
@@ -712,6 +713,42 @@ class TestCodeGraphSummary:
         assert "0 edges" in s
 
 
+class TestGraphRetrieverRanking:
+    def test_current_source_precedes_legacy_seed(self, test_dir):
+        current = test_dir / "smartbench" / "engine"
+        legacy = test_dir / "legacy" / "smartbench" / "engine"
+        current.mkdir(parents=True)
+        legacy.mkdir(parents=True)
+        (current / "debate.py").write_text("def debate():\n    return 'current'\n")
+        (legacy / "debate.py").write_text("def debate():\n    return 'legacy'\n")
+
+        graph = CodeGraph()
+        current_node = CodeNode(
+            id="current",
+            node_type=NodeType.FUNCTION,
+            name="debate",
+            file_path="smartbench/engine/debate.py",
+            line_start=1,
+            line_end=2,
+        )
+        legacy_node = CodeNode(
+            id="legacy",
+            node_type=NodeType.FUNCTION,
+            name="debate",
+            file_path="legacy/smartbench/engine/debate.py",
+            line_start=1,
+            line_end=2,
+        )
+        graph.add_node(legacy_node)
+        graph.add_node(current_node)
+
+        retriever = GraphRetriever(graph, str(test_dir), max_tokens_estimate=100)
+        context = retriever.retrieve("debate", hops=1, max_nodes=1)
+
+        assert "smartbench/engine/debate.py" in context
+        assert "legacy/smartbench/engine/debate.py" not in context
+
+
 # ===========================================================================
 # CodeGraphBuilder
 # ===========================================================================
@@ -1156,6 +1193,72 @@ def run():
         callees = graph.get_callees(run_node.id)
         callee_names = {n.name for n in callees}
         assert "helper" in callee_names
+
+    def test_call_resolution_does_not_bleed_into_next_function(
+        self, test_dir, builder
+    ):
+        (test_dir / "scope.py").write_text(
+            "def first():\n"
+            "    return 1\n\n"
+            "def target():\n"
+            "    return 2\n\n"
+            "def second():\n"
+            "    return target()\n"
+        )
+
+        graph = builder.build(str(test_dir), Language.PYTHON)
+        first = next(
+            node for node in graph.nodes.values()
+            if node.node_type == NodeType.FUNCTION and node.name == "first"
+        )
+        second = next(
+            node for node in graph.nodes.values()
+            if node.node_type == NodeType.FUNCTION and node.name == "second"
+        )
+
+        assert graph.get_callees(first.id) == []
+        assert [node.name for node in graph.get_callees(second.id)] == ["target"]
+
+    def test_duplicate_callee_name_prefers_same_file(self, test_dir, builder):
+        (test_dir / "a.py").write_text(
+            "def helper():\n"
+            "    return 'a'\n\n"
+            "def caller():\n"
+            "    return helper()\n"
+        )
+        (test_dir / "b.py").write_text(
+            "def helper():\n"
+            "    return 'b'\n"
+        )
+
+        graph = builder.build(str(test_dir), Language.PYTHON)
+        caller = next(
+            node for node in graph.nodes.values()
+            if node.node_type == NodeType.FUNCTION and node.name == "caller"
+        )
+
+        callees = graph.get_callees(caller.id)
+        assert [(node.name, node.file_path) for node in callees] == [
+            ("helper", "a.py")
+        ]
+
+    def test_ambiguous_cross_file_callee_is_not_invented(
+        self, test_dir, builder
+    ):
+        (test_dir / "a.py").write_text("def helper():\n    return 'a'\n")
+        (test_dir / "b.py").write_text("def helper():\n    return 'b'\n")
+        (test_dir / "caller.py").write_text(
+            "def caller():\n"
+            "    return helper()\n"
+        )
+
+        graph = builder.build(str(test_dir), Language.PYTHON)
+        caller = next(
+            node for node in graph.nodes.values()
+            if node.node_type == NodeType.FUNCTION and node.name == "caller"
+        )
+
+        assert graph.get_callees(caller.id) == []
 
     def test_build_empty_directory(self, test_dir, builder):
         graph = builder.build(str(test_dir), Language.PYTHON)

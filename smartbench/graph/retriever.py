@@ -16,6 +16,12 @@ from smartbench.graph.schema import CodeGraph, CodeNode, EdgeType, NodeType
 from smartbench.path_safety import read_text_bounded, resolve_project_file
 
 _MAX_RETRIEVAL_FILE_BYTES = 2 * 1024 * 1024
+_LOW_PRIORITY_PATH_PARTS = {
+    "archive",
+    "archived",
+    "deprecated",
+    "legacy",
+}
 
 
 class GraphRetriever:
@@ -249,6 +255,7 @@ class GraphRetriever:
         - Files come last
         """
         seed_ids = {s.id for s in seeds}
+        seed_positions = {seed.id: index for index, seed in enumerate(seeds)}
         query_lower = query.lower().strip()
 
         def name_match_score(node: CodeNode) -> int:
@@ -258,7 +265,7 @@ class GraphRetriever:
             matches = sum(1 for t in terms if t in node_name)
             return matches
 
-        def score(node: CodeNode) -> Tuple[int, int, int, int]:
+        def score(node: CodeNode) -> tuple:
             # Tier: 0=seed, 1=direct neighbor, 2=other
             if node.id in seed_ids:
                 tier = 0
@@ -284,8 +291,25 @@ class GraphRetriever:
                 NodeType.FILE: 2,
             }.get(node.node_type, 3)
 
-            # Negate name_match so higher match = better (lower score)
-            return (tier, -degree, type_prio, -name_match_score(node))
+            path_parts = {
+                part.lower() for part in Path(node.file_path).parts
+            }
+            path_priority = int(bool(path_parts & _LOW_PRIORITY_PATH_PARTS))
+
+            # Seed discovery already ranked lexical relevance. Preserve that
+            # order instead of allowing a highly connected but weaker match
+            # (often an archived implementation) to consume the context budget.
+            seed_position = seed_positions.get(node.id, len(seeds))
+            return (
+                tier,
+                path_priority,
+                seed_position,
+                -name_match_score(node),
+                -degree,
+                type_prio,
+                node.file_path,
+                node.name,
+            )
 
         return sorted(subgraph.nodes.values(), key=score)
 

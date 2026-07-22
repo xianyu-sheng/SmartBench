@@ -210,6 +210,7 @@ def _walk_tree(
             result["functions"].append({
                 "name": name,
                 "line": line,
+                "end_line": node.end_point[0] + 1,
                 "signature": sig.strip(),
             })
 
@@ -221,6 +222,7 @@ def _walk_tree(
             result["classes"].append({
                 "name": name,
                 "line": line,
+                "end_line": node.end_point[0] + 1,
             })
 
     # Recurse
