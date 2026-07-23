@@ -44,6 +44,10 @@ from smartbench.core.rules import (
     register_quality_rules,
     register_security_rules,
 )
+from smartbench.core.sarif import (
+    save_sarif_log,
+    to_sarif_log,
+)
 
 __all__ = [
     # Rules
@@ -81,4 +85,7 @@ __all__ = [
     "TypeScriptAdapter",
     "RustAdapter",
     "register_all_adapters",
+    # SARIF output
+    "save_sarif_log",
+    "to_sarif_log",
 ]

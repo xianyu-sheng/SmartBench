@@ -214,8 +214,8 @@ class UnifiedDiagnosticEngine:
 
     def _fingerprint(self, project_path: Path) -> ProjectFingerprint:
         """Fingerprint the project to detect languages and structure."""
-        scanner = ProjectScanner()
-        return scanner.scan(project_path)
+        scanner = ProjectScanner(str(project_path))
+        return scanner.scan()
 
     def _get_detected_languages(
         self,
