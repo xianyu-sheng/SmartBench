@@ -252,5 +252,15 @@ class ResourceLeakRule(DiagnosticRule):
 
 def register_builtin_rules(registry: RuleRegistry) -> None:
     """Register all built-in diagnostic rules with a registry."""
+    from smartbench.core.rules.security import register_security_rules
+    from smartbench.core.rules.quality import register_quality_rules
+
+    # Common rules
     registry.register(NullDereferenceRule())
     registry.register(ResourceLeakRule())
+
+    # Security rules
+    register_security_rules(registry)
+
+    # Quality rules
+    register_quality_rules(registry)

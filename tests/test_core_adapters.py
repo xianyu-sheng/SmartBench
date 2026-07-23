@@ -9,9 +9,14 @@ import pytest
 
 from smartbench.core.adapters import (
     AdapterRegistry,
+    GoAdapter,
+    JavaAdapter,
+    JavaScriptAdapter,
     LanguageAdapter,
     PythonAdapter,
-    GoAdapter,
+    RustAdapter,
+    TypeScriptAdapter,
+    register_all_adapters,
 )
 
 
@@ -93,3 +98,38 @@ class TestAdapterRegistry:
         langs = registry.list_languages()
         assert "python" in langs
         assert "go" in langs
+
+
+class TestAllAdapters:
+    def test_java_adapter_metadata(self):
+        adapter = JavaAdapter()
+        assert adapter.language == "java"
+        assert ".java" in adapter.file_extensions
+
+    def test_rust_adapter_metadata(self):
+        adapter = RustAdapter()
+        assert adapter.language == "rust"
+        assert ".rs" in adapter.file_extensions
+
+    def test_javascript_adapter_metadata(self):
+        adapter = JavaScriptAdapter()
+        assert adapter.language == "javascript"
+        assert ".js" in adapter.file_extensions
+
+    def test_typescript_adapter_metadata(self):
+        adapter = TypeScriptAdapter()
+        assert adapter.language == "typescript"
+        assert ".ts" in adapter.file_extensions
+
+    def test_register_all_adapters(self):
+        registry = AdapterRegistry()
+        register_all_adapters(registry)
+
+        langs = registry.list_languages()
+        assert "python" in langs
+        assert "go" in langs
+        assert "java" in langs
+        assert "rust" in langs
+        assert "javascript" in langs
+        assert "typescript" in langs
+        assert len(langs) >= 6

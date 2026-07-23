@@ -18,13 +18,40 @@ from smartbench.core.rules.common import (
     ResourceLeakRule,
     register_builtin_rules,
 )
+from smartbench.core.rules.security import (
+    CommandInjectionRule,
+    HardcodedSecretRule,
+    PathTraversalRule,
+    register_security_rules,
+)
+from smartbench.core.rules.quality import (
+    ExceptionTooBroadRule,
+    InsecureRandomRule,
+    SqlInjectionRule,
+    TodoFixmeRule,
+    UnusedImportRule,
+    register_quality_rules,
+)
 
 __all__ = [
     "DiagnosticRule",
     "Finding",
     "RuleRegistry",
     "Severity",
+    # Common rules
     "NullDereferenceRule",
     "ResourceLeakRule",
     "register_builtin_rules",
+    # Security rules
+    "CommandInjectionRule",
+    "HardcodedSecretRule",
+    "PathTraversalRule",
+    "register_security_rules",
+    # Quality rules
+    "ExceptionTooBroadRule",
+    "InsecureRandomRule",
+    "SqlInjectionRule",
+    "TodoFixmeRule",
+    "UnusedImportRule",
+    "register_quality_rules",
 ]

@@ -12,8 +12,13 @@ The existing `smartbench.graph` module is our IR foundation.
 from smartbench.core.adapters import (
     AdapterRegistry,
     GoAdapter,
+    JavaAdapter,
+    JavaScriptAdapter,
     LanguageAdapter,
     PythonAdapter,
+    RustAdapter,
+    TypeScriptAdapter,
+    register_all_adapters,
 )
 from smartbench.core.engine import (
     UnifiedDiagnosticConfig,
@@ -21,13 +26,23 @@ from smartbench.core.engine import (
     UnifiedDiagnosticResult,
 )
 from smartbench.core.rules import (
+    CommandInjectionRule,
     DiagnosticRule,
+    ExceptionTooBroadRule,
     Finding,
+    HardcodedSecretRule,
+    InsecureRandomRule,
     NullDereferenceRule,
+    PathTraversalRule,
     ResourceLeakRule,
     RuleRegistry,
     Severity,
+    SqlInjectionRule,
+    TodoFixmeRule,
+    UnusedImportRule,
     register_builtin_rules,
+    register_quality_rules,
+    register_security_rules,
 )
 
 __all__ = [
@@ -36,9 +51,22 @@ __all__ = [
     "Finding",
     "RuleRegistry",
     "Severity",
+    "register_builtin_rules",
+    "register_quality_rules",
+    "register_security_rules",
+    # Common rules
     "NullDereferenceRule",
     "ResourceLeakRule",
-    "register_builtin_rules",
+    # Security rules
+    "CommandInjectionRule",
+    "HardcodedSecretRule",
+    "PathTraversalRule",
+    "SqlInjectionRule",
+    # Quality rules
+    "ExceptionTooBroadRule",
+    "InsecureRandomRule",
+    "TodoFixmeRule",
+    "UnusedImportRule",
     # Engine
     "UnifiedDiagnosticConfig",
     "UnifiedDiagnosticEngine",
@@ -48,4 +76,9 @@ __all__ = [
     "LanguageAdapter",
     "PythonAdapter",
     "GoAdapter",
+    "JavaAdapter",
+    "JavaScriptAdapter",
+    "TypeScriptAdapter",
+    "RustAdapter",
+    "register_all_adapters",
 ]

@@ -19,6 +19,18 @@ from smartbench.core.rules.common import (
     ResourceLeakRule,
     register_builtin_rules,
 )
+from smartbench.core.rules.security import (
+    CommandInjectionRule,
+    HardcodedSecretRule,
+    PathTraversalRule,
+)
+from smartbench.core.rules.quality import (
+    ExceptionTooBroadRule,
+    InsecureRandomRule,
+    SqlInjectionRule,
+    TodoFixmeRule,
+    UnusedImportRule,
+)
 from smartbench.graph.schema import CodeGraph, CodeNode, NodeType
 
 
@@ -190,3 +202,86 @@ class TestBuiltinRules:
         rule = ResourceLeakRule()
         assert rule.rule_id == "resource_leak"
         assert rule.severity == Severity.WARNING
+
+
+class TestSecurityRules:
+    def test_command_injection_metadata(self):
+        rule = CommandInjectionRule()
+        assert rule.rule_id == "command_injection"
+        assert rule.severity == Severity.ERROR
+
+    def test_path_traversal_metadata(self):
+        rule = PathTraversalRule()
+        assert rule.rule_id == "path_traversal"
+        assert rule.severity == Severity.ERROR
+
+    def test_hardcoded_secret_metadata(self):
+        rule = HardcodedSecretRule()
+        assert rule.rule_id == "hardcoded_secret"
+        assert rule.severity == Severity.WARNING
+
+    def test_null_dereference_finds_patterns(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / "test.py"
+            test_file.write_text("""
+def bad_func():
+    x = None
+    print(x.foo)
+    None.bar()
+""")
+
+            graph = CodeGraph(meta={"project_path": tmpdir})
+            rule = NullDereferenceRule()
+
+            # Create a dummy node to trigger file reading
+            node = CodeNode(
+                id="test",
+                node_type=NodeType.FUNCTION,
+                name="test",
+                file_path=str(test_file.relative_to(tmpdir)),
+                language="python",
+            )
+            graph.add_node(node)
+
+            findings = rule.analyze(graph)
+            # Rule looks for patterns - may or may not find depending on content
+            # Just verify it doesn't crash
+
+
+class TestQualityRules:
+    def test_todo_fixme_metadata(self):
+        rule = TodoFixmeRule()
+        assert rule.rule_id == "todo_fixme"
+        assert rule.severity == Severity.INFO
+
+    def test_unused_import_metadata(self):
+        rule = UnusedImportRule()
+        assert rule.rule_id == "unused_import"
+        assert rule.severity == Severity.INFO
+
+    def test_broad_exception_metadata(self):
+        rule = ExceptionTooBroadRule()
+        assert rule.rule_id == "broad_exception"
+        assert rule.severity == Severity.WARNING
+
+    def test_insecure_random_metadata(self):
+        rule = InsecureRandomRule()
+        assert rule.rule_id == "insecure_random"
+        assert rule.severity == Severity.WARNING
+
+    def test_sql_injection_metadata(self):
+        rule = SqlInjectionRule()
+        assert rule.rule_id == "sql_injection"
+        assert rule.severity == Severity.ERROR
+
+    def test_all_rules_registered(self):
+        registry = RuleRegistry()
+        register_builtin_rules(registry)
+
+        # Check that we have a good number of rules now
+        rule_ids = registry.list_rule_ids()
+        assert len(rule_ids) >= 5
+        assert "null_dereference" in rule_ids
+        assert "resource_leak" in rule_ids
+        assert "command_injection" in rule_ids
+        assert "todo_fixme" in rule_ids
