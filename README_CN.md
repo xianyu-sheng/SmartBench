@@ -89,6 +89,27 @@ smartbench quick \
   --output report.json
 ```
 
+## 统一多语言诊断
+
+SmartBench 提供快速的统一诊断框架，支持多语言静态分析：
+
+```bash
+# 列出可用的诊断规则
+smartbench unified rules
+
+# 列出支持的语言
+smartbench unified languages
+
+# 运行统一诊断
+smartbench unified run --project .
+
+# 只运行指定规则和扫描指定语言
+smartbench unified run --project . --rule null_dereference --rule hardcoded_secret --language python
+
+# 导出 SARIF 报告（用于 GitHub/GitLab 代码扫描集成）
+smartbench unified run --project . --sarif report.sarif --output report.json
+```
+
 检查本机探针，或跳过 LLM 辩论执行诊断路径：
 
 ```bash
@@ -159,12 +180,13 @@ CI 会在 Python 3.10、3.11、3.12 上执行 lint、编译检查和测试，单
 
 ## 验证快照
 
-0.6.1 发布候选版本于 2026-07-22 完成以下验证：
+0.7.0 发布候选版本于 2026-07-23 完成以下验证：
 
-- 强制启用五种 tree-sitter 适配器时，417 项自动化测试全部通过。
+- 强制启用五种 tree-sitter 适配器时，468 项自动化测试全部通过。
 - Ruff、字节码编译、wheel 和源码包构建通过。
-- 在干净 Python 3.12 环境安装 wheel 后，从源码目录外成功运行 `--help`、`check`、`diagnose` 和仅代码图 `eval-rag`。
+- 在干净 Python 3.12 环境安装 wheel 后，从源码目录外成功运行 `--help`、`check`、`diagnose`、仅代码图 `eval-rag`，以及新的 `unified` 系列命令。
 - 本仓库 12 条查询的仅代码图回归样例达到 MRR 0.829、Hit@5 100%。该结果只用于自检，不代表通用诊断准确率。
+- 在 SmartBench 和 Xenon 两个真实项目上验证了统一诊断与 SARIF 报告输出。
 
 版本详情见 [CHANGELOG](CHANGELOG.md)。
 
@@ -173,7 +195,7 @@ CI 会在 Python 3.10、3.11、3.12 上执行 lint、编译检查和测试，单
 SmartBench 的定位是诊断工作台，不替代编译器、Linter、安全扫描器、Profiler 或人工审查。接下来的质量里程碑是：
 
 1. 将检索与诊断精度评测扩展到独立的带标签仓库。
-2. 输出 SARIF 等标准机器可读审查格式。
+2. ✅ 输出 SARIF 等标准机器可读审查格式（已实现）。
 3. 为可选仓库测试执行增加更强的进程隔离。
 4. 扩展机器可应用补丁覆盖率和语言专项验证。
 

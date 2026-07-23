@@ -89,6 +89,27 @@ smartbench quick \
   --output report.json
 ```
 
+## Unified Multi-Language Diagnosis
+
+SmartBench provides a fast, unified diagnostic framework with multi-language support:
+
+```bash
+# List available diagnostic rules
+smartbench unified rules
+
+# List supported languages
+smartbench unified languages
+
+# Run unified diagnosis
+smartbench unified run --project .
+
+# Run with specific rules and languages
+smartbench unified run --project . --rule null_dereference --rule hardcoded_secret --language python
+
+# Export SARIF report (standard format for GitHub/GitLab code scanning)
+smartbench unified run --project . --sarif report.sarif --output report.json
+```
+
 Inspect available local probes, or run the diagnosis-only path:
 
 ```bash
@@ -160,12 +181,13 @@ CI runs lint, compilation, and tests on Python 3.10, 3.11, and 3.12; separately 
 
 ## Validation snapshot
 
-The 0.6.1 release candidate was validated on 2026-07-22 with:
+The 0.7.0 release candidate was validated on 2026-07-23 with:
 
-- 417 automated tests passing with all five tree-sitter adapters required.
+- 468 automated tests passing with all five tree-sitter adapters required.
 - Ruff, bytecode compilation, wheel, and source-distribution checks passing.
-- A clean Python 3.12 wheel install running `--help`, `check`, `diagnose`, and graph-only `eval-rag` from outside the source checkout.
+- A clean Python 3.12 wheel install running `--help`, `check`, `diagnose`, graph-only `eval-rag`, and the new `unified` commands from outside the source checkout.
 - The repository's 12-query graph-only fixture reaching MRR 0.829 and Hit@5 100%. This is a self-retrieval regression fixture, not a claim of general diagnostic accuracy.
+- Unified diagnosis tested on both SmartBench and Xenon repositories with correct SARIF output generation.
 
 Release details are recorded in the [changelog](CHANGELOG.md).
 
@@ -174,7 +196,7 @@ Release details are recorded in the [changelog](CHANGELOG.md).
 SmartBench is a diagnostic workbench, not a replacement for compilers, linters, security scanners, profilers, or human review. The next quality milestones are:
 
 1. Expand retrieval and diagnostic precision measurement to independent labeled repositories.
-2. Export a standard machine-readable review format such as SARIF.
+2. ✅ Export a standard machine-readable review format such as SARIF (implemented).
 3. Add stronger process isolation for optional repository test execution.
 4. Expand machine-applicable patch coverage and language-specific validation.
 
