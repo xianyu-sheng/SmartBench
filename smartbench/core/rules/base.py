@@ -10,7 +10,8 @@ The key abstractions:
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 
 class Severity(Enum):
@@ -156,6 +157,72 @@ class DiagnosticRule:
             List of findings detected by this rule
         """
         raise NotImplementedError()
+
+    def _collect_source_files(self, ir: Any) -> List[Tuple[str, str]]:
+        """Collect source files from the IR or project path.
+
+        Returns:
+            List of (file_path, language) tuples
+        """
+        from pathlib import Path
+        from smartbench.graph.schema import CodeGraph
+
+        if not isinstance(ir, CodeGraph):
+            return []
+
+        # First get files from nodes
+        seen_files = set()
+        files = []
+
+        for node in ir.nodes.values():
+            if node.file_path not in seen_files:
+                seen_files.add(node.file_path)
+                files.append((node.file_path, node.language))
+
+        # If no nodes found, try to scan the project directory
+        if not files:
+            project_path = ir.meta.get("project_path")
+            if project_path:
+                root = Path(project_path)
+                if root.exists() and root.is_dir():
+                    # Extensions to language mapping
+                    ext_map = {
+                        ".py": "python",
+                        ".go": "go",
+                        ".java": "java",
+                        ".js": "javascript",
+                        ".mjs": "javascript",
+                        ".ts": "typescript",
+                        ".tsx": "typescript",
+                        ".rs": "rust",
+                    }
+                    for ext, lang in ext_map.items():
+                        for file_path in root.rglob(f"*{ext}"):
+                            try:
+                                rel_path = str(file_path.relative_to(root))
+                                if rel_path not in seen_files:
+                                    seen_files.add(rel_path)
+                                    files.append((rel_path, lang))
+                            except ValueError:
+                                pass
+
+        return files
+
+    def _read_source(self, ir: Any, file_path: str) -> Optional[str]:
+        """Read source file given a relative path from the graph."""
+        from pathlib import Path
+        from smartbench.path_safety import read_text_bounded
+        try:
+            from smartbench.graph.schema import CodeGraph
+            if isinstance(ir, CodeGraph):
+                project_path = ir.meta.get("project_path")
+                if project_path:
+                    full_path = Path(project_path) / file_path
+                    content = read_text_bounded(full_path, 2 * 1024 * 1024)
+                    return content
+        except Exception:
+            pass
+        return None
 
 
 class RuleRegistry:

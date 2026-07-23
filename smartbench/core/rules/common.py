@@ -20,7 +20,6 @@ from smartbench.graph.schema import (
     CodeGraph,
     NodeType,
 )
-from smartbench.path_safety import read_text_bounded
 
 
 class NullDereferenceRule(DiagnosticRule):
@@ -51,71 +50,18 @@ class NullDereferenceRule(DiagnosticRule):
     def analyze(self, ir: CodeGraph) -> List[Finding]:
         findings: List[Finding] = []
 
-        # First collect all unique files from the graph
-        seen_files = set()
-        func_nodes = [
-            n for n in ir.nodes.values() if n.node_type == NodeType.FUNCTION
-        ]
+        # Use the helper method to collect source files
+        source_files = self._collect_source_files(ir)
 
-        files_to_check = []
-        languages = set()
-        for fn in func_nodes:
-            if fn.file_path not in seen_files:
-                seen_files.add(fn.file_path)
-                files_to_check.append((fn.file_path, fn.language))
-
-        # Also try to infer language from the graph itself
-        if not files_to_check and "language" in ir.meta:
-            # If no nodes but we know the language, we can try to scan for files
-            base_lang = ir.meta["language"]
-            languages.add(base_lang)
-
-        # Scan all files in the project path for patterns
-        # For each supported language, scan the project
-        project_path = ir.meta.get("project_path")
-        if project_path:
-            # Try to find all source files in the project
-            from pathlib import Path
-            import os
-
-            root = Path(project_path)
-            if root.exists() and root.is_dir():
-                # Get all source files
-                for ext, lang in [
-                    (".py", "python"),
-                    (".go", "go"),
-                    (".java", "java"),
-                    (".js", "javascript"),
-                    (".ts", "typescript"),
-                    (".tsx", "typescript"),
-                    (".rs", "rust"),
-                ]:
-                    for file_path in root.rglob(f"*{ext}"):
-                        rel_path = str(file_path.relative_to(root))
-                        if rel_path not in seen_files:
-                            files_to_check.append((rel_path, lang))
-
-        # Now check all collected files
-        for file_path, language in files_to_check:
+        for file_path, language in source_files:
             source = self._read_source(ir, file_path)
             if not source:
                 continue
+
             patterns = self._find_null_patterns(source, file_path, language)
             findings.extend(patterns)
 
         return findings
-
-    def _read_source(self, ir: CodeGraph, file_path: str) -> Optional[str]:
-        """Read source file given a relative path from the graph."""
-        try:
-            project_path = ir.meta.get("project_path")
-            if project_path:
-                full_path = Path(project_path) / file_path
-                content = read_text_bounded(full_path, 2 * 1024 * 1024)
-                return content
-        except Exception:
-            pass
-        return None
 
     def _find_null_patterns(
         self, source: str, file_path: str, language: str
@@ -206,35 +152,20 @@ class ResourceLeakRule(DiagnosticRule):
     def analyze(self, ir: CodeGraph) -> List[Finding]:
         findings: List[Finding] = []
 
-        # For now, this is a placeholder that checks for patterns
-        # A real implementation would track def-use chains
-        func_nodes = [
-            n for n in ir.nodes.values() if n.node_type == NodeType.FUNCTION
-        ]
+        # Use the helper method to collect source files
+        source_files = self._collect_source_files(ir)
 
-        for fn in func_nodes:
-            source = self._read_source(ir, fn.file_path)
+        for file_path, language in source_files:
+            source = self._read_source(ir, file_path)
             if not source:
                 continue
 
             leak_patterns = self._find_leak_patterns(
-                source, fn.file_path, fn.language
+                source, file_path, language
             )
             findings.extend(leak_patterns)
 
         return findings
-
-    def _read_source(self, ir: CodeGraph, file_path: str) -> Optional[str]:
-        """Read source file given a relative path from the graph."""
-        try:
-            project_path = ir.meta.get("project_path")
-            if project_path:
-                full_path = Path(project_path) / file_path
-                content = read_text_bounded(full_path, 2 * 1024 * 1024)
-                return content
-        except Exception:
-            pass
-        return None
 
     def _find_leak_patterns(
         self, source: str, file_path: str, language: str

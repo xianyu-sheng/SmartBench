@@ -37,29 +37,16 @@ class TodoFixmeRule(DiagnosticRule):
     def analyze(self, ir: CodeGraph) -> List[Finding]:
         findings: List[Finding] = []
 
-        files: Dict[str, str] = {}
-        for n in ir.nodes.values():
-            if n.file_path not in files:
-                source = self._read_source(ir, n.file_path)
-                if source:
-                    files[n.file_path] = source
+        # Collect source files using our helper method
+        source_files = self._collect_source_files(ir)
 
-        for file_path, source in files.items():
-            patterns = self._find_comments(source, file_path)
-            findings.extend(patterns)
+        for file_path, language in source_files:
+            source = self._read_source(ir, file_path)
+            if source:
+                patterns = self._find_comments(source, file_path)
+                findings.extend(patterns)
 
         return findings
-
-    def _read_source(self, ir: CodeGraph, file_path: str) -> Optional[str]:
-        try:
-            project_path = ir.meta.get("project_path")
-            if project_path:
-                full_path = Path(project_path) / file_path
-                from smartbench.path_safety import read_text_bounded
-                return read_text_bounded(full_path, 2 * 1024 * 1024)
-        except Exception:
-            pass
-        return None
 
     def _find_comments(self, source: str, file_path: str) -> List[Finding]:
         findings: List[Finding] = []
@@ -114,29 +101,16 @@ class UnusedImportRule(DiagnosticRule):
     def analyze(self, ir: CodeGraph) -> List[Finding]:
         findings: List[Finding] = []
 
-        files: Dict[str, str] = {}
-        for n in ir.nodes.values():
-            if n.file_path not in files:
-                source = self._read_source(ir, n.file_path)
-                if source:
-                    files[n.file_path] = source
+        # Use the helper method to collect source files
+        source_files = self._collect_source_files(ir)
 
-        for file_path, source in files.items():
-            patterns = self._find_unused_imports(source, file_path)
-            findings.extend(patterns)
+        for file_path, language in source_files:
+            source = self._read_source(ir, file_path)
+            if source:
+                patterns = self._find_unused_imports(source, file_path)
+                findings.extend(patterns)
 
         return findings
-
-    def _read_source(self, ir: CodeGraph, file_path: str) -> Optional[str]:
-        try:
-            project_path = ir.meta.get("project_path")
-            if project_path:
-                full_path = Path(project_path) / file_path
-                from smartbench.path_safety import read_text_bounded
-                return read_text_bounded(full_path, 2 * 1024 * 1024)
-        except Exception:
-            pass
-        return None
 
     def _find_unused_imports(self, source: str, file_path: str) -> List[Finding]:
         findings: List[Finding] = []
@@ -202,28 +176,19 @@ class ExceptionTooBroadRule(DiagnosticRule):
 
     def analyze(self, ir: CodeGraph) -> List[Finding]:
         findings: List[Finding] = []
-        func_nodes = [n for n in ir.nodes.values() if n.node_type == NodeType.FUNCTION]
 
-        for fn in func_nodes:
-            source = self._read_source(ir, fn.file_path)
+        # Use the helper method to collect source files
+        source_files = self._collect_source_files(ir)
+
+        for file_path, language in source_files:
+            source = self._read_source(ir, file_path)
             if not source:
                 continue
 
-            patterns = self._find_broad_exceptions(source, fn.file_path, fn.language)
+            patterns = self._find_broad_exceptions(source, file_path, language)
             findings.extend(patterns)
 
         return findings
-
-    def _read_source(self, ir: CodeGraph, file_path: str) -> Optional[str]:
-        try:
-            project_path = ir.meta.get("project_path")
-            if project_path:
-                full_path = Path(project_path) / file_path
-                from smartbench.path_safety import read_text_bounded
-                return read_text_bounded(full_path, 2 * 1024 * 1024)
-        except Exception:
-            pass
-        return None
 
     def _find_broad_exceptions(
         self, source: str, file_path: str, language: str
@@ -293,28 +258,19 @@ class InsecureRandomRule(DiagnosticRule):
 
     def analyze(self, ir: CodeGraph) -> List[Finding]:
         findings: List[Finding] = []
-        func_nodes = [n for n in ir.nodes.values() if n.node_type == NodeType.FUNCTION]
 
-        for fn in func_nodes:
-            source = self._read_source(ir, fn.file_path)
+        # Use the helper method to collect source files
+        source_files = self._collect_source_files(ir)
+
+        for file_path, language in source_files:
+            source = self._read_source(ir, file_path)
             if not source:
                 continue
 
-            patterns = self._find_insecure_random(source, fn.file_path, fn.language)
+            patterns = self._find_insecure_random(source, file_path, language)
             findings.extend(patterns)
 
         return findings
-
-    def _read_source(self, ir: CodeGraph, file_path: str) -> Optional[str]:
-        try:
-            project_path = ir.meta.get("project_path")
-            if project_path:
-                full_path = Path(project_path) / file_path
-                from smartbench.path_safety import read_text_bounded
-                return read_text_bounded(full_path, 2 * 1024 * 1024)
-        except Exception:
-            pass
-        return None
 
     def _find_insecure_random(
         self, source: str, file_path: str, language: str
@@ -381,28 +337,19 @@ class SqlInjectionRule(DiagnosticRule):
 
     def analyze(self, ir: CodeGraph) -> List[Finding]:
         findings: List[Finding] = []
-        func_nodes = [n for n in ir.nodes.values() if n.node_type == NodeType.FUNCTION]
 
-        for fn in func_nodes:
-            source = self._read_source(ir, fn.file_path)
+        # Use the helper method to collect source files
+        source_files = self._collect_source_files(ir)
+
+        for file_path, language in source_files:
+            source = self._read_source(ir, file_path)
             if not source:
                 continue
 
-            patterns = self._find_sql_patterns(source, fn.file_path, fn.language)
+            patterns = self._find_sql_patterns(source, file_path, language)
             findings.extend(patterns)
 
         return findings
-
-    def _read_source(self, ir: CodeGraph, file_path: str) -> Optional[str]:
-        try:
-            project_path = ir.meta.get("project_path")
-            if project_path:
-                full_path = Path(project_path) / file_path
-                from smartbench.path_safety import read_text_bounded
-                return read_text_bounded(full_path, 2 * 1024 * 1024)
-        except Exception:
-            pass
-        return None
 
     def _find_sql_patterns(
         self, source: str, file_path: str, language: str

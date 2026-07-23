@@ -36,28 +36,19 @@ class CommandInjectionRule(DiagnosticRule):
 
     def analyze(self, ir: CodeGraph) -> List[Finding]:
         findings: List[Finding] = []
-        func_nodes = [n for n in ir.nodes.values() if n.node_type == NodeType.FUNCTION]
 
-        for fn in func_nodes:
-            source = self._read_source(ir, fn.file_path)
+        # Use the helper method to collect source files
+        source_files = self._collect_source_files(ir)
+
+        for file_path, language in source_files:
+            source = self._read_source(ir, file_path)
             if not source:
                 continue
 
-            patterns = self._find_command_patterns(source, fn.file_path, fn.language)
+            patterns = self._find_command_patterns(source, file_path, language)
             findings.extend(patterns)
 
         return findings
-
-    def _read_source(self, ir: CodeGraph, file_path: str) -> Optional[str]:
-        try:
-            project_path = ir.meta.get("project_path")
-            if project_path:
-                full_path = Path(project_path) / file_path
-                from smartbench.path_safety import read_text_bounded
-                return read_text_bounded(full_path, 2 * 1024 * 1024)
-        except Exception:
-            pass
-        return None
 
     def _find_command_patterns(
         self, source: str, file_path: str, language: str
@@ -142,28 +133,19 @@ class PathTraversalRule(DiagnosticRule):
 
     def analyze(self, ir: CodeGraph) -> List[Finding]:
         findings: List[Finding] = []
-        func_nodes = [n for n in ir.nodes.values() if n.node_type == NodeType.FUNCTION]
 
-        for fn in func_nodes:
-            source = self._read_source(ir, fn.file_path)
+        # Use the helper method to collect source files
+        source_files = self._collect_source_files(ir)
+
+        for file_path, language in source_files:
+            source = self._read_source(ir, file_path)
             if not source:
                 continue
 
-            patterns = self._find_path_patterns(source, fn.file_path, fn.language)
+            patterns = self._find_path_patterns(source, file_path, language)
             findings.extend(patterns)
 
         return findings
-
-    def _read_source(self, ir: CodeGraph, file_path: str) -> Optional[str]:
-        try:
-            project_path = ir.meta.get("project_path")
-            if project_path:
-                full_path = Path(project_path) / file_path
-                from smartbench.path_safety import read_text_bounded
-                return read_text_bounded(full_path, 2 * 1024 * 1024)
-        except Exception:
-            pass
-        return None
 
     def _find_path_patterns(
         self, source: str, file_path: str, language: str
@@ -228,32 +210,17 @@ class HardcodedSecretRule(DiagnosticRule):
 
     def analyze(self, ir: CodeGraph) -> List[Finding]:
         findings: List[Finding] = []
-        func_nodes = [n for n in ir.nodes.values() if n.node_type == NodeType.FUNCTION]
 
-        # Also check the entire file
-        files: Dict[str, str] = {}
-        for n in ir.nodes.values():
-            if n.file_path not in files:
-                source = self._read_source(ir, n.file_path)
-                if source:
-                    files[n.file_path] = source
+        # Use the helper method to collect source files
+        source_files = self._collect_source_files(ir)
 
-        for file_path, source in files.items():
-            patterns = self._find_secret_patterns(source, file_path)
-            findings.extend(patterns)
+        for file_path, language in source_files:
+            source = self._read_source(ir, file_path)
+            if source:
+                patterns = self._find_secret_patterns(source, file_path)
+                findings.extend(patterns)
 
         return findings
-
-    def _read_source(self, ir: CodeGraph, file_path: str) -> Optional[str]:
-        try:
-            project_path = ir.meta.get("project_path")
-            if project_path:
-                full_path = Path(project_path) / file_path
-                from smartbench.path_safety import read_text_bounded
-                return read_text_bounded(full_path, 2 * 1024 * 1024)
-        except Exception:
-            pass
-        return None
 
     def _find_secret_patterns(self, source: str, file_path: str) -> List[Finding]:
         findings: List[Finding] = []
