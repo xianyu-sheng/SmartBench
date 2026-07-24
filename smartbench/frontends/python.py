@@ -28,6 +28,24 @@ class PythonLoweringResult:
     errors: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class _PendingEdge:
+    source_id: str
+    kind: OperationEdgeKind = OperationEdgeKind.NEXT
+
+
+@dataclass
+class _FlowFragment:
+    entry_id: str | None = None
+    fallthroughs: list[_PendingEdge] = field(default_factory=list)
+    breaks: list[str] = field(default_factory=list)
+    continues: list[str] = field(default_factory=list)
+
+    @classmethod
+    def simple(cls, operation_id: str) -> "_FlowFragment":
+        return cls(entry_id=operation_id, fallthroughs=[_PendingEdge(operation_id)])
+
+
 class PythonSemanticLowerer:
     """Lower Python AST nodes to the same finite operations used by Go."""
 
@@ -115,24 +133,32 @@ class _PythonFileLowerer:
             )
             self._edge(function.id, parameter.id, OperationEdgeKind.CONTAINS)
 
-        roots = self._lower_sequence(node.body, function.id)
-        for operation_id in roots:
-            self._edge(function.id, operation_id, OperationEdgeKind.CONTAINS)
+        fragment = self._lower_sequence(node.body, function.id)
+        if fragment.entry_id is not None:
+            self._edge(function.id, fragment.entry_id, OperationEdgeKind.CONTAINS)
 
-    def _lower_sequence(self, statements: list[ast.stmt], scope_id: str) -> list[str]:
-        roots: list[str] = []
-        previous: str | None = None
+    def _lower_sequence(self, statements: list[ast.stmt], scope_id: str) -> _FlowFragment:
+        sequence = _FlowFragment()
         for statement in statements:
-            operation_id = self._lower_statement(statement, scope_id)
-            if operation_id is None:
+            fragment = self._lower_statement(statement, scope_id)
+            if fragment.entry_id is None:
                 continue
-            roots.append(operation_id)
-            if previous is not None:
-                self._edge(previous, operation_id, OperationEdgeKind.NEXT)
-            previous = operation_id
-        return roots
+            if sequence.entry_id is None:
+                sequence.entry_id = fragment.entry_id
+                sequence.fallthroughs = list(fragment.fallthroughs)
+                sequence.breaks.extend(fragment.breaks)
+                sequence.continues.extend(fragment.continues)
+                continue
+            if not sequence.fallthroughs:
+                continue
+            for pending in sequence.fallthroughs:
+                self._edge(pending.source_id, fragment.entry_id, pending.kind)
+            sequence.fallthroughs = list(fragment.fallthroughs)
+            sequence.breaks.extend(fragment.breaks)
+            sequence.continues.extend(fragment.continues)
+        return sequence
 
-    def _lower_statement(self, node: ast.stmt, scope_id: str) -> str | None:
+    def _lower_statement(self, node: ast.stmt, scope_id: str) -> _FlowFragment:
         if isinstance(node, ast.If):
             return self._lower_branch(node, scope_id)
         if isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
@@ -149,24 +175,29 @@ class _PythonFileLowerer:
                 operands=tuple(self._identifiers(node.value)),
                 attributes={"operator": self._operator(node.op)},
             )
-            return operation.id
+            return _FlowFragment.simple(operation.id)
         if isinstance(node, ast.Return):
-            return self._operation(
+            operation = self._operation(
                 OperationKind.RETURN,
                 node,
                 scope_id,
                 value=self._unparse(node.value),
                 operands=tuple(self._identifiers(node.value)),
-            ).id
+            )
+            return _FlowFragment(entry_id=operation.id)
         if isinstance(node, ast.Continue):
-            return self._operation(OperationKind.CONTINUE, node, scope_id).id
+            operation = self._operation(OperationKind.CONTINUE, node, scope_id)
+            return _FlowFragment(entry_id=operation.id, continues=[operation.id])
         if isinstance(node, ast.Break):
-            return self._operation(OperationKind.BREAK, node, scope_id).id
+            operation = self._operation(OperationKind.BREAK, node, scope_id)
+            return _FlowFragment(entry_id=operation.id, breaks=[operation.id])
         if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
-            return self._lower_call(node.value, scope_id, location_node=node).id
-        return None
+            return _FlowFragment.simple(
+                self._lower_call(node.value, scope_id, location_node=node).id
+            )
+        return _FlowFragment()
 
-    def _lower_branch(self, node: ast.If, scope_id: str) -> str:
+    def _lower_branch(self, node: ast.If, scope_id: str) -> _FlowFragment:
         branch = self._operation(
             OperationKind.BRANCH,
             node,
@@ -180,42 +211,74 @@ class _PythonFileLowerer:
             },
         )
         consequence = self._lower_sequence(node.body, scope_id)
-        if consequence:
-            self._edge(branch.id, consequence[0], OperationEdgeKind.TRUE_BRANCH)
+        if consequence.entry_id is not None:
+            self._edge(branch.id, consequence.entry_id, OperationEdgeKind.TRUE_BRANCH)
+        else:
+            consequence.fallthroughs.append(
+                _PendingEdge(branch.id, OperationEdgeKind.TRUE_BRANCH)
+            )
         alternative = self._lower_sequence(node.orelse, scope_id)
-        if alternative:
-            self._edge(branch.id, alternative[0], OperationEdgeKind.FALSE_BRANCH)
-        return branch.id
+        if alternative.entry_id is not None:
+            self._edge(branch.id, alternative.entry_id, OperationEdgeKind.FALSE_BRANCH)
+        else:
+            alternative.fallthroughs.append(
+                _PendingEdge(branch.id, OperationEdgeKind.FALSE_BRANCH)
+            )
+        return _FlowFragment(
+            entry_id=branch.id,
+            fallthroughs=[*consequence.fallthroughs, *alternative.fallthroughs],
+            breaks=[*consequence.breaks, *alternative.breaks],
+            continues=[*consequence.continues, *alternative.continues],
+        )
 
     def _lower_loop(
         self,
         node: ast.For | ast.AsyncFor | ast.While,
         scope_id: str,
-    ) -> str:
+    ) -> _FlowFragment:
         if isinstance(node, ast.While):
             value_node: ast.AST | None = node.test
         else:
             value_node = node.iter
+        infinite = isinstance(node, ast.While) and isinstance(node.test, ast.Constant) and node.test.value is True
         loop = self._operation(
             OperationKind.LOOP,
             node,
             scope_id,
             value=self._unparse(value_node),
             operands=tuple(self._identifiers(value_node)),
+            attributes={"infinite": infinite},
         )
         body = self._lower_sequence(node.body, scope_id)
-        if body:
-            self._edge(loop.id, body[0], OperationEdgeKind.BODY)
-        return loop.id
+        if body.entry_id is not None:
+            self._edge(loop.id, body.entry_id, OperationEdgeKind.BODY)
+            for pending in body.fallthroughs:
+                self._edge(pending.source_id, loop.id, OperationEdgeKind.LOOP_BACK)
+        else:
+            self._edge(loop.id, loop.id, OperationEdgeKind.LOOP_BACK)
+        for operation_id in body.continues:
+            self._edge(operation_id, loop.id, OperationEdgeKind.LOOP_BACK)
 
-    def _lower_assignment(self, node: ast.Assign | ast.AnnAssign, scope_id: str) -> str:
+        exits = [
+            _PendingEdge(operation_id, OperationEdgeKind.LOOP_EXIT)
+            for operation_id in body.breaks
+        ]
+        if not infinite:
+            exits.append(_PendingEdge(loop.id, OperationEdgeKind.FALSE_BRANCH))
+        return _FlowFragment(entry_id=loop.id, fallthroughs=exits)
+
+    def _lower_assignment(
+        self,
+        node: ast.Assign | ast.AnnAssign,
+        scope_id: str,
+    ) -> _FlowFragment:
         if isinstance(node, ast.Assign):
             target = ", ".join(self._unparse(item) for item in node.targets)
             value_node = node.value
         else:
             target = self._unparse(node.target)
             value_node = node.value
-        return self._operation(
+        operation = self._operation(
             OperationKind.ASSIGN,
             node,
             scope_id,
@@ -223,7 +286,8 @@ class _PythonFileLowerer:
             value=self._unparse(value_node),
             operands=tuple(self._identifiers(value_node)),
             attributes={"calls": self._calls(value_node)},
-        ).id
+        )
+        return _FlowFragment.simple(operation.id)
 
     def _lower_call(
         self,

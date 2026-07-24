@@ -115,6 +115,11 @@ smartbench unified run \
   --language go \
   --state-rules benchmarks/reasonix/reasoning_stop.yaml \
   --output state-report.json
+
+# Run a pre-fix/post-fix benchmark manifest
+smartbench benchmark run \
+  --manifest benchmarks/your-project/manifest.yaml \
+  --output benchmark-report.json
 ```
 
 Python and Go semantic frontends normalize control-flow operations into the
@@ -122,7 +127,8 @@ same IR. Declarative state rules use the versioned
 `smartbench.state-rules/v1` schema, remain outside language frontends, and
 produce source-backed JSON/SARIF findings. In evidence-exclusive multi-agent
 mode, every accepted suggestion must cite a stable `fact-*` ID from the
-deterministic EvidencePack.
+deterministic EvidencePack. Benchmark manifests declare snapshot paths and
+finding expectations, so regression claims are reproducible and measurable.
 
 Inspect available local probes, or run the diagnosis-only path:
 

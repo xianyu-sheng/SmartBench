@@ -40,6 +40,8 @@ class OperationEdgeKind(str, Enum):
     TRUE_BRANCH = "true_branch"
     FALSE_BRANCH = "false_branch"
     BODY = "body"
+    LOOP_BACK = "loop_back"
+    LOOP_EXIT = "loop_exit"
     DATA_DEPENDENCY = "data_dependency"
     SYNCHRONIZES = "synchronizes"
 

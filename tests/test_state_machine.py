@@ -50,6 +50,24 @@ func run(output string) error {
 '''.strip()
 
 
+CONVERGING_GUARD = '''
+package sample
+
+func run(output string) error {
+    for {
+        if !ready(output) {
+            if completed(output) {
+                log("completed")
+            }
+            retries++
+            continue
+        }
+        return nil
+    }
+}
+'''.strip()
+
+
 def _invariant() -> StateInvariant:
     return StateInvariant(
         invariant_id="terminal-before-retry",
@@ -84,3 +102,10 @@ def test_state_violation_produces_source_backed_evidence(tmp_path: Path):
     assert len(pack.evidence) == 2
     assert {ref.source for ref in pack.evidence} == {"go_frontend"}
     assert pack.graph_version == "graph-v1"
+
+
+def test_converging_guard_does_not_hide_a_retry_violation(tmp_path: Path):
+    result = _analyze(tmp_path, CONVERGING_GUARD)
+
+    assert len(result.violations) == 1
+    assert result.violations[0].missing == "guard"

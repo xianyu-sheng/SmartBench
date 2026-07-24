@@ -9,7 +9,9 @@ Usage:
     smartbench check        # Tool availability check
 """
 
+import json
 import os
+from pathlib import Path
 from typing import List, Optional
 
 import typer
@@ -17,6 +19,7 @@ from rich.console import Console
 from rich.table import Table
 
 from smartbench import __version__
+from smartbench.benchmarks import BenchmarkConfigError, BenchmarkRunner, load_benchmark_manifest
 from smartbench.cli.phases import (
     resolve_project_path,
     run_diagnose_mode,
@@ -49,11 +52,52 @@ unified_app = typer.Typer(
 )
 app.add_typer(unified_app, name="unified")
 
+benchmark_app = typer.Typer(
+    name="benchmark",
+    help="Reproducible pre-fix/post-fix benchmark execution",
+)
+app.add_typer(benchmark_app, name="benchmark")
+
 
 def _version_callback(value: bool) -> None:
     if value:
         typer.echo(f"smartbench {__version__}")
         raise typer.Exit()
+
+
+@benchmark_app.command("run")
+def benchmark_run(
+    manifest: str = typer.Option(..., "--manifest", "-m", help="Benchmark YAML manifest"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Save benchmark JSON"),
+):
+    """Run declared repository snapshots through the unified engine."""
+    try:
+        manifest_path = Path(manifest).expanduser().resolve()
+        cases = load_benchmark_manifest(manifest_path)
+        report = BenchmarkRunner().run(cases)
+    except (BenchmarkConfigError, OSError, ValueError) as exc:
+        console.print(f"[red]Benchmark failed: {safe_terminal_text(exc)}[/red]")
+        raise typer.Exit(1) from exc
+
+    table = Table("Case", "Snapshot", "Findings", "Status", title="Benchmark Results")
+    for result in report.results:
+        table.add_row(
+            result.case_id,
+            result.label,
+            str(result.findings),
+            "[green]PASS[/green]" if result.passed else "[red]FAIL[/red]",
+        )
+    console.print(table)
+    if output:
+        destination = Path(output).expanduser().resolve()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(
+            json.dumps(report.to_dict(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        console.print(f"💾 Benchmark report saved to: [cyan]{safe_terminal_text(destination)}[/cyan]")
+    if not report.passed:
+        raise typer.Exit(1)
 
 
 @app.callback(invoke_without_command=True)

@@ -37,6 +37,27 @@ class GoLoweringResult:
     errors: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class _PendingEdge:
+    source_id: str
+    kind: OperationEdgeKind = OperationEdgeKind.NEXT
+
+
+@dataclass
+class _FlowFragment:
+    entry_id: str | None = None
+    fallthroughs: list[_PendingEdge] = field(default_factory=list)
+    breaks: list[str] = field(default_factory=list)
+    continues: list[str] = field(default_factory=list)
+
+    @classmethod
+    def simple(cls, operation_id: str) -> "_FlowFragment":
+        return cls(
+            entry_id=operation_id,
+            fallthroughs=[_PendingEdge(operation_id)],
+        )
+
+
 class GoSemanticLowerer:
     """Lower Go CST nodes to a finite set of language-neutral operations."""
 
@@ -135,25 +156,34 @@ class _GoFileLowerer:
         body = node.child_by_field_name("body")
         if body is None:
             return
-        statements = self._statement_nodes(body)
-        roots = self._lower_sequence(statements, function.id)
-        for operation_id in roots:
-            self._edge(function.id, operation_id, OperationEdgeKind.CONTAINS)
+        fragment = self._lower_sequence(self._statement_nodes(body), function.id)
+        if fragment.entry_id is not None:
+            self._edge(function.id, fragment.entry_id, OperationEdgeKind.CONTAINS)
 
-    def _lower_sequence(self, statements: list[Any], scope_id: str) -> list[str]:
-        roots: list[str] = []
-        previous: str | None = None
+    def _lower_sequence(self, statements: list[Any], scope_id: str) -> _FlowFragment:
+        sequence = _FlowFragment()
         for statement in statements:
-            operation_id = self._lower_statement(statement, scope_id)
-            if operation_id is None:
+            fragment = self._lower_statement(statement, scope_id)
+            if fragment.entry_id is None:
                 continue
-            roots.append(operation_id)
-            if previous is not None:
-                self._edge(previous, operation_id, OperationEdgeKind.NEXT)
-            previous = operation_id
-        return roots
+            if sequence.entry_id is None:
+                sequence.entry_id = fragment.entry_id
+                sequence.fallthroughs = list(fragment.fallthroughs)
+                sequence.breaks.extend(fragment.breaks)
+                sequence.continues.extend(fragment.continues)
+                continue
+            if not sequence.fallthroughs:
+                # Preserve unreachable operations for retrieval, but do not
+                # fabricate CFG edges or loop exits from dead statements.
+                continue
+            for pending in sequence.fallthroughs:
+                self._edge(pending.source_id, fragment.entry_id, pending.kind)
+            sequence.fallthroughs = list(fragment.fallthroughs)
+            sequence.breaks.extend(fragment.breaks)
+            sequence.continues.extend(fragment.continues)
+        return sequence
 
-    def _lower_statement(self, node: Any, scope_id: str) -> str | None:
+    def _lower_statement(self, node: Any, scope_id: str) -> _FlowFragment:
         node_type = node.type
         if node_type == "if_statement":
             return self._lower_branch(node, scope_id)
@@ -169,7 +199,7 @@ class _GoFileLowerer:
                 target=self._text(node.named_children[0]) if node.named_children else "",
                 value=self._text(node),
             )
-            return operation.id
+            return _FlowFragment.simple(operation.id)
         if node_type == "return_statement":
             operation = self._operation(
                 OperationKind.RETURN,
@@ -177,15 +207,19 @@ class _GoFileLowerer:
                 scope_id,
                 value=self._statement_value(node, "return"),
             )
-            return operation.id
+            return _FlowFragment(entry_id=operation.id)
         if node_type == "continue_statement":
-            return self._operation(OperationKind.CONTINUE, node, scope_id).id
+            operation = self._operation(OperationKind.CONTINUE, node, scope_id)
+            return _FlowFragment(entry_id=operation.id, continues=[operation.id])
         if node_type == "break_statement":
-            return self._operation(OperationKind.BREAK, node, scope_id).id
+            operation = self._operation(OperationKind.BREAK, node, scope_id)
+            return _FlowFragment(entry_id=operation.id, breaks=[operation.id])
         if node_type == "go_statement":
-            return self._call_like(OperationKind.SPAWN, node, scope_id).id
+            operation = self._call_like(OperationKind.SPAWN, node, scope_id)
+            return _FlowFragment.simple(operation.id)
         if node_type == "defer_statement":
-            return self._call_like(OperationKind.DEFER, node, scope_id).id
+            operation = self._call_like(OperationKind.DEFER, node, scope_id)
+            return _FlowFragment.simple(operation.id)
         if node_type == "send_statement":
             children = node.named_children
             target = self._text(children[0]) if children else ""
@@ -198,23 +232,29 @@ class _GoFileLowerer:
                 value=value,
                 operands=tuple(self._identifiers(node)),
             )
-            return operation.id
+            return _FlowFragment.simple(operation.id)
         if node_type == "select_statement":
             operation = self._operation(OperationKind.SELECT, node, scope_id, value=self._text(node))
             body = node.child_by_field_name("body")
             if body is not None:
-                roots = self._lower_sequence(self._statement_nodes(body), scope_id)
-                if roots:
-                    self._edge(operation.id, roots[0], OperationEdgeKind.BODY)
-            return operation.id
+                fragment = self._lower_sequence(self._statement_nodes(body), scope_id)
+                if fragment.entry_id is not None:
+                    self._edge(operation.id, fragment.entry_id, OperationEdgeKind.BODY)
+                    return _FlowFragment(
+                        entry_id=operation.id,
+                        fallthroughs=fragment.fallthroughs,
+                        breaks=fragment.breaks,
+                        continues=fragment.continues,
+                    )
+            return _FlowFragment.simple(operation.id)
 
         call = self._first_descendant(node, "call_expression")
         if call is not None:
             operation = self._call_like(OperationKind.CALL, call, scope_id, location_node=node)
-            return operation.id
-        return None
+            return _FlowFragment.simple(operation.id)
+        return _FlowFragment()
 
-    def _lower_branch(self, node: Any, scope_id: str) -> str:
+    def _lower_branch(self, node: Any, scope_id: str) -> _FlowFragment:
         condition = node.child_by_field_name("condition")
         if condition is None:
             condition = next(
@@ -238,35 +278,76 @@ class _GoFileLowerer:
         consequence = node.child_by_field_name("consequence")
         if consequence is None:
             consequence = next((child for child in node.named_children if child.type == "block"), None)
+        true_fragment = _FlowFragment()
         if consequence is not None:
-            roots = self._lower_sequence(self._statement_nodes(consequence), scope_id)
-            if roots:
-                self._edge(branch.id, roots[0], OperationEdgeKind.TRUE_BRANCH)
+            true_fragment = self._lower_sequence(
+                self._statement_nodes(consequence),
+                scope_id,
+            )
+        if true_fragment.entry_id is not None:
+            self._edge(branch.id, true_fragment.entry_id, OperationEdgeKind.TRUE_BRANCH)
+        else:
+            true_fragment.fallthroughs.append(
+                _PendingEdge(branch.id, OperationEdgeKind.TRUE_BRANCH)
+            )
 
         alternative = node.child_by_field_name("alternative")
+        false_fragment = _FlowFragment()
         if alternative is not None:
-            roots = self._lower_sequence(self._statement_nodes(alternative), scope_id)
-            if roots:
-                self._edge(branch.id, roots[0], OperationEdgeKind.FALSE_BRANCH)
-        return branch.id
+            false_fragment = self._lower_sequence(
+                self._statement_nodes(alternative),
+                scope_id,
+            )
+        if false_fragment.entry_id is not None:
+            self._edge(branch.id, false_fragment.entry_id, OperationEdgeKind.FALSE_BRANCH)
+        else:
+            false_fragment.fallthroughs.append(
+                _PendingEdge(branch.id, OperationEdgeKind.FALSE_BRANCH)
+            )
+        return _FlowFragment(
+            entry_id=branch.id,
+            fallthroughs=[
+                *true_fragment.fallthroughs,
+                *false_fragment.fallthroughs,
+            ],
+            breaks=[*true_fragment.breaks, *false_fragment.breaks],
+            continues=[*true_fragment.continues, *false_fragment.continues],
+        )
 
-    def _lower_loop(self, node: Any, scope_id: str) -> str:
+    def _lower_loop(self, node: Any, scope_id: str) -> _FlowFragment:
         body = node.child_by_field_name("body")
         condition = node.child_by_field_name("condition")
+        range_clause = self._first_descendant(node, "range_clause")
+        infinite = condition is None and range_clause is None
         loop = self._operation(
             OperationKind.LOOP,
             node,
             scope_id,
             value=self._text(condition) or self._first_line(node),
             operands=tuple(self._identifiers(condition)),
+            attributes={"infinite": infinite},
         )
+        body_fragment = _FlowFragment()
         if body is not None:
-            roots = self._lower_sequence(self._statement_nodes(body), scope_id)
-            if roots:
-                self._edge(loop.id, roots[0], OperationEdgeKind.BODY)
-        return loop.id
+            body_fragment = self._lower_sequence(self._statement_nodes(body), scope_id)
+        if body_fragment.entry_id is not None:
+            self._edge(loop.id, body_fragment.entry_id, OperationEdgeKind.BODY)
+            for pending in body_fragment.fallthroughs:
+                self._edge(pending.source_id, loop.id, OperationEdgeKind.LOOP_BACK)
+        else:
+            self._edge(loop.id, loop.id, OperationEdgeKind.LOOP_BACK)
+        for operation_id in body_fragment.continues:
+            self._edge(operation_id, loop.id, OperationEdgeKind.LOOP_BACK)
 
-    def _lower_assignment(self, node: Any, scope_id: str) -> str:
+        exits = [
+            _PendingEdge(operation_id, OperationEdgeKind.LOOP_EXIT)
+            for operation_id in body_fragment.breaks
+        ]
+        if not infinite:
+            exits.append(_PendingEdge(loop.id, OperationEdgeKind.FALSE_BRANCH))
+        return _FlowFragment(entry_id=loop.id, fallthroughs=exits)
+
+    def _lower_assignment(self, node: Any, scope_id: str) -> _FlowFragment:
         children = node.named_children
         target = self._text(children[0]) if children else ""
         value = self._text(children[1]) if len(children) > 1 else self._text(node)
@@ -284,7 +365,7 @@ class _GoFileLowerer:
             operands=tuple(self._identifiers(children[1] if len(children) > 1 else node)),
             attributes={"calls": self._calls(node)},
         )
-        return operation.id
+        return _FlowFragment.simple(operation.id)
 
     def _call_like(
         self,

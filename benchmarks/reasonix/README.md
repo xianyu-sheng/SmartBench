@@ -24,3 +24,8 @@ The bad snapshot should report the transition from the
 `hasVisibleFinalAnswer` branch to the `emptyFinalBlocks` update. The fixed
 snapshot inserts `reasoningOnlyFinishHonoured` before that update and should
 produce no finding.
+
+For automated comparisons, create a manifest beside this file with `bad` and
+`fixed` snapshot paths and run `smartbench benchmark run --manifest
+manifest.yaml`. The runner records finding counts, rule IDs, errors, and
+pass/fail status for every snapshot without changing either checkout.

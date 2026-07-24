@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable, Mapping
 
+from smartbench.analysis.control_flow import ControlFlowGraph
 from smartbench.ir import (
     EvidencePack,
     FactKind,
@@ -148,6 +149,7 @@ class StateMachineAnalyzer:
     ) -> StateAnalysisResult:
         invariant_list = list(invariants)
         language_filter = {language.lower() for language in languages or ()}
+        cfg = ControlFlowGraph.from_ir(ir, language_filter)
         by_scope: dict[str, list[SemanticOperation]] = {}
         for operation in ir.operations:
             if language_filter and operation.language.lower() not in language_filter:
@@ -165,7 +167,7 @@ class StateMachineAnalyzer:
         for scope_id, operations in sorted(by_scope.items()):
             for invariant in invariant_list:
                 result.violations.extend(
-                    self._evaluate_scope(scope_id, operations, invariant)
+                    self._evaluate_scope(scope_id, operations, invariant, cfg)
                 )
         return result
 
@@ -174,6 +176,7 @@ class StateMachineAnalyzer:
         scope_id: str,
         operations: list[SemanticOperation],
         invariant: StateInvariant,
+        cfg: ControlFlowGraph,
     ) -> list[StateInvariantViolation]:
         events = [operation for operation in operations if invariant.event.matches(operation)]
         actions = [operation for operation in operations if invariant.action.matches(operation)]
@@ -182,16 +185,21 @@ class StateMachineAnalyzer:
         for event in events:
             later_actions = [
                 action for action in actions
-                if self._order_key(action) > self._order_key(event)
+                if action.id != event.id and cfg.reachable(event.id, action.id)
             ]
             for action in later_actions:
-                between = [
-                    operation for operation in operations
-                    if self._order_key(event) < self._order_key(operation) < self._order_key(action)
-                ]
                 if invariant.kind == InvariantKind.REQUIRE_GUARD_BEFORE_ACTION:
                     assert invariant.guard is not None
-                    if any(invariant.guard.matches(operation) for operation in between):
+                    guards = [
+                        operation for operation in operations
+                        if operation.id not in {event.id, action.id}
+                        and invariant.guard.matches(operation)
+                        and cfg.reachable(event.id, operation.id)
+                        and cfg.reachable(operation.id, action.id)
+                        and cfg.dominates(operation.id, action.id)
+                        and cfg.branch_controls(operation.id, action.id)
+                    ]
+                    if guards:
                         continue
                     violations.append(
                         StateInvariantViolation(
@@ -215,8 +223,6 @@ class StateMachineAnalyzer:
                         )
                     )
                 elif invariant.kind == InvariantKind.REQUIRE_EXIT_AFTER_EVENT:
-                    if any(invariant.exits.matches(operation) for operation in between):
-                        continue
                     violations.append(
                         StateInvariantViolation(
                             invariant_id=invariant.invariant_id,

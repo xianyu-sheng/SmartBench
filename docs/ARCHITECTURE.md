@@ -10,7 +10,7 @@ source project
     -> language frontend
     -> SemanticIR (v1)
     -> structural code graph + capability matrix
-    -> declarative rules + deterministic analyzers / graph retrieval
+    -> declarative rules + CFG analyzers / graph retrieval
     -> EvidencePack
     -> evidence-exclusive proposer / critic / judge / verifier
     -> Finding + SARIF / JSON report
@@ -91,10 +91,12 @@ through its graph compatibility view.
 ### Declarative state-machine analysis
 
 `smartbench.analysis.StateMachineAnalyzer` evaluates reusable invariants over
-normalized operations. Invariants select an event, an action and an optional
-guard/exit relation; the engine contains no project-specific identifiers.
-Repository-specific expectations belong in benchmark specifications or rules,
-not in the language frontend.
+normalized operations. Its guard checks use intraprocedural CFG reachability,
+dominance, and branch control dependence; source order alone is not treated as
+proof. Invariants select an event, an action and an optional guard/exit
+relation; the engine contains no project-specific identifiers. Repository-
+specific expectations belong in benchmark specifications or rules, not in the
+language frontend.
 
 Rule files use the `smartbench.state-rules/v1` YAML schema and are loaded with
 the repeatable `--state-rules` CLI option. A validated rule is adapted to the
@@ -102,6 +104,11 @@ normal `DiagnosticRule` interface, so its violations pass through confidence
 filtering, JSON/SARIF output, and exact EvidencePack construction like built-in
 rules. See `benchmarks/reasonix/reasoning_stop.yaml` for a real pre-fix/post-fix
 specification.
+
+`smartbench.benchmarks.BenchmarkRunner` executes declared repository snapshots
+through the same engine and checks finding-count/rule-ID expectations. The
+`smartbench benchmark run --manifest ...` command emits machine-readable
+pass/fail results without mutating a repository or creating a worktree.
 
 ## Acceptance criteria for new frontends
 
