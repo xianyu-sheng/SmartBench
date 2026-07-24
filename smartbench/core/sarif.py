@@ -134,7 +134,7 @@ def to_sarif_log(
     findings: List[Finding],
     project_path: Path,
     tool_name: str = "SmartBench",
-    tool_version: str = "0.6.1",
+    tool_version: str = "0.7.0",
     invocation_start: Optional[datetime] = None,
     invocation_end: Optional[datetime] = None,
     rule_registry=None,
@@ -208,7 +208,7 @@ def save_sarif_log(
     project_path: Path,
     output_path: Path,
     tool_name: str = "SmartBench",
-    tool_version: str = "0.6.1",
+    tool_version: str = "0.7.0",
     rule_registry=None,
 ) -> Path:
     """

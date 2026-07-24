@@ -2,15 +2,21 @@
 
 [![CI](https://github.com/xianyu-sheng/SmartBench/actions/workflows/ci.yml/badge.svg)](https://github.com/xianyu-sheng/SmartBench/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg)](https://www.python.org/)
-[![Version: 0.6.1](https://img.shields.io/badge/version-0.6.1-4C1.svg)](CHANGELOG.md)
+[![Version: 0.7.0](https://img.shields.io/badge/version-0.7.0-4C1.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Status: Beta](https://img.shields.io/badge/status-beta-orange.svg)](#project-status)
 
-Evidence-grounded code diagnosis for local repositories.
+Language-agnostic, evidence-grounded code diagnosis for local repositories.
 
 [中文说明](README_CN.md) · [Usage guide](docs/USAGE_GUIDE.md)
 
-SmartBench combines deterministic repository fingerprinting, structural code parsing, optional RAG retrieval, a three-role LLM review, local diagnostic probes, and on-disk evidence checks. It does not edit source files in the target repository; optional RAG indexing writes cache data under `<project>/.smartbench/`.
+SmartBench is an iterative diagnostic workbench rather than a claim of “perfect
+automatic bug detection”. It combines a language-neutral Semantic IR,
+deterministic graph evidence retrieval, declarative control/data/state analyses,
+optional local RAG, a three-role LLM review, local diagnostic probes, and
+source-backed evidence checks. The normal pipeline does not edit source files
+in the target repository; optional RAG indexing writes cache data under
+`<project>/.smartbench/`.
 
 > SmartBench is beta software. Evidence verification confirms cited files, lines, symbols, and selected call relationships. It reduces invented references, but it cannot prove that every diagnosis is semantically correct.
 
@@ -21,6 +27,15 @@ SmartBench combines deterministic repository fingerprinting, structural code par
 - Conservative operation-level Python/Go call linking with explicit resolved,
   unresolved, and ambiguous counts; Go spawn/defer and intraprocedural channel
   synchronization use the same semantic edge model.
+- A versioned `SemanticIR` boundary with frontend contracts, capability
+  declarations, normalized operations, control-flow edges, and explicit
+  unknown/unsupported states.
+- Bounded interprocedural control-flow and data-flow for Python/Go, including
+  call/return paths, argument/parameter links, return propagation, and
+  declarative cross-function state rules.
+- Deterministic EvidencePacks with stable fact IDs, graph snapshot hashes, and
+  source locations. Evidence-exclusive debate mode rejects suggestions that do
+  not cite facts from the pack.
 - Regex fallback for broader language coverage and conservative approximate call relationships; ambiguous duplicate definitions do not receive invented edges.
 - Three review roles: Proposer, Critique, and Judge. They can share one model or use separate models.
 - Deterministic checks for cited paths, line ranges, symbols, and selected call chains; fuzzy path corrections are marked partial.
@@ -30,22 +45,25 @@ SmartBench combines deterministic repository fingerprinting, structural code par
 - Git URLs, worktrees, and nested monorepo projects are recognized; external command output and execution time are bounded.
 - JSON report output for non-interactive workflows.
 
+The semantic path is intentionally conservative: an unresolved call, dynamic
+dispatch, unsupported concurrency relation, or unproven guard is reported as
+unknown or partial rather than silently treated as a clean result.
+
 ## How it works
 
 ```text
-repository
+source repository
    │
    ├─ deterministic fingerprint ── language / framework / build / Git signals
    │
-   ├─ structure graph ──────────── tree-sitter symbols + heuristic fallback
+   ├─ language frontend ────────── Python/Go SemanticIR; structural fallbacks
    │                │
-   │                └─ optional local RAG index
-   │
-   ├─ selected local diagnostic probes
-   │
-   └─ Proposer → evidence check → Critique → evidence check → Judge
-                                               │
-                                               └─ scored findings with locations
+   │                ├─ CFG / ICFG / data-flow / state rules
+   │                └─ deterministic GraphRAG EvidencePack
+   │                                   │
+   └─ Proposer → Critique → Judge ────┘
+                         │
+                         └─ source-backed findings and suggestions
 ```
 
 A finding with a missing file or invalid line is marked hallucinated. A fuzzy path correction is marked partial rather than silently accepted. Semantic correctness still requires tests, compiler or linter output, profiling data, or human review.
@@ -54,7 +72,13 @@ A finding with a missing file or invalid line is marked hallucinated. A fuzzy pa
 
 Repository fingerprinting recognizes Python, Go, Rust, C, C++, Java, Kotlin, JavaScript, TypeScript, Ruby, Swift, C#, and Zig, plus mixed-language repositories.
 
-The optional tree-sitter backend currently covers Python, Go, JavaScript, TypeScript, and Rust. Other languages use heuristic structure extraction; C currently receives file-level discovery. The fallback graph is useful for retrieval context but is not compiler-grade analysis.
+The optional tree-sitter backend currently covers Python, Go, JavaScript,
+TypeScript, and Rust. Python and Go additionally lower to the common semantic
+operation model. JavaScript/TypeScript, Java, and Rust currently provide
+structural compatibility and are not yet equivalent semantic backends. Other
+languages use heuristic structure extraction; C currently receives file-level
+discovery. The fallback graph is useful for retrieval context but is not
+compiler-grade analysis.
 
 ## Quick start
 
@@ -133,6 +157,18 @@ mode, every accepted suggestion must cite a stable `fact-*` ID from the
 deterministic EvidencePack. Benchmark manifests declare snapshot paths and
 finding expectations, so regression claims are reproducible and measurable.
 
+Try the included cross-function benchmark:
+
+```bash
+python -m smartbench.cli.main benchmark run \
+  --manifest benchmarks/interprocedural/manifest.yaml
+```
+
+The benchmark intentionally contains a caller-to-callee event/action path:
+the `before` snapshot reports one finding and the `after` snapshot reports
+none. It is an architectural regression fixture, not a claim of broad
+diagnostic accuracy.
+
 Inspect available local probes, or run the diagnosis-only path:
 
 ```bash
@@ -178,6 +214,10 @@ SmartBench uses graph-only retrieval when the optional RAG stack is unavailable.
 ```text
 smartbench/
 ├── cli/             command definitions, wizard, phases, and display
+├── core/             unified engine, rules, adapters, and SARIF bridge
+├── ir/               versioned SemanticIR, contracts, facts, and capabilities
+├── analysis/         CFG, ICFG, interprocedural, and state analysis
+├── frontends/        Python/Go semantic lowering
 ├── detector/        deterministic repository fingerprint
 ├── graph/           tree-sitter adapters, fallback graph, graph retrieval
 ├── rag/             optional chunking, embeddings, vector retrieval, evaluation
@@ -204,24 +244,35 @@ CI runs lint, compilation, and tests on Python 3.10, 3.11, and 3.12; separately 
 
 ## Validation snapshot
 
-The 0.7.0 release candidate was validated on 2026-07-23 with:
+The current development snapshot was validated on 2026-07-24 with:
 
-- 468 automated tests passing with all five tree-sitter adapters required.
+- 503 tests passing and 35 skipped (538 collected), including the semantic
+  frontend, interprocedural linker/ICFG, evidence gate, and benchmark tests.
 - Ruff, bytecode compilation, wheel, and source-distribution checks passing.
-- A clean Python 3.12 wheel install running `--help`, `check`, `diagnose`, graph-only `eval-rag`, and the new `unified` commands from outside the source checkout.
-- The repository's 12-query graph-only fixture reaching MRR 0.829 and Hit@5 100%. This is a self-retrieval regression fixture, not a claim of general diagnostic accuracy.
-- Unified diagnosis tested on both SmartBench and Xenon repositories with correct SARIF output generation.
+- The included interprocedural benchmark passing with before=1 and after=0.
+- The Reasonix reasoning-stop benchmark detecting the known pre-fix issue and
+  producing no finding for the fixed snapshot.
+
+The benchmark evidence is intentionally small. It demonstrates that the
+pipeline can detect a real defect and a cross-function regression, but it does
+not yet establish general precision or recall across languages and bug types.
 
 Release details are recorded in the [changelog](CHANGELOG.md).
 
 ## Project status
 
-SmartBench is a diagnostic workbench, not a replacement for compilers, linters, security scanners, profilers, or human review. The next quality milestones are:
+SmartBench is a diagnostic workbench, not a replacement for compilers, linters,
+security scanners, profilers, or human review. It is usable today for
+evidence-grounded repository review and is designed to improve incrementally.
+The next quality milestones are:
 
-1. Expand retrieval and diagnostic precision measurement to independent labeled repositories.
-2. ✅ Export a standard machine-readable review format such as SARIF (implemented).
+1. Freeze and extend the SemanticIR contracts and frontend conformance suite.
+2. Expand retrieval and diagnostic precision measurement to independent labeled
+   repositories and negative cases.
 3. Add stronger process isolation for optional repository test execution.
-4. Expand machine-applicable patch coverage and language-specific validation.
+4. Deepen Go/Python type, exception, async, and concurrency semantics.
+5. Add another full semantic frontend, then expand machine-applicable patch
+   coverage and language-specific validation.
 
 ## License
 

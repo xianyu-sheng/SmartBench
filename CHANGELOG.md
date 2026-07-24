@@ -3,6 +3,32 @@
 All notable changes to SmartBench are documented here. The project follows
 semantic versioning while it remains in beta.
 
+## [Unreleased]
+
+### Added
+
+- Versioned `SemanticIR` contracts for normalized functions, parameters,
+  bindings, calls, returns, and explicit capability/unknown reporting.
+- Conservative Python/Go interprocedural linking for calls, arguments,
+  returns, and same-function Go channel synchronization.
+- A bounded, stack-consistent interprocedural control-flow graph (ICFG) and
+  source-backed cross-function state paths.
+- Declarative `scope: interprocedural` state rules with an explicit guard-proof
+  policy that abstains when caller-side control cannot be proven.
+- Deterministic graph facts and evidence metadata for linked calls, data-flow,
+  synchronization, and state paths.
+- Reproducible cross-function and Reasonix pre-fix/post-fix benchmark fixtures.
+
+### Validation
+
+- 503 tests passing and 35 skipped (538 collected) on 2026-07-24.
+- The cross-function benchmark reports before=1 and after=0; the Reasonix
+  fixture detects the known pre-fix issue and not the fixed snapshot.
+
+These additions are deliberately conservative. Dynamic dispatch, complete type
+checking, exception/async semantics, goroutine happens-before, channel aliases,
+and broad multi-language semantic lowering remain future iterations.
+
 ## [0.7.0] - 2026-07-23
 
 ### Added

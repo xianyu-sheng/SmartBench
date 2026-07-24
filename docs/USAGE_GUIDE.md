@@ -87,6 +87,43 @@ smartbench diagnose --project ./my-project --perf --system-probes
 `ps`、`vmstat` 和 `dmesg` 必须通过 `--system-probes` 显式开启，其输出可能包含
 主机进程或内核信息。诊断探针可能执行本机命令，因此只应对信任的目标路径运行。
 
+### `smartbench unified`
+
+统一诊断入口将仓库前端、版本化 SemanticIR、规则引擎和 JSON/SARIF 输出连接起来：
+
+```bash
+smartbench unified rules
+smartbench unified languages
+smartbench unified run --project ./my-project
+smartbench unified run \
+  --project ./my-project \
+  --language python \
+  --rule null_dereference \
+  --sarif report.sarif \
+  --output report.json
+```
+
+Python 和 Go 当前还会降低到共同的语义操作模型，支持保守的跨函数调用/返回、数据流、
+有限 ICFG 和声明式状态规则。JavaScript/TypeScript、Java、Rust 等适配器目前主要提供
+结构图兼容能力；未解析的动态分派、类型信息或并发关系会保留为 unknown/partial。
+
+声明式状态规则位于 `smartbench.state-rules/v1` schema 中，可以通过重复的
+`--state-rules` 选项加载。`scope: interprocedural` 规则使用有界跨函数路径；无法证明
+调用者守卫确实控制动作时会保持 unknown，而不是直接产生误报。
+
+### `smartbench benchmark run`
+
+基准运行器对声明的 before/after 仓库快照执行同一套统一引擎，并检查发现数量和规则 ID：
+
+```bash
+python -m smartbench.cli.main benchmark run \
+  --manifest benchmarks/interprocedural/manifest.yaml \
+  --output benchmark-report.json
+```
+
+它适合保存可复现的架构回归和真实 Bug 结果，不应被解读为跨语言通用准确率评测。当前仓库
+包含一个跨函数状态回归样例和一个 Reasonix 已知缺陷样例。
+
 ### `smartbench eval-rag`
 
 使用带标注的查询集测量 `Hit@k`、`Precision@k`、MRR 和平均延迟：
