@@ -7,12 +7,14 @@ for output from static analysis tools.
 Specification: https://docs.oasis-open.org/sarif/sarif/v2.1.0/
 """
 
+import json
+import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from smartbench.core.rules.base import Finding, Severity
-
 
 SARIF_VERSION = "2.1.0"
 SARIF_SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
@@ -223,10 +225,6 @@ def save_sarif_log(
     Returns:
         Path to the saved file
     """
-    import json
-    import tempfile
-    import os
-
     sarif_log = to_sarif_log(
         findings,
         project_path,

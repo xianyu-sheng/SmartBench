@@ -7,12 +7,11 @@ These rules use language models to provide more sophisticated analysis.
 from abc import abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional
 
 from smartbench.core.rules.base import (
     DiagnosticRule,
     Finding,
-    Location,
     Severity,
 )
 from smartbench.graph.schema import CodeGraph, NodeType
@@ -53,18 +52,6 @@ class LLMClient:
 
         This is a placeholder - integrate with your actual LLM client.
         """
-        full_prompt = f"""{prompt}
-
-Language: {code_snippet.language}
-File: {code_snippet.file_path}
-
-Code:
-```
-{code_snippet.code}
-```
-
-Provide your analysis in JSON format.
-"""
         # Placeholder - integrate your actual LLM client here
         # For now, return empty
         return "{}"
@@ -185,7 +172,7 @@ Return findings in JSON format:
         # Limit to prevent too many LLM calls
         for snippet in snippets[:5]:  # Analyze up to 5 functions
             try:
-                result = self.llm_client.analyze_code(
+                self.llm_client.analyze_code(
                     self.get_prompt_template(),
                     snippet,
                     max_tokens=500,
@@ -250,7 +237,7 @@ Return findings in JSON format:
         snippets = self.extract_code_snippets(ir)
         for snippet in snippets[:10]:  # Analyze up to 10 functions
             try:
-                result = self.llm_client.analyze_code(
+                self.llm_client.analyze_code(
                     self.get_prompt_template(),
                     snippet,
                     max_tokens=800,

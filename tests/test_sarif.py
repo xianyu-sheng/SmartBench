@@ -6,15 +6,13 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from smartbench.core.rules.base import Finding, Location, Severity
 from smartbench.core.sarif import (
     finding_to_sarif_result,
     save_sarif_log,
-    to_sarif_log,
     severity_to_sarif_level,
     severity_to_sarif_rank,
+    to_sarif_log,
 )
 
 

@@ -12,7 +12,6 @@ from smartbench.core.adapters import (
     GoAdapter,
     JavaAdapter,
     JavaScriptAdapter,
-    LanguageAdapter,
     PythonAdapter,
     RustAdapter,
     TypeScriptAdapter,
