@@ -50,6 +50,19 @@ class DeclarativeStateRule(DiagnosticRule):
         for violation in result.violations:
             action = violation.action.location
             event = violation.event.location
+            evidence = [event, action]
+            seen = {
+                (reference.file_path, reference.line_start, reference.line_end)
+                for reference in evidence
+            }
+            for operation in violation.path_operations:
+                reference = operation.location
+                key = (reference.file_path, reference.line_start, reference.line_end)
+                if key not in seen:
+                    evidence.append(reference)
+                    seen.add(key)
+                if len(evidence) >= 8:
+                    break
             findings.append(
                 Finding(
                     rule_id=self.rule_id,
@@ -57,7 +70,7 @@ class DeclarativeStateRule(DiagnosticRule):
                     severity=self.severity,
                     location=_location(action),
                     message=violation.message,
-                    evidence=[_location(event), _location(action)],
+                    evidence=[_location(reference) for reference in evidence],
                     confidence=self.definition.confidence,
                     metadata={
                         "analysis_kind": "state_machine",
@@ -66,6 +79,16 @@ class DeclarativeStateRule(DiagnosticRule):
                         "event_operation": violation.event.id,
                         "action_operation": violation.action.id,
                         "missing": violation.missing,
+                        "scope": self.definition.invariant.scope.value,
+                        "max_call_depth": self.definition.invariant.max_call_depth,
+                        "path_operations": [
+                            operation.id for operation in violation.path_operations
+                        ],
+                        "path_arcs": (
+                            [kind.value for kind in violation.path.arc_kinds]
+                            if violation.path is not None
+                            else []
+                        ),
                     },
                 )
             )

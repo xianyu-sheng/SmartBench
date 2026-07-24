@@ -1,0 +1,15 @@
+version: smartbench.benchmarks/v1
+cases:
+  - id: cross-function-event-before-retry
+    language: python
+    state_rules: [rules.yaml]
+    rules: [cross-function-event-before-retry]
+    snapshots:
+      - label: before
+        path: before
+        min_findings: 1
+        max_findings: 1
+        expected_rule_ids: [cross-function-event-before-retry]
+      - label: after
+        path: after
+        max_findings: 0

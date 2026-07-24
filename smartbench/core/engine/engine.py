@@ -550,7 +550,15 @@ class UnifiedDiagnosticEngine:
         operation_ids = {
             str(finding.metadata.get("event_operation", "")),
             str(finding.metadata.get("action_operation", "")),
-        } - {""}
+        }
+        path_operation_ids = finding.metadata.get("path_operations", [])
+        if isinstance(path_operation_ids, list):
+            operation_ids.update(
+                str(operation_id)
+                for operation_id in path_operation_ids
+                if isinstance(operation_id, str) and operation_id
+            )
+        operation_ids.discard("")
         if not operation_ids:
             return None
         operations = [operation for operation in ir.operations if operation.id in operation_ids]
@@ -563,15 +571,24 @@ class UnifiedDiagnosticEngine:
                 operation.id,
             )
         )
+        attributes = {
+            "rule_id": finding.rule_id,
+            "operation_ids": [operation.id for operation in operations],
+            "missing": finding.metadata.get("missing", ""),
+        }
+        if finding.metadata.get("scope") == "interprocedural":
+            attributes.update(
+                {
+                    "proof_scope": "interprocedural",
+                    "path_arcs": finding.metadata.get("path_arcs", []),
+                    "max_call_depth": finding.metadata.get("max_call_depth", 0),
+                }
+            )
         return SemanticFact(
             subject=str(finding.metadata.get("scope_id", finding.rule_id)),
             predicate=FactKind.STATE_TRANSITION,
             object=finding.message,
             evidence=tuple(operation.location for operation in operations),
             confidence=finding.confidence,
-            attributes={
-                "rule_id": finding.rule_id,
-                "operation_ids": [operation.id for operation in operations],
-                "missing": finding.metadata.get("missing", ""),
-            },
+            attributes=attributes,
         )

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from smartbench.analysis import StateRuleConfigError, load_state_rule_file
+from smartbench.analysis import StateRuleConfigError, StateScope, load_state_rule_file
 from smartbench.cli.main import app
 from smartbench.core import (
     AdapterRegistry,
@@ -65,11 +65,10 @@ def test_state_rule_loader_validates_versioned_document(tmp_path: Path):
 
     definitions = load_state_rule_file(path)
 
-    assert [definition.rule_id for definition in definitions] == [
-        "terminal-before-retry"
-    ]
+    assert [definition.rule_id for definition in definitions] == ["terminal-before-retry"]
     assert definitions[0].languages == frozenset({"go"})
     assert definitions[0].confidence == 0.95
+    assert definitions[0].invariant.scope == StateScope.INTRAPROCEDURAL
 
 
 def test_state_rule_loader_rejects_unknown_fields(tmp_path: Path):
@@ -111,8 +110,7 @@ def test_unified_engine_emits_finding_and_exact_evidence_pack(tmp_path: Path):
 
     pack = result.evidence_packs[finding.metadata["evidence_pack_id"]]
     violation_fact = next(
-        fact for fact in pack.facts
-        if fact.attributes.get("rule_id") == "terminal-before-retry"
+        fact for fact in pack.facts if fact.attributes.get("rule_id") == "terminal-before-retry"
     )
     assert violation_fact.fact_id.startswith("fact-")
     assert {reference.line_start for reference in violation_fact.evidence} == {5, 6}
@@ -146,7 +144,5 @@ def test_cli_loads_repeatable_state_rule_option(tmp_path: Path):
 
     assert result.exit_code == 0, result.output
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    assert [finding["rule_id"] for finding in report["findings"]] == [
-        "terminal-before-retry"
-    ]
+    assert [finding["rule_id"] for finding in report["findings"]] == ["terminal-before-retry"]
     assert len(report["evidence_packs"]) == 1

@@ -29,6 +29,7 @@ from smartbench.analysis.state_machine import (
     StateInvariant,
     StateInvariantViolation,
     StateMachineAnalyzer,
+    StateScope,
 )
 from smartbench.analysis.state_paths import (
     InterproceduralStatePath,
@@ -42,6 +43,7 @@ __all__ = [
     "StateInvariant",
     "StateInvariantViolation",
     "StateMachineAnalyzer",
+    "StateScope",
     "STATE_RULE_SCHEMA_VERSION",
     "StateRuleConfigError",
     "StateRuleDefinition",

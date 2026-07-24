@@ -12,6 +12,7 @@ from smartbench.analysis.state_machine import (
     InvariantKind,
     OperationSelector,
     StateInvariant,
+    StateScope,
 )
 from smartbench.ir import OperationKind
 from smartbench.path_safety import read_text_bounded
@@ -51,8 +52,7 @@ def load_state_rule_file(file_path: Path) -> list[StateRuleDefinition]:
     version = root.get("version")
     if version != STATE_RULE_SCHEMA_VERSION:
         raise StateRuleConfigError(
-            f"unsupported state-rule version {version!r}; "
-            f"expected {STATE_RULE_SCHEMA_VERSION!r}"
+            f"unsupported state-rule version {version!r}; expected {STATE_RULE_SCHEMA_VERSION!r}"
         )
     raw_rules = root.get("rules")
     if not isinstance(raw_rules, list) or not raw_rules:
@@ -107,7 +107,7 @@ def _parse_rule(value: Any, index: int) -> StateRuleDefinition:
     invariant_data = _mapping(rule.get("invariant"), f"{path}.invariant")
     _reject_unknown(
         invariant_data,
-        {"kind", "event", "guard", "action", "exits"},
+        {"kind", "event", "guard", "action", "exits", "scope", "max_call_depth"},
         f"{path}.invariant",
     )
     try:
@@ -116,9 +116,7 @@ def _parse_rule(value: Any, index: int) -> StateRuleDefinition:
         )
     except ValueError as exc:
         allowed = ", ".join(item.value for item in InvariantKind)
-        raise StateRuleConfigError(
-            f"{path}.invariant.kind must be one of: {allowed}"
-        ) from exc
+        raise StateRuleConfigError(f"{path}.invariant.kind must be one of: {allowed}") from exc
 
     guard = None
     if invariant_data.get("guard") is not None:
@@ -126,6 +124,18 @@ def _parse_rule(value: Any, index: int) -> StateRuleDefinition:
     exits = OperationSelector.of(OperationKind.RETURN, OperationKind.BREAK)
     if invariant_data.get("exits") is not None:
         exits = _parse_selector(invariant_data["exits"], f"{path}.invariant.exits")
+
+    scope_value = invariant_data.get("scope", StateScope.INTRAPROCEDURAL.value)
+    try:
+        scope = StateScope(_non_empty_string(scope_value, f"{path}.invariant.scope"))
+    except ValueError as exc:
+        allowed = ", ".join(item.value for item in StateScope)
+        raise StateRuleConfigError(f"{path}.invariant.scope must be one of: {allowed}") from exc
+    max_call_depth = invariant_data.get("max_call_depth", 4)
+    if isinstance(max_call_depth, bool) or not isinstance(max_call_depth, int):
+        raise StateRuleConfigError(f"{path}.invariant.max_call_depth must be an integer")
+    if not 0 <= max_call_depth <= 16:
+        raise StateRuleConfigError(f"{path}.invariant.max_call_depth must be between 0 and 16")
 
     try:
         invariant = StateInvariant(
@@ -136,6 +146,8 @@ def _parse_rule(value: Any, index: int) -> StateRuleDefinition:
             action=_parse_selector(invariant_data.get("action"), f"{path}.invariant.action"),
             exits=exits,
             message=message,
+            scope=scope,
+            max_call_depth=max_call_depth,
         )
     except ValueError as exc:
         raise StateRuleConfigError(f"{path}.invariant: {exc}") from exc
@@ -163,7 +175,9 @@ def _parse_selector(value: Any, path: str) -> OperationSelector:
         kinds = [OperationKind(item) for item in raw_kinds]
     except ValueError as exc:
         allowed = ", ".join(item.value for item in OperationKind)
-        raise StateRuleConfigError(f"{path}.kinds contains an unknown kind; allowed: {allowed}") from exc
+        raise StateRuleConfigError(
+            f"{path}.kinds contains an unknown kind; allowed: {allowed}"
+        ) from exc
     contains_all = _string_list(selector.get("contains_all", []), f"{path}.contains_all")
     contains_any = _string_list(selector.get("contains_any", []), f"{path}.contains_any")
     attributes = selector.get("attributes", {})

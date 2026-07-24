@@ -95,6 +95,7 @@ class InterproceduralControlFlowGraph:
         self._host_continuations: dict[str, list[str]] = defaultdict(list)
         self._call_targets: dict[str, tuple[str, ...]] = defaultdict(tuple)
         self._call_hosts: dict[str, str] = {}
+        self._raw_control_edges: list[tuple[str, str]] = []
         self._build(ir, include_async=include_async)
 
     def successors(self, operation_id: str) -> tuple[ICFGArc, ...]:
@@ -203,15 +204,7 @@ class InterproceduralControlFlowGraph:
                 continue
             if edge.kind in _CONTROL_FLOW_EDGE_KINDS and source.scope_id == target.scope_id:
                 self._host_continuations[source.id].append(target.id)
-                if source.id in self._call_hosts.values():
-                    # An embedded call owns the host's continuation.  The
-                    # continuation is reintroduced by CALL_RETURN, so a
-                    # direct host->next arc would incorrectly bypass callee
-                    # execution.
-                    continue
-                self._successors[source.id].append(
-                    ICFGArc(source.id, target.id, ICFGArcKind.CONTROL_FLOW)
-                )
+                self._raw_control_edges.append((source.id, target.id))
             if edge.kind == OperationEdgeKind.CONTAINS:
                 if source.kind == OperationKind.FUNCTION and target.kind != OperationKind.PARAMETER:
                     self._entries.setdefault(source.id, target.id)
@@ -236,6 +229,21 @@ class InterproceduralControlFlowGraph:
                         ICFGArcKind.FUNCTION_ENTRY,
                     )
                 )
+
+        resolved_hosts = {
+            host_id
+            for call_id, host_id in self._call_hosts.items()
+            if host_id and call_id in self._call_targets
+        }
+        for source_id, target_id in self._raw_control_edges:
+            if source_id in resolved_hosts:
+                # A resolved embedded call owns the host's continuation. The
+                # continuation is reintroduced only by CALL_RETURN, so a
+                # direct host->next arc would incorrectly bypass the callee.
+                continue
+            self._successors[source_id].append(
+                ICFGArc(source_id, target_id, ICFGArcKind.CONTROL_FLOW)
+            )
 
         for call_id, host_id in sorted(self._call_hosts.items()):
             if not host_id or host_id not in by_id:

@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Any, Iterable, Mapping
 
 from smartbench.analysis.control_flow import ControlFlowGraph
+from smartbench.analysis.icfg import ICFGPath, InterproceduralControlFlowGraph
 from smartbench.ir import (
     EvidencePack,
     FactKind,
@@ -24,6 +25,13 @@ class InvariantKind(str, Enum):
     REQUIRE_GUARD_BEFORE_ACTION = "require_guard_before_action"
     FORBID_ACTION_AFTER_EVENT = "forbid_action_after_event"
     REQUIRE_EXIT_AFTER_EVENT = "require_exit_after_event"
+
+
+class StateScope(str, Enum):
+    """Proof scope explicitly requested by a state invariant."""
+
+    INTRAPROCEDURAL = "intraprocedural"
+    INTERPROCEDURAL = "interprocedural"
 
 
 @dataclass(frozen=True)
@@ -89,10 +97,23 @@ class StateInvariant:
         )
     )
     message: str = "state-machine invariant violated"
+    scope: StateScope = StateScope.INTRAPROCEDURAL
+    max_call_depth: int = 4
 
     def __post_init__(self) -> None:
         if self.kind == InvariantKind.REQUIRE_GUARD_BEFORE_ACTION and self.guard is None:
             raise ValueError("guard is required for require_guard_before_action")
+        if not isinstance(self.scope, StateScope):
+            try:
+                object.__setattr__(self, "scope", StateScope(self.scope))
+            except ValueError as exc:
+                raise ValueError("scope must be intraprocedural or interprocedural") from exc
+        if (
+            isinstance(self.max_call_depth, bool)
+            or not isinstance(self.max_call_depth, int)
+            or not 0 <= self.max_call_depth <= 16
+        ):
+            raise ValueError("max_call_depth must be between 0 and 16")
 
 
 @dataclass(frozen=True)
@@ -103,20 +124,45 @@ class StateInvariantViolation:
     event: SemanticOperation
     action: SemanticOperation
     missing: str = ""
+    path: ICFGPath | None = None
+    path_operations: tuple[SemanticOperation, ...] = ()
 
     def to_fact(self) -> SemanticFact:
+        attributes = {
+            "invariant_id": self.invariant_id,
+            "event_operation": self.event.id,
+            "action_operation": self.action.id,
+            "missing": self.missing,
+        }
+        evidence = [self.event.location, self.action.location]
+        seen_evidence = {
+            (reference.file_path, reference.line_start, reference.line_end)
+            for reference in evidence
+        }
+        for operation in self.path_operations:
+            reference = operation.location
+            key = (reference.file_path, reference.line_start, reference.line_end)
+            if key not in seen_evidence:
+                evidence.append(reference)
+                seen_evidence.add(key)
+            if len(evidence) >= 8:
+                break
+        if self.path is not None:
+            attributes.update(
+                {
+                    "proof_scope": StateScope.INTERPROCEDURAL.value,
+                    "path_operations": list(self.path.operation_ids),
+                    "path_arcs": [kind.value for kind in self.path.arc_kinds],
+                    "call_depth": self.path.call_depth,
+                }
+            )
         return SemanticFact(
             subject=self.scope_id,
             predicate=FactKind.STATE_TRANSITION,
             object=self.message,
-            evidence=(self.event.location, self.action.location),
+            evidence=tuple(evidence),
             confidence=1.0,
-            attributes={
-                "invariant_id": self.invariant_id,
-                "event_operation": self.event.id,
-                "action_operation": self.action.id,
-                "missing": self.missing,
-            },
+            attributes=attributes,
         )
 
 
@@ -125,6 +171,8 @@ class StateAnalysisResult:
     violations: list[StateInvariantViolation] = field(default_factory=list)
     invariants_evaluated: int = 0
     scopes_evaluated: int = 0
+    interprocedural_paths: int = 0
+    interprocedural_unknowns: int = 0
 
     def to_evidence_pack(self, query: str, graph_version: str = "") -> EvidencePack:
         return EvidencePack.from_facts(
@@ -133,6 +181,8 @@ class StateAnalysisResult:
             retrieval_trace=(
                 f"state-invariants:{self.invariants_evaluated}",
                 f"state-scopes:{self.scopes_evaluated}",
+                f"state-interprocedural-paths:{self.interprocedural_paths}",
+                f"state-interprocedural-unknowns:{self.interprocedural_unknowns}",
             ),
             graph_version=graph_version,
         )
@@ -150,6 +200,11 @@ class StateMachineAnalyzer:
         invariant_list = list(invariants)
         language_filter = {language.lower() for language in languages or ()}
         cfg = ControlFlowGraph.from_ir(ir, language_filter)
+        icfg = (
+            InterproceduralControlFlowGraph(ir)
+            if any(invariant.scope == StateScope.INTERPROCEDURAL for invariant in invariant_list)
+            else None
+        )
         by_scope: dict[str, list[SemanticOperation]] = {}
         for operation in ir.operations:
             if language_filter and operation.language.lower() not in language_filter:
@@ -166,10 +221,131 @@ class StateMachineAnalyzer:
         )
         for scope_id, operations in sorted(by_scope.items()):
             for invariant in invariant_list:
-                result.violations.extend(
-                    self._evaluate_scope(scope_id, operations, invariant, cfg)
+                if invariant.scope == StateScope.INTERPROCEDURAL:
+                    continue
+                result.violations.extend(self._evaluate_scope(scope_id, operations, invariant, cfg))
+        if icfg is not None:
+            all_operations = sorted(
+                [operation for operations in by_scope.values() for operation in operations],
+                key=self._order_key,
+            )
+            for invariant in invariant_list:
+                if invariant.scope != StateScope.INTERPROCEDURAL:
+                    continue
+                violations, paths, unknowns = self._evaluate_interprocedural(
+                    all_operations,
+                    invariant,
+                    cfg,
+                    icfg,
                 )
+                result.violations.extend(violations)
+                result.interprocedural_paths += paths
+                result.interprocedural_unknowns += unknowns
         return result
+
+    def _evaluate_interprocedural(
+        self,
+        operations: list[SemanticOperation],
+        invariant: StateInvariant,
+        cfg: ControlFlowGraph,
+        icfg: InterproceduralControlFlowGraph,
+    ) -> tuple[list[StateInvariantViolation], int, int]:
+        events = [operation for operation in operations if invariant.event.matches(operation)]
+        actions = [operation for operation in operations if invariant.action.matches(operation)]
+        violations: list[StateInvariantViolation] = []
+        paths_evaluated = 0
+        unknowns = 0
+        for event in events:
+            for action in actions:
+                if event.scope_id == action.scope_id or event.id == action.id:
+                    continue
+                path = icfg.path(
+                    event.id,
+                    action.id,
+                    max_call_depth=invariant.max_call_depth,
+                )
+                if path is None:
+                    continue
+                paths_evaluated += 1
+                path_operations = {
+                    operation.id: operation
+                    for operation in operations
+                    if operation.id in path.operation_ids
+                }
+                if invariant.kind == InvariantKind.REQUIRE_GUARD_BEFORE_ACTION:
+                    guards = [
+                        path_operations[operation_id]
+                        for operation_id in path.operation_ids
+                        if operation_id in path_operations
+                        and operation_id not in {event.id, action.id}
+                        and invariant.guard is not None
+                        and invariant.guard.matches(path_operations[operation_id])
+                    ]
+                    if not guards:
+                        violations.append(
+                            StateInvariantViolation(
+                                invariant_id=invariant.invariant_id,
+                                message=invariant.message,
+                                scope_id=event.scope_id,
+                                event=event,
+                                action=action,
+                                missing="guard",
+                                path=path,
+                                path_operations=tuple(
+                                    path_operations[operation_id]
+                                    for operation_id in path.operation_ids
+                                    if operation_id in path_operations
+                                ),
+                            )
+                        )
+                    elif not any(
+                        self._cross_scope_guard_proves_action(guard, action, cfg)
+                        for guard in guards
+                    ):
+                        # A guard exists, but this proof policy does not claim
+                        # that a caller-side or non-controlling guard protects
+                        # the action.  Preserve soundness by abstaining.
+                        unknowns += 1
+                elif invariant.kind in {
+                    InvariantKind.FORBID_ACTION_AFTER_EVENT,
+                    InvariantKind.REQUIRE_EXIT_AFTER_EVENT,
+                }:
+                    violations.append(
+                        StateInvariantViolation(
+                            invariant_id=invariant.invariant_id,
+                            message=invariant.message,
+                            scope_id=event.scope_id,
+                            event=event,
+                            action=action,
+                            missing=(
+                                "forbidden_action"
+                                if invariant.kind == InvariantKind.FORBID_ACTION_AFTER_EVENT
+                                else "exit"
+                            ),
+                            path=path,
+                            path_operations=tuple(
+                                path_operations[operation_id]
+                                for operation_id in path.operation_ids
+                                if operation_id in path_operations
+                            ),
+                        )
+                    )
+        return violations, paths_evaluated, unknowns
+
+    @staticmethod
+    def _cross_scope_guard_proves_action(
+        guard: SemanticOperation,
+        action: SemanticOperation,
+        cfg: ControlFlowGraph,
+    ) -> bool:
+        if guard.scope_id != action.scope_id:
+            return False
+        action_point = str(action.attributes.get("host_operation", "")) or action.id
+        return (
+            cfg.reachable(guard.id, action_point)
+            and cfg.dominates(guard.id, action_point)
+            and cfg.branch_controls(guard.id, action_point)
+        )
 
     def _evaluate_scope(
         self,
@@ -184,14 +360,16 @@ class StateMachineAnalyzer:
 
         for event in events:
             later_actions = [
-                action for action in actions
+                action
+                for action in actions
                 if action.id != event.id and cfg.reachable(event.id, action.id)
             ]
             for action in later_actions:
                 if invariant.kind == InvariantKind.REQUIRE_GUARD_BEFORE_ACTION:
                     assert invariant.guard is not None
                     guards = [
-                        operation for operation in operations
+                        operation
+                        for operation in operations
                         if operation.id not in {event.id, action.id}
                         and invariant.guard.matches(operation)
                         and cfg.reachable(event.id, operation.id)

@@ -153,6 +153,13 @@ filtering, JSON/SARIF output, and exact EvidencePack construction like built-in
 rules. See `benchmarks/reasonix/reasoning_stop.yaml` for a real pre-fix/post-fix
 specification.
 
+State invariants default to `scope: intraprocedural`, preserving the original
+CFG proof policy. A rule may opt into `scope: interprocedural` with a bounded
+`max_call_depth`; guard-before-action proofs then require a matching guard on
+the ICFG witness path and a same-scope CFG dominance/branch-control proof for
+the action. A present but unproven caller-side guard is reported as unknown,
+not as a false violation.
+
 `smartbench.benchmarks.BenchmarkRunner` executes declared repository snapshots
 through the same engine and checks finding-count/rule-ID expectations. The
 `smartbench benchmark run --manifest ...` command emits machine-readable
