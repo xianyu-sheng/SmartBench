@@ -61,6 +61,22 @@ collection. It returns an `EvidencePack` containing:
 The pack is the factual boundary for later model calls. It is not a free-form
 LLM summary.
 
+### Interprocedural and concurrency linking
+
+`smartbench.analysis.SemanticLinker` builds conservative operation-level call
+edges after language IRs are merged. It resolves exact qualified symbols,
+same-namespace simple calls, Python lexical `self`/`cls` calls, and globally
+unique simple names. Ambiguous names and dotted receivers without type proof
+remain unresolved rather than receiving invented edges. `CALL`, `SPAWN`, and
+`DEFER` share this contract.
+
+Go channel sends and receives expose a normalized `channel` attribute. The
+linker emits `SYNCHRONIZES` edges only for matching channel expressions inside
+the same function; interprocedural channel propagation remains explicitly
+unsupported until parameter and type resolution are available. Linked facts
+are included in deterministic graph versions and are retrievable by
+EvidencePack queries.
+
 ### Multi-agent verification
 
 Production diagnosis uses `EvidencePolicy.EXCLUSIVE`: arbitrary repository
@@ -87,6 +103,10 @@ through its graph compatibility view.
   returns, goroutines, defer, channel send/receive and select into the common
   operation model. State/event and concurrency capabilities remain explicitly
   partial until interprocedural resolution is available.
+- The operation call graph is deliberately partial. Current SmartBench
+  self-analysis resolves conservative call edges and reports unresolved and
+  ambiguous counts in `ir.meta.semantic_linker`; these are coverage signals,
+  not clean-result claims.
 
 ### Declarative state-machine analysis
 

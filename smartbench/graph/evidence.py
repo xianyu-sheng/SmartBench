@@ -48,11 +48,12 @@ class DeterministicGraphRAG:
         """Return deterministic facts and source references for ``query``."""
         normalized_query = str(query)
         operation_matches = self._operation_matches(normalized_query, max_nodes)
+        semantic_matches = self._semantic_fact_matches(normalized_query, max_nodes)
         seeds = self._file_seeds(normalized_query)
         if not seeds:
             seeds = self.retriever._find_seeds(normalized_query)
         trace = [f"query:{normalized_query}"]
-        if not seeds and not operation_matches:
+        if not seeds and not operation_matches and not semantic_matches:
             trace.append("seeds:none")
             return EvidencePack.from_facts(
                 normalized_query,
@@ -61,7 +62,10 @@ class DeterministicGraphRAG:
                 graph_version=self.graph_version(),
             )
 
-        trace.append("seeds:" + (",".join(node.id for node in seeds) or "operations-only"))
+        seed_label = ",".join(node.id for node in seeds)
+        if not seed_label:
+            seed_label = "operations-only" if operation_matches else "semantic-facts-only"
+        trace.append("seeds:" + seed_label)
         subgraph = self.ir.graph.expand(
             [node.id for node in seeds],
             hops=max(0, int(hops)),
@@ -75,6 +79,8 @@ class DeterministicGraphRAG:
         trace.append("selected:" + ",".join(node.id for node in selected))
         if operation_matches:
             trace.append("operations:" + ",".join(operation.id for operation in operation_matches))
+        if semantic_matches:
+            trace.append("semantic_facts:" + ",".join(fact.fact_id for fact in semantic_matches))
 
         facts: list[SemanticFact] = []
         for node in selected:
@@ -129,6 +135,12 @@ class DeterministicGraphRAG:
                 )
             )
 
+        known_fact_ids = {fact.fact_id for fact in facts}
+        for fact in semantic_matches:
+            if fact.fact_id not in known_fact_ids:
+                facts.append(fact)
+                known_fact_ids.add(fact.fact_id)
+
         return EvidencePack.from_facts(
             normalized_query,
             facts,
@@ -158,6 +170,7 @@ class DeterministicGraphRAG:
             "graph": self.ir.graph.to_dict(),
             "operations": [operation.to_dict() for operation in self.ir.operations],
             "operation_edges": [edge.to_dict() for edge in self.ir.operation_edges],
+            "facts": [fact.to_dict() for fact in self.ir.facts],
         }
         encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()[:16]
@@ -214,6 +227,28 @@ class DeterministicGraphRAG:
             )
         )
         return [operation for _, operation in scored[: max(0, int(limit))]]
+
+    def _semantic_fact_matches(self, query: str, limit: int) -> list[SemanticFact]:
+        """Retrieve frontend/linker facts with the same deterministic ranking."""
+        tokens = {
+            token.lower()
+            for token in re.findall(r"[A-Za-z0-9_]+", query)
+            if len(token) >= 3
+        }
+        scored: list[tuple[int, SemanticFact]] = []
+        for fact in self.ir.facts:
+            predicate = fact.predicate.value if isinstance(fact.predicate, FactKind) else fact.predicate
+            haystack = " ".join([
+                fact.subject,
+                str(predicate),
+                fact.object,
+                json.dumps(dict(fact.attributes), ensure_ascii=False, default=str),
+            ]).lower()
+            score = sum(1 for token in tokens if token in haystack)
+            if score:
+                scored.append((score, fact))
+        scored.sort(key=lambda item: (-item[0], item[1].fact_id))
+        return [fact for _, fact in scored[: max(0, int(limit))]]
 
     def _snippet(self, file_path: str, line_start: int, line_end: int) -> str:
         source = self.ir.read_source(file_path)

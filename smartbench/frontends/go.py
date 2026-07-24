@@ -98,8 +98,16 @@ class _GoFileLowerer:
         self.edges: list[OperationEdge] = []
         self.facts: list[SemanticFact] = []
         self._ordinal = 0
+        self.package_name = ""
+        self._emitted_calls: set[tuple[int, int]] = set()
 
     def lower(self, root: Any) -> GoLoweringResult:
+        package_clause = next(
+            (node for node in root.named_children if node.type == "package_clause"),
+            None,
+        )
+        if package_clause is not None and package_clause.named_children:
+            self.package_name = self._text(package_clause.named_children[-1])
         for node in root.named_children:
             if node.type in _FUNCTION_TYPES:
                 self._lower_function(node)
@@ -113,12 +121,23 @@ class _GoFileLowerer:
     def _lower_function(self, node: Any) -> None:
         name_node = node.child_by_field_name("name")
         name = self._text(name_node) or "<anonymous>"
+        receiver = node.child_by_field_name("receiver")
+        receiver_type_node = self._first_descendant(receiver, "type_identifier")
+        receiver_type = self._text(receiver_type_node)
+        qualified_parts = [self.package_name, receiver_type, name]
+        qualified_name = ".".join(part for part in qualified_parts if part)
         function = self._operation(
             OperationKind.FUNCTION,
             node,
             scope_id="",
             target=name,
             value=self._first_line(node),
+            attributes={
+                "symbol_name": name,
+                "qualified_name": qualified_name or name,
+                "namespace": self.package_name,
+                "receiver_type": receiver_type,
+            },
         )
         function = SemanticOperation(
             id=function.id,
@@ -159,6 +178,7 @@ class _GoFileLowerer:
         fragment = self._lower_sequence(self._statement_nodes(body), function.id)
         if fragment.entry_id is not None:
             self._edge(function.id, fragment.entry_id, OperationEdgeKind.CONTAINS)
+        self._lower_remaining_calls(node, function.id)
 
     def _lower_sequence(self, statements: list[Any], scope_id: str) -> _FlowFragment:
         sequence = _FlowFragment()
@@ -231,6 +251,7 @@ class _GoFileLowerer:
                 target=target,
                 value=value,
                 operands=tuple(self._identifiers(node)),
+                attributes={"channel": target},
             )
             return _FlowFragment.simple(operation.id)
         if node_type == "select_statement":
@@ -356,6 +377,15 @@ class _GoFileLowerer:
             for descendant in self._descendants(node)
         )
         kind = OperationKind.RECEIVE if receives else OperationKind.ASSIGN
+        receive_expression = next(
+            (
+                descendant for descendant in self._descendants(node)
+                if descendant.type == "unary_expression"
+                and self._text(descendant).startswith("<-")
+            ),
+            None,
+        )
+        channel = self._text(receive_expression).removeprefix("<-").strip()
         operation = self._operation(
             kind,
             node,
@@ -363,7 +393,10 @@ class _GoFileLowerer:
             target=target,
             value=value,
             operands=tuple(self._identifiers(children[1] if len(children) > 1 else node)),
-            attributes={"calls": self._calls(node)},
+            attributes={
+                "calls": self._calls(node),
+                **({"channel": channel} if channel else {}),
+            },
         )
         return _FlowFragment.simple(operation.id)
 
@@ -378,6 +411,7 @@ class _GoFileLowerer:
         target = ""
         operands: tuple[str, ...] = ()
         if call is not None:
+            self._emitted_calls.add((call.start_byte, call.end_byte))
             function = call.child_by_field_name("function")
             target = self._text(function) or (
                 self._text(call.named_children[0]) if call.named_children else ""
@@ -392,6 +426,15 @@ class _GoFileLowerer:
             value=self._text(call or node),
             operands=operands,
         )
+
+    def _lower_remaining_calls(self, function_node: Any, scope_id: str) -> None:
+        for descendant in self._descendants(function_node):
+            if descendant.type != "call_expression":
+                continue
+            key = (descendant.start_byte, descendant.end_byte)
+            if key in self._emitted_calls:
+                continue
+            self._call_like(OperationKind.CALL, descendant, scope_id)
 
     def _operation(
         self,

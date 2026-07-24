@@ -42,6 +42,7 @@ class OperationEdgeKind(str, Enum):
     BODY = "body"
     LOOP_BACK = "loop_back"
     LOOP_EXIT = "loop_exit"
+    CALLS = "calls"
     DATA_DEPENDENCY = "data_dependency"
     SYNCHRONIZES = "synchronizes"
 

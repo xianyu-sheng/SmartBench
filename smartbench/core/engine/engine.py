@@ -38,13 +38,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
-from smartbench.analysis import StateRuleConfigError, load_state_rule_file
+from smartbench.analysis import SemanticLinker, StateRuleConfigError, load_state_rule_file
 from smartbench.core.adapters.base import AdapterRegistry
 from smartbench.core.rules.base import DiagnosticRule, Finding, RuleRegistry
 from smartbench.core.rules.state_machine import DeclarativeStateRule
 from smartbench.detector import ProjectFingerprint, ProjectScanner
 from smartbench.graph.evidence import DeterministicGraphRAG
-from smartbench.ir import EvidencePack, FactKind, SemanticFact, SemanticIR
+from smartbench.ir import (
+    EvidencePack,
+    FactKind,
+    OperationEdgeKind,
+    SemanticFact,
+    SemanticIR,
+)
 
 
 @dataclass
@@ -170,6 +176,7 @@ class UnifiedDiagnosticEngine:
 
             # Merge IRs if multiple languages
             result.ir = self._merge_irs(irs, project_path)
+            self._link_semantics(result)
 
             # Step 3: Run rules on the IR
             applicable_rules = self._get_applicable_rules(
@@ -249,6 +256,7 @@ class UnifiedDiagnosticEngine:
 
             # Parse the file
             result.ir = adapter.parse_semantic_file(file_path, project_root)
+            self._link_semantics(result)
 
             # Get applicable rules
             applicable_rules = self._get_applicable_rules(
@@ -397,6 +405,18 @@ class UnifiedDiagnosticEngine:
             if finding.confidence >= min_confidence
         ]
 
+    @staticmethod
+    def _link_semantics(result: UnifiedDiagnosticResult) -> None:
+        """Add conservative cross-file call and synchronization relations."""
+        if result.ir is None:
+            return
+        try:
+            linker = SemanticLinker()
+            linked = linker.link(result.ir)
+            linker.apply(result.ir, linked)
+        except Exception as exc:
+            result.errors.append(f"Semantic linking failed: {exc}")
+
     def _merge_irs(
         self,
         irs: List[SemanticIR],
@@ -450,6 +470,14 @@ class UnifiedDiagnosticEngine:
             stats["ir_operations"] = len(result.ir.operations)
             stats["ir_operation_edges"] = len(result.ir.operation_edges)
             stats["ir_facts"] = len(result.ir.facts)
+            stats["ir_call_edges"] = sum(
+                edge.kind == OperationEdgeKind.CALLS
+                for edge in result.ir.operation_edges
+            )
+            stats["ir_synchronization_edges"] = sum(
+                edge.kind == OperationEdgeKind.SYNCHRONIZES
+                for edge in result.ir.operation_edges
+            )
 
         # Count errors
         stats["errors"] = len(result.errors)

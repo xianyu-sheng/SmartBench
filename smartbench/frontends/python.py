@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 
 from smartbench.ir import (
     EvidenceRef,
@@ -80,15 +81,30 @@ class _PythonFileLowerer:
         self.edges: list[OperationEdge] = []
         self.facts: list[SemanticFact] = []
         self._ordinal = 0
+        self.parents: dict[ast.AST, ast.AST] = {}
+        self._emitted_calls: set[int] = set()
+        module_path = PurePosixPath(file_path.replace("\\", "/")).with_suffix("")
+        module_parts = list(module_path.parts)
+        if module_parts and module_parts[-1] == "__init__":
+            module_parts.pop()
+        self.module_name = ".".join(module_parts)
 
     def lower(self, root: ast.Module) -> PythonLoweringResult:
+        self.parents = {
+            child: parent
+            for parent in ast.walk(root)
+            for child in ast.iter_child_nodes(parent)
+        }
         functions = [
             node for node in ast.walk(root)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         ]
         functions.sort(key=lambda node: (node.lineno, node.col_offset, node.name))
         for function in functions:
-            self._lower_function(function)
+            self._lower_function(
+                function,
+                self._qualified_function_name(function, self.parents),
+            )
         return PythonLoweringResult(
             operations=self.operations,
             edges=self.edges,
@@ -96,14 +112,27 @@ class _PythonFileLowerer:
             files_analyzed=1,
         )
 
-    def _lower_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+    def _lower_function(
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+        lexical_name: str,
+    ) -> None:
+        qualified_name = ".".join(
+            part for part in (self.module_name, lexical_name) if part
+        )
         function = self._operation(
             OperationKind.FUNCTION,
             node,
             scope_id="",
             target=node.name,
             value=self._first_line(node),
-            attributes={"async": isinstance(node, ast.AsyncFunctionDef)},
+            attributes={
+                "async": isinstance(node, ast.AsyncFunctionDef),
+                "symbol_name": node.name,
+                "qualified_name": qualified_name or node.name,
+                "namespace": self.module_name,
+                "lexical_name": lexical_name,
+            },
         )
         function = SemanticOperation(
             id=function.id,
@@ -136,6 +165,20 @@ class _PythonFileLowerer:
         fragment = self._lower_sequence(node.body, function.id)
         if fragment.entry_id is not None:
             self._edge(function.id, fragment.entry_id, OperationEdgeKind.CONTAINS)
+        self._lower_remaining_calls(node, function.id)
+
+    @staticmethod
+    def _qualified_function_name(
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+        parents: dict[ast.AST, ast.AST],
+    ) -> str:
+        owners: list[str] = []
+        parent = parents.get(node)
+        while parent is not None:
+            if isinstance(parent, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                owners.append(parent.name)
+            parent = parents.get(parent)
+        return ".".join([*reversed(owners), node.name])
 
     def _lower_sequence(self, statements: list[ast.stmt], scope_id: str) -> _FlowFragment:
         sequence = _FlowFragment()
@@ -295,6 +338,7 @@ class _PythonFileLowerer:
         scope_id: str,
         location_node: ast.AST | None = None,
     ) -> SemanticOperation:
+        self._emitted_calls.add(id(node))
         operands: list[str] = []
         for argument in [*node.args, *(keyword.value for keyword in node.keywords)]:
             operands.extend(self._identifiers(argument))
@@ -306,6 +350,23 @@ class _PythonFileLowerer:
             value=self._unparse(node),
             operands=tuple(operands),
         )
+
+    def _lower_remaining_calls(
+        self,
+        function_node: ast.FunctionDef | ast.AsyncFunctionDef,
+        scope_id: str,
+    ) -> None:
+        for descendant in ast.walk(function_node):
+            if not isinstance(descendant, ast.Call) or id(descendant) in self._emitted_calls:
+                continue
+            parent = self.parents.get(descendant)
+            while parent is not None and not isinstance(
+                parent,
+                (ast.FunctionDef, ast.AsyncFunctionDef),
+            ):
+                parent = self.parents.get(parent)
+            if parent is function_node:
+                self._lower_call(descendant, scope_id)
 
     def _operation(
         self,
