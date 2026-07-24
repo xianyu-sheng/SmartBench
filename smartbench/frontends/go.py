@@ -100,6 +100,7 @@ class _GoFileLowerer:
         self._ordinal = 0
         self.package_name = ""
         self._emitted_calls: set[tuple[int, int]] = set()
+        self._call_bindings: dict[tuple[int, int], list[str]] = {}
 
     def lower(self, root: Any) -> GoLoweringResult:
         package_clause = next(
@@ -124,6 +125,7 @@ class _GoFileLowerer:
         receiver = node.child_by_field_name("receiver")
         receiver_type_node = self._first_descendant(receiver, "type_identifier")
         receiver_type = self._text(receiver_type_node)
+        return_types = self._return_types(node.child_by_field_name("result"))
         qualified_parts = [self.package_name, receiver_type, name]
         qualified_name = ".".join(part for part in qualified_parts if part)
         function = self._operation(
@@ -137,6 +139,7 @@ class _GoFileLowerer:
                 "qualified_name": qualified_name or name,
                 "namespace": self.package_name,
                 "receiver_type": receiver_type,
+                "return_types": return_types,
             },
         )
         function = SemanticOperation(
@@ -152,25 +155,13 @@ class _GoFileLowerer:
         )
         self.operations[-1] = function
 
-        parameters = node.child_by_field_name("parameters")
-        if parameters is not None:
-            for declaration in parameters.named_children:
-                if declaration.type not in {"parameter_declaration", "variadic_parameter_declaration"}:
-                    continue
-                identifiers = [
-                    self._text(child)
-                    for child in declaration.named_children
-                    if child.type == "identifier"
-                ]
-                for identifier in identifiers:
-                    parameter = self._operation(
-                        OperationKind.PARAMETER,
-                        declaration,
-                        scope_id=function.id,
-                        target=identifier,
-                        value=self._text(declaration),
-                    )
-                    self._edge(function.id, parameter.id, OperationEdgeKind.CONTAINS)
+        self._emit_parameters(receiver, function, start=-1, receiver=True)
+        self._emit_parameters(
+            node.child_by_field_name("parameters"),
+            function,
+            start=0,
+            receiver=False,
+        )
 
         body = node.child_by_field_name("body")
         if body is None:
@@ -221,11 +212,13 @@ class _GoFileLowerer:
             )
             return _FlowFragment.simple(operation.id)
         if node_type == "return_statement":
+            values = [self._text(child) for child in node.named_children]
             operation = self._operation(
                 OperationKind.RETURN,
                 node,
                 scope_id,
                 value=self._statement_value(node, "return"),
+                attributes={"values": values},
             )
             return _FlowFragment(entry_id=operation.id)
         if node_type == "continue_statement":
@@ -255,7 +248,9 @@ class _GoFileLowerer:
             )
             return _FlowFragment.simple(operation.id)
         if node_type == "select_statement":
-            operation = self._operation(OperationKind.SELECT, node, scope_id, value=self._text(node))
+            operation = self._operation(
+                OperationKind.SELECT, node, scope_id, value=self._text(node)
+            )
             body = node.child_by_field_name("body")
             if body is not None:
                 fragment = self._lower_sequence(self._statement_nodes(body), scope_id)
@@ -279,7 +274,11 @@ class _GoFileLowerer:
         condition = node.child_by_field_name("condition")
         if condition is None:
             condition = next(
-                (child for child in node.named_children if child.type not in {"block", "else_clause"}),
+                (
+                    child
+                    for child in node.named_children
+                    if child.type not in {"block", "else_clause"}
+                ),
                 None,
             )
         condition_text = self._text(condition)
@@ -298,7 +297,9 @@ class _GoFileLowerer:
 
         consequence = node.child_by_field_name("consequence")
         if consequence is None:
-            consequence = next((child for child in node.named_children if child.type == "block"), None)
+            consequence = next(
+                (child for child in node.named_children if child.type == "block"), None
+            )
         true_fragment = _FlowFragment()
         if consequence is not None:
             true_fragment = self._lower_sequence(
@@ -369,9 +370,22 @@ class _GoFileLowerer:
         return _FlowFragment(entry_id=loop.id, fallthroughs=exits)
 
     def _lower_assignment(self, node: Any, scope_id: str) -> _FlowFragment:
-        children = node.named_children
-        target = self._text(children[0]) if children else ""
-        value = self._text(children[1]) if len(children) > 1 else self._text(node)
+        target_node, value_node, declared_type = self._assignment_parts(node)
+        target = self._text(target_node)
+        value = self._text(value_node) or self._text(node)
+        targets = self._binding_targets(target_node)
+        inferred_type = self._composite_type(value_node)
+        bindings = [
+            {
+                "target": name,
+                "declared_type": declared_type if len(targets) == 1 else "",
+                "inferred_type": inferred_type if len(targets) == 1 else "",
+            }
+            for name in targets
+        ]
+        for descendant in self._descendants(value_node):
+            if descendant.type == "call_expression":
+                self._call_bindings[(descendant.start_byte, descendant.end_byte)] = targets
         receives = any(
             descendant.type == "unary_expression" and self._text(descendant).startswith("<-")
             for descendant in self._descendants(node)
@@ -379,9 +393,9 @@ class _GoFileLowerer:
         kind = OperationKind.RECEIVE if receives else OperationKind.ASSIGN
         receive_expression = next(
             (
-                descendant for descendant in self._descendants(node)
-                if descendant.type == "unary_expression"
-                and self._text(descendant).startswith("<-")
+                descendant
+                for descendant in self._descendants(node)
+                if descendant.type == "unary_expression" and self._text(descendant).startswith("<-")
             ),
             None,
         )
@@ -392,9 +406,10 @@ class _GoFileLowerer:
             scope_id,
             target=target,
             value=value,
-            operands=tuple(self._identifiers(children[1] if len(children) > 1 else node)),
+            operands=tuple(self._identifiers(value_node or node)),
             attributes={
                 "calls": self._calls(node),
+                "bindings": bindings,
                 **({"channel": channel} if channel else {}),
             },
         )
@@ -407,17 +422,38 @@ class _GoFileLowerer:
         scope_id: str,
         location_node: Any | None = None,
     ) -> SemanticOperation:
-        call = node if node.type == "call_expression" else self._first_descendant(node, "call_expression")
+        call = (
+            node
+            if node.type == "call_expression"
+            else self._first_descendant(node, "call_expression")
+        )
         target = ""
         operands: tuple[str, ...] = ()
+        attributes: dict[str, Any] = {
+            "arguments": [],
+            "argument_names": [],
+            "receiver": "",
+            "result_targets": [],
+        }
         if call is not None:
-            self._emitted_calls.add((call.start_byte, call.end_byte))
+            key = (call.start_byte, call.end_byte)
+            self._emitted_calls.add(key)
             function = call.child_by_field_name("function")
             target = self._text(function) or (
                 self._text(call.named_children[0]) if call.named_children else ""
             )
             arguments = call.child_by_field_name("arguments")
             operands = tuple(self._identifiers(arguments))
+            argument_values = (
+                [self._text(child) for child in arguments.named_children] if arguments else []
+            )
+            receiver = function.child_by_field_name("operand") if function is not None else None
+            attributes = {
+                "arguments": argument_values,
+                "argument_names": [""] * len(argument_values),
+                "receiver": self._text(receiver),
+                "result_targets": self._call_bindings.get(key, []),
+            }
         return self._operation(
             kind,
             location_node or node,
@@ -425,6 +461,7 @@ class _GoFileLowerer:
             target=target,
             value=self._text(call or node),
             operands=operands,
+            attributes=attributes,
         )
 
     def _lower_remaining_calls(self, function_node: Any, scope_id: str) -> None:
@@ -467,6 +504,106 @@ class _GoFileLowerer:
         self.operations.append(operation)
         self._add_fact(operation)
         return operation
+
+    def _emit_parameters(
+        self,
+        container: Any | None,
+        function: SemanticOperation,
+        *,
+        start: int,
+        receiver: bool,
+    ) -> int:
+        position = start
+        if container is None:
+            return position
+        for declaration in container.named_children:
+            if declaration.type not in {
+                "parameter_declaration",
+                "variadic_parameter_declaration",
+            }:
+                continue
+            type_node = declaration.child_by_field_name("type")
+            declared_type = self._text(type_node)
+            identifiers = [
+                self._text(child)
+                for child in declaration.named_children
+                if child.type == "identifier"
+            ]
+            names = identifiers or [f"$arg{max(position, 0)}"]
+            for name in names:
+                parameter = self._operation(
+                    OperationKind.PARAMETER,
+                    declaration,
+                    scope_id=function.id,
+                    target=name,
+                    value=declared_type,
+                    attributes={
+                        "position": position,
+                        "declared_type": declared_type,
+                        "parameter_kind": (
+                            "receiver"
+                            if receiver
+                            else (
+                                "variadic"
+                                if declaration.type == "variadic_parameter_declaration"
+                                else "positional"
+                            )
+                        ),
+                        "receiver": receiver,
+                    },
+                )
+                self._edge(function.id, parameter.id, OperationEdgeKind.CONTAINS)
+                position += 1
+        return position
+
+    def _return_types(self, result: Any | None) -> list[str]:
+        if result is None:
+            return []
+        if result.type != "parameter_list":
+            return [self._text(result)]
+        types: list[str] = []
+        for declaration in result.named_children:
+            if declaration.type not in {
+                "parameter_declaration",
+                "variadic_parameter_declaration",
+            }:
+                continue
+            type_text = self._text(declaration.child_by_field_name("type"))
+            names = [child for child in declaration.named_children if child.type == "identifier"]
+            types.extend([type_text] * max(1, len(names)))
+        return types
+
+    def _assignment_parts(self, node: Any) -> tuple[Any | None, Any | None, str]:
+        if node.type == "var_declaration":
+            spec = next(
+                (child for child in node.named_children if child.type == "var_spec"),
+                None,
+            )
+            if spec is None:
+                return None, None, ""
+            return (
+                spec.child_by_field_name("name"),
+                spec.child_by_field_name("value"),
+                self._text(spec.child_by_field_name("type")),
+            )
+        return (
+            node.child_by_field_name("left"),
+            node.child_by_field_name("right"),
+            "",
+        )
+
+    def _binding_targets(self, node: Any | None) -> list[str]:
+        if node is None:
+            return []
+        if node.type == "identifier":
+            return [self._text(node)]
+        return [self._text(child) for child in node.named_children if child.type == "identifier"]
+
+    def _composite_type(self, node: Any | None) -> str:
+        composite = self._first_descendant(node, "composite_literal")
+        if composite is None:
+            return ""
+        return self._text(composite.child_by_field_name("type"))
 
     def _add_fact(self, operation: SemanticOperation) -> None:
         predicates = {
@@ -512,7 +649,11 @@ class _GoFileLowerer:
     def _statement_nodes(self, node: Any) -> list[Any]:
         if node.type in {"block", "else_clause", "select_statement"}:
             statement_list = next(
-                (child for child in node.named_children if child.type in {"statement_list", "expression_case"}),
+                (
+                    child
+                    for child in node.named_children
+                    if child.type in {"statement_list", "expression_case"}
+                ),
                 None,
             )
             if statement_list is not None:
@@ -525,7 +666,7 @@ class _GoFileLowerer:
 
     def _statement_value(self, node: Any, keyword: str) -> str:
         value = self._text(node).strip()
-        return value[len(keyword):].strip() if value.startswith(keyword) else value
+        return value[len(keyword) :].strip() if value.startswith(keyword) else value
 
     def _first_line(self, node: Any) -> str:
         return self._text(node).splitlines()[0].strip()
@@ -533,7 +674,7 @@ class _GoFileLowerer:
     def _text(self, node: Any | None) -> str:
         if node is None:
             return ""
-        return self.source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+        return self.source_bytes[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
 
     def _first_descendant(self, node: Any | None, node_type: str) -> Any | None:
         if node is None:
@@ -566,7 +707,11 @@ class _GoFileLowerer:
         if node is None:
             return []
         source = self._text(node)
-        return [operator for operator in ("==", "!=", ">=", "<=", "&&", "||", ">", "<", "!") if operator in source]
+        return [
+            operator
+            for operator in ("==", "!=", ">=", "<=", "&&", "||", ">", "<", "!")
+            if operator in source
+        ]
 
     def _literals(self, node: Any | None) -> list[str]:
         if node is None:
@@ -580,7 +725,11 @@ class _GoFileLowerer:
             "false",
             "nil",
         }
-        return [self._text(descendant) for descendant in self._descendants(node) if descendant.type in literal_types]
+        return [
+            self._text(descendant)
+            for descendant in self._descendants(node)
+            if descendant.type in literal_types
+        ]
 
     def _calls(self, node: Any | None) -> list[str]:
         if node is None:

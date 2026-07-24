@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from smartbench.analysis import SemanticLinker
+from smartbench.analysis import InterproceduralGraph, SemanticLinker
 from smartbench.core import (
     AdapterRegistry,
     RuleRegistry,
@@ -14,7 +14,7 @@ from smartbench.core import (
 from smartbench.core.adapters import GoAdapter, PythonAdapter
 from smartbench.graph.evidence import DeterministicGraphRAG
 from smartbench.graph.tree_parser import get_parser
-from smartbench.ir import OperationEdgeKind, OperationKind
+from smartbench.ir import DataFlowKind, OperationEdgeKind, OperationKind
 
 
 def _linked_python(tmp_path: Path, sources: dict[str, str]):
@@ -45,11 +45,13 @@ def helper():
     )
 
     call = next(
-        operation for operation in ir.operations
+        operation
+        for operation in ir.operations
         if operation.kind == OperationKind.CALL and operation.target == "helper"
     )
     edge = next(
-        edge for edge in ir.operation_edges
+        edge
+        for edge in ir.operation_edges
         if edge.kind == OperationEdgeKind.CALLS and edge.source_id == call.id
     )
     target = next(operation for operation in ir.operations if operation.id == edge.target_id)
@@ -86,7 +88,8 @@ def helper():
     )
 
     call = next(
-        operation for operation in ir.operations
+        operation
+        for operation in ir.operations
         if operation.kind == OperationKind.CALL and operation.target == "helper"
     )
     assert not any(
@@ -132,15 +135,144 @@ def run(client):
     )
 
     call = next(
-        operation for operation in ir.operations
-        if operation.kind == OperationKind.CALL
-        and operation.target == "client.helper"
+        operation
+        for operation in ir.operations
+        if operation.kind == OperationKind.CALL and operation.target == "client.helper"
     )
     assert not any(
         edge.kind == OperationEdgeKind.CALLS and edge.source_id == call.id
         for edge in ir.operation_edges
     )
     assert result.unresolved_calls == 1
+
+
+def test_python_type_proof_links_method_arguments_returns_and_query_path(
+    tmp_path: Path,
+):
+    ir, result = _linked_python(
+        tmp_path,
+        {
+            "service.py": """
+class Service:
+    def handle(self, value: str) -> str:
+        return value
+
+def make_service() -> Service:
+    return Service()
+
+def run(text: str):
+    service = make_service()
+    return service.handle(text)
+""",
+        },
+    )
+
+    method_call = next(
+        operation
+        for operation in ir.operations
+        if operation.kind == OperationKind.CALL and operation.target == "service.handle"
+    )
+    method_edge = next(
+        edge
+        for edge in ir.operation_edges
+        if edge.kind == OperationEdgeKind.CALLS and edge.source_id == method_call.id
+    )
+    method = next(operation for operation in ir.operations if operation.id == method_edge.target_id)
+    run = next(
+        operation
+        for operation in ir.operations
+        if operation.kind == OperationKind.FUNCTION and operation.target == "run"
+    )
+
+    assert method.attributes["qualified_name"] == "service.Service.handle"
+    assert method_edge.attributes["resolution"] == "typed_receiver"
+    assert result.typed_receiver_calls == 1
+    assert result.argument_edges == 1
+    assert result.return_edges == 2
+
+    graph = InterproceduralGraph(ir)
+    bindings = graph.argument_bindings(method_call.id)
+    assert len(bindings) == 1
+    assert bindings[0].attributes["flow"] == DataFlowKind.ARGUMENT_TO_PARAMETER.value
+    assert bindings[0].attributes["expression"] == "text"
+    assert bindings[0].attributes["parameter"] == "value"
+    assert [operation.value for operation in graph.return_sources(method_call.id)] == ["value"]
+    assert [operation.target for operation in graph.call_path(run.id, method.id)] == [
+        "run",
+        "handle",
+    ]
+    assert graph.call_path(run.id, method.id, max_depth=0) == ()
+    with pytest.raises(ValueError, match="max_depth"):
+        graph.call_path(run.id, method.id, max_depth=33)
+
+
+def test_ambiguous_typed_receiver_does_not_invent_method_edge(tmp_path: Path):
+    ir, result = _linked_python(
+        tmp_path,
+        {
+            "app.py": """
+def run(service: Service):
+    return service.handle()
+""",
+            "one.py": """
+class Service:
+    def handle(self):
+        return 1
+""",
+            "two.py": """
+class Service:
+    def handle(self):
+        return 2
+""",
+        },
+    )
+
+    call = next(
+        operation
+        for operation in ir.operations
+        if operation.kind == OperationKind.CALL and operation.target == "service.handle"
+    )
+    assert not any(
+        edge.kind == OperationEdgeKind.CALLS and edge.source_id == call.id
+        for edge in ir.operation_edges
+    )
+    assert result.ambiguous_calls == 1
+
+
+def test_capitalized_python_function_is_not_treated_as_constructor(tmp_path: Path):
+    ir, result = _linked_python(
+        tmp_path,
+        {
+            "service.py": """
+class Service:
+    def handle(self):
+        return 1
+
+def Service():
+    return object()
+
+def run():
+    service = Service()
+    return service.handle()
+""",
+        },
+    )
+
+    assignment = next(
+        operation
+        for operation in ir.operations
+        if operation.kind == OperationKind.ASSIGN and operation.target == "service"
+    )
+    method_call = next(
+        operation
+        for operation in ir.operations
+        if operation.kind == OperationKind.CALL and operation.target == "service.handle"
+    )
+    assert assignment.attributes["bindings"][0]["inferred_type"] == ""
+    assert not any(
+        edge.kind == OperationEdgeKind.CALLS and edge.source_id == method_call.id
+        for edge in result.edges
+    )
 
 
 @pytest.mark.skipif(get_parser("go") is None, reason="tree-sitter Go unavailable")
@@ -170,13 +302,62 @@ func run(ch chan int) {
     assert {edge.attributes["call_kind"] for edge in call_edges} == {"spawn", "defer"}
     assert result.synchronization_edges == 1
     synchronization = next(
-        edge for edge in result.edges
-        if edge.kind == OperationEdgeKind.SYNCHRONIZES
+        edge for edge in result.edges if edge.kind == OperationEdgeKind.SYNCHRONIZES
     )
     assert synchronization.attributes == {
         "channel": "ch",
         "scope": "intraprocedural",
     }
+
+
+@pytest.mark.skipif(get_parser("go") is None, reason="tree-sitter Go unavailable")
+def test_go_return_type_propagates_to_receiver_and_parameter_binding(tmp_path: Path):
+    (tmp_path / "runner.go").write_text(
+        """
+package sample
+
+type Runner struct{}
+
+func (runner *Runner) Run(value string) string {
+    return value
+}
+
+func makeRunner() *Runner {
+    return &Runner{}
+}
+
+func main() {
+    runner := makeRunner()
+    result := runner.Run("ok")
+    _ = result
+}
+""".strip(),
+        encoding="utf-8",
+    )
+    ir = GoAdapter().parse_semantic_project(tmp_path)
+    result = SemanticLinker().link(ir)
+    SemanticLinker.apply(ir, result)
+
+    method_call = next(
+        operation
+        for operation in ir.operations
+        if operation.kind == OperationKind.CALL and operation.target == "runner.Run"
+    )
+    method_edge = next(
+        edge
+        for edge in ir.operation_edges
+        if edge.kind == OperationEdgeKind.CALLS and edge.source_id == method_call.id
+    )
+    target = next(operation for operation in ir.operations if operation.id == method_edge.target_id)
+
+    assert target.attributes["qualified_name"] == "sample.Runner.Run"
+    assert method_edge.attributes["resolution"] == "typed_receiver"
+    assert method_call.attributes["arguments"] == ['"ok"']
+    assert method_call.attributes["result_targets"] == ["result"]
+    assert result.typed_receiver_calls == 1
+    binding = InterproceduralGraph(ir).argument_bindings(method_call.id)
+    assert len(binding) == 1
+    assert binding[0].attributes["parameter"] == "value"
 
 
 def test_unified_engine_applies_linker_and_rag_retrieves_link_fact(tmp_path: Path):
@@ -199,9 +380,8 @@ def test_unified_engine_applies_linker_and_rag_retrieves_link_fact(tmp_path: Pat
     assert result.ir is not None
     assert result.ir.meta["semantic_linker"]["resolved_calls"] == 1
     assert result.stats["ir_call_edges"] == 1
+    assert result.stats["ir_return_edges"] == 1
+    assert result.stats["ir_data_dependency_edges"] == 1
 
     pack = DeterministicGraphRAG(result.ir).retrieve("helper interprocedural_call")
-    assert any(
-        fact.attributes.get("link_kind") == "interprocedural_call"
-        for fact in pack.facts
-    )
+    assert any(fact.attributes.get("link_kind") == "interprocedural_call" for fact in pack.facts)

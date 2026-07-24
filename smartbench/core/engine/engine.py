@@ -56,6 +56,7 @@ from smartbench.ir import (
 @dataclass
 class UnifiedDiagnosticConfig:
     """Configuration for a unified diagnostic run."""
+
     use_llm_rules: bool = False
     use_static_rules: bool = True
     max_files: int = 500
@@ -83,6 +84,7 @@ class UnifiedDiagnosticConfig:
 @dataclass
 class UnifiedDiagnosticResult:
     """Result of a unified diagnostic run."""
+
     # ``ir`` is now the language-neutral SemanticIR.  SemanticIR deliberately
     # delegates graph queries to its legacy CodeGraph so existing integrations
     # continue to work while analyzers migrate to the new contract.
@@ -108,11 +110,10 @@ class UnifiedDiagnosticResult:
                     language: capabilities.to_dict()
                     for language, capabilities in self.ir.capabilities.items()
                 }
-                if self.ir else {}
+                if self.ir
+                else {}
             ),
-            "evidence_packs": {
-                key: pack.to_dict() for key, pack in self.evidence_packs.items()
-            },
+            "evidence_packs": {key: pack.to_dict() for key, pack in self.evidence_packs.items()},
         }
 
 
@@ -328,10 +329,7 @@ class UnifiedDiagnosticEngine:
             languages = [fingerprint.primary_language]
             languages.extend(fingerprint.secondary_languages)
             # Convert Language enum to string
-            return [
-                lang.value for lang in languages
-                if lang.value != "unknown"
-            ]
+            return [lang.value for lang in languages if lang.value != "unknown"]
 
         return []
 
@@ -399,11 +397,7 @@ class UnifiedDiagnosticEngine:
         """Return findings meeting the configured inclusive threshold."""
         if min_confidence <= 0:
             return findings
-        return [
-            finding
-            for finding in findings
-            if finding.confidence >= min_confidence
-        ]
+        return [finding for finding in findings if finding.confidence >= min_confidence]
 
     @staticmethod
     def _link_semantics(result: UnifiedDiagnosticResult) -> None:
@@ -450,15 +444,9 @@ class UnifiedDiagnosticEngine:
 
         # Count findings by severity
         stats["findings_total"] = len(result.findings)
-        stats["findings_error"] = sum(
-            1 for f in result.findings if f.severity.value == "error"
-        )
-        stats["findings_warning"] = sum(
-            1 for f in result.findings if f.severity.value == "warning"
-        )
-        stats["findings_info"] = sum(
-            1 for f in result.findings if f.severity.value == "info"
-        )
+        stats["findings_error"] = sum(1 for f in result.findings if f.severity.value == "error")
+        stats["findings_warning"] = sum(1 for f in result.findings if f.severity.value == "warning")
+        stats["findings_info"] = sum(1 for f in result.findings if f.severity.value == "info")
 
         # Count languages
         stats["languages_detected"] = len(languages)
@@ -471,12 +459,22 @@ class UnifiedDiagnosticEngine:
             stats["ir_operation_edges"] = len(result.ir.operation_edges)
             stats["ir_facts"] = len(result.ir.facts)
             stats["ir_call_edges"] = sum(
-                edge.kind == OperationEdgeKind.CALLS
-                for edge in result.ir.operation_edges
+                edge.kind == OperationEdgeKind.CALLS for edge in result.ir.operation_edges
             )
             stats["ir_synchronization_edges"] = sum(
-                edge.kind == OperationEdgeKind.SYNCHRONIZES
+                edge.kind == OperationEdgeKind.SYNCHRONIZES for edge in result.ir.operation_edges
+            )
+            data_edges = [
+                edge
                 for edge in result.ir.operation_edges
+                if edge.kind == OperationEdgeKind.DATA_DEPENDENCY
+            ]
+            stats["ir_data_dependency_edges"] = len(data_edges)
+            stats["ir_argument_edges"] = sum(
+                edge.attributes.get("flow") == "argument_to_parameter" for edge in data_edges
+            )
+            stats["ir_return_edges"] = sum(
+                edge.attributes.get("flow") == "return_to_call" for edge in data_edges
             )
 
         # Count errors
@@ -551,10 +549,7 @@ class UnifiedDiagnosticEngine:
         } - {""}
         if not operation_ids:
             return None
-        operations = [
-            operation for operation in ir.operations
-            if operation.id in operation_ids
-        ]
+        operations = [operation for operation in ir.operations if operation.id in operation_ids]
         if not operations:
             return None
         operations.sort(

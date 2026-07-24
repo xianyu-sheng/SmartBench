@@ -66,16 +66,26 @@ LLM summary.
 `smartbench.analysis.SemanticLinker` builds conservative operation-level call
 edges after language IRs are merged. It resolves exact qualified symbols,
 same-namespace simple calls, Python lexical `self`/`cls` calls, and globally
-unique simple names. Ambiguous names and dotted receivers without type proof
-remain unresolved rather than receiving invented edges. `CALL`, `SPAWN`, and
-`DEFER` share this contract.
+unique simple names. Python annotations, Go surface types, constructor syntax,
+and resolved function return types can prove a receiver type; the linker then
+iterates until no additional typed call can be resolved. Ambiguous names and
+dotted receivers without unique type proof remain unresolved rather than
+receiving invented edges. `CALL`, `SPAWN`, and `DEFER` share this contract.
+
+The normalized interprocedural attribute contract is language-independent:
+functions expose return types, parameters expose position and declared type,
+assignments expose aligned bindings, and calls expose arguments, receiver and
+result targets. A uniquely resolved call produces `DATA_DEPENDENCY` edges for
+`argument_to_parameter` and `return_to_call`. `InterproceduralGraph` exposes
+read-only callers, callees, bindings, returns and shortest call-path queries;
+call-path depth is explicitly bounded and does not pretend to be whole-program
+dominance.
 
 Go channel sends and receives expose a normalized `channel` attribute. The
 linker emits `SYNCHRONIZES` edges only for matching channel expressions inside
-the same function; interprocedural channel propagation remains explicitly
-unsupported until parameter and type resolution are available. Linked facts
-are included in deterministic graph versions and are retrievable by
-EvidencePack queries.
+the same function; interprocedural channel alias analysis remains explicitly
+unsupported. Linked call, data-flow, and synchronization facts are included in
+deterministic graph versions and are retrievable by EvidencePack queries.
 
 ### Multi-agent verification
 
@@ -97,12 +107,12 @@ through its graph compatibility view.
   queries.
 - Unified results carry bounded EvidencePacks by default; use
   `--no-evidence` or `--max-evidence-packs` to control output size.
-- Go is recognized by the structural frontend but does not yet claim semantic
-  type or interprocedural data-flow capabilities. Its first semantic frontend
-  now lowers functions, parameters, assignments, calls, branches, loops,
+- Go is recognized by the structural frontend and lowers functions,
+  typed parameters/receivers/results, assignments, calls, branches, loops,
   returns, goroutines, defer, channel send/receive and select into the common
-  operation model. State/event and concurrency capabilities remain explicitly
-  partial until interprocedural resolution is available.
+  operation model. Type, data-flow, state/event and concurrency capabilities
+  remain explicitly partial because SmartBench does not yet run `go/types`,
+  resolve aliases, or model runtime dispatch.
 - The operation call graph is deliberately partial. Current SmartBench
   self-analysis resolves conservative call edges and reports unresolved and
   ambiguous counts in `ir.meta.semantic_linker`; these are coverage signals,

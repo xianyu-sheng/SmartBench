@@ -83,6 +83,7 @@ class _PythonFileLowerer:
         self._ordinal = 0
         self.parents: dict[ast.AST, ast.AST] = {}
         self._emitted_calls: set[int] = set()
+        self.constructor_types: set[str] = set()
         module_path = PurePosixPath(file_path.replace("\\", "/")).with_suffix("")
         module_parts = list(module_path.parts)
         if module_parts and module_parts[-1] == "__init__":
@@ -91,12 +92,12 @@ class _PythonFileLowerer:
 
     def lower(self, root: ast.Module) -> PythonLoweringResult:
         self.parents = {
-            child: parent
-            for parent in ast.walk(root)
-            for child in ast.iter_child_nodes(parent)
+            child: parent for parent in ast.walk(root) for child in ast.iter_child_nodes(parent)
         }
+        self.constructor_types = self._module_constructor_types(root)
         functions = [
-            node for node in ast.walk(root)
+            node
+            for node in ast.walk(root)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         ]
         functions.sort(key=lambda node: (node.lineno, node.col_offset, node.name))
@@ -117,9 +118,9 @@ class _PythonFileLowerer:
         node: ast.FunctionDef | ast.AsyncFunctionDef,
         lexical_name: str,
     ) -> None:
-        qualified_name = ".".join(
-            part for part in (self.module_name, lexical_name) if part
-        )
+        receiver_type = self._owner_class_name(node)
+        return_annotation = self._unparse(node.returns)
+        qualified_name = ".".join(part for part in (self.module_name, lexical_name) if part)
         function = self._operation(
             OperationKind.FUNCTION,
             node,
@@ -132,6 +133,8 @@ class _PythonFileLowerer:
                 "qualified_name": qualified_name or node.name,
                 "namespace": self.module_name,
                 "lexical_name": lexical_name,
+                "receiver_type": receiver_type,
+                "return_types": [return_annotation] if return_annotation else [],
             },
         )
         function = SemanticOperation(
@@ -147,18 +150,23 @@ class _PythonFileLowerer:
         )
         self.operations[-1] = function
 
-        arguments = [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]
-        if node.args.vararg is not None:
-            arguments.append(node.args.vararg)
-        if node.args.kwarg is not None:
-            arguments.append(node.args.kwarg)
-        for argument in arguments:
+        for position, (argument, parameter_kind) in enumerate(self._parameter_specs(node)):
+            is_receiver = bool(receiver_type and position == 0 and argument.arg in {"self", "cls"})
+            declared_type = self._unparse(argument.annotation)
+            if is_receiver and not declared_type:
+                declared_type = receiver_type
             parameter = self._operation(
                 OperationKind.PARAMETER,
                 argument,
                 function.id,
                 target=argument.arg,
-                value=self._unparse(argument.annotation),
+                value=declared_type,
+                attributes={
+                    "position": position,
+                    "declared_type": declared_type,
+                    "parameter_kind": parameter_kind,
+                    "receiver": is_receiver,
+                },
             )
             self._edge(function.id, parameter.id, OperationEdgeKind.CONTAINS)
 
@@ -220,12 +228,18 @@ class _PythonFileLowerer:
             )
             return _FlowFragment.simple(operation.id)
         if isinstance(node, ast.Return):
+            values = (
+                [self._unparse(item) for item in node.value.elts]
+                if isinstance(node.value, ast.Tuple)
+                else ([self._unparse(node.value)] if node.value is not None else [])
+            )
             operation = self._operation(
                 OperationKind.RETURN,
                 node,
                 scope_id,
                 value=self._unparse(node.value),
                 operands=tuple(self._identifiers(node.value)),
+                attributes={"values": values},
             )
             return _FlowFragment(entry_id=operation.id)
         if isinstance(node, ast.Continue):
@@ -257,16 +271,12 @@ class _PythonFileLowerer:
         if consequence.entry_id is not None:
             self._edge(branch.id, consequence.entry_id, OperationEdgeKind.TRUE_BRANCH)
         else:
-            consequence.fallthroughs.append(
-                _PendingEdge(branch.id, OperationEdgeKind.TRUE_BRANCH)
-            )
+            consequence.fallthroughs.append(_PendingEdge(branch.id, OperationEdgeKind.TRUE_BRANCH))
         alternative = self._lower_sequence(node.orelse, scope_id)
         if alternative.entry_id is not None:
             self._edge(branch.id, alternative.entry_id, OperationEdgeKind.FALSE_BRANCH)
         else:
-            alternative.fallthroughs.append(
-                _PendingEdge(branch.id, OperationEdgeKind.FALSE_BRANCH)
-            )
+            alternative.fallthroughs.append(_PendingEdge(branch.id, OperationEdgeKind.FALSE_BRANCH))
         return _FlowFragment(
             entry_id=branch.id,
             fallthroughs=[*consequence.fallthroughs, *alternative.fallthroughs],
@@ -283,7 +293,11 @@ class _PythonFileLowerer:
             value_node: ast.AST | None = node.test
         else:
             value_node = node.iter
-        infinite = isinstance(node, ast.While) and isinstance(node.test, ast.Constant) and node.test.value is True
+        infinite = (
+            isinstance(node, ast.While)
+            and isinstance(node.test, ast.Constant)
+            and node.test.value is True
+        )
         loop = self._operation(
             OperationKind.LOOP,
             node,
@@ -303,8 +317,7 @@ class _PythonFileLowerer:
             self._edge(operation_id, loop.id, OperationEdgeKind.LOOP_BACK)
 
         exits = [
-            _PendingEdge(operation_id, OperationEdgeKind.LOOP_EXIT)
-            for operation_id in body.breaks
+            _PendingEdge(operation_id, OperationEdgeKind.LOOP_EXIT) for operation_id in body.breaks
         ]
         if not infinite:
             exits.append(_PendingEdge(loop.id, OperationEdgeKind.FALSE_BRANCH))
@@ -317,10 +330,23 @@ class _PythonFileLowerer:
     ) -> _FlowFragment:
         if isinstance(node, ast.Assign):
             target = ", ".join(self._unparse(item) for item in node.targets)
+            targets = [name for item in node.targets for name in self._assignment_targets(item)]
             value_node = node.value
+            declared_type = ""
         else:
             target = self._unparse(node.target)
+            targets = self._assignment_targets(node.target)
             value_node = node.value
+            declared_type = self._unparse(node.annotation)
+        inferred_type = self._constructor_type(value_node)
+        bindings = [
+            {
+                "target": name,
+                "declared_type": declared_type if len(targets) == 1 else "",
+                "inferred_type": inferred_type if len(targets) == 1 else "",
+            }
+            for name in targets
+        ]
         operation = self._operation(
             OperationKind.ASSIGN,
             node,
@@ -328,7 +354,10 @@ class _PythonFileLowerer:
             target=target,
             value=self._unparse(value_node),
             operands=tuple(self._identifiers(value_node)),
-            attributes={"calls": self._calls(value_node)},
+            attributes={
+                "calls": self._calls(value_node),
+                "bindings": bindings,
+            },
         )
         return _FlowFragment.simple(operation.id)
 
@@ -342,13 +371,24 @@ class _PythonFileLowerer:
         operands: list[str] = []
         for argument in [*node.args, *(keyword.value for keyword in node.keywords)]:
             operands.extend(self._identifiers(argument))
+        arguments = [self._unparse(argument) for argument in node.args]
+        arguments.extend(self._unparse(keyword.value) for keyword in node.keywords)
+        argument_names = [""] * len(node.args)
+        argument_names.extend(keyword.arg or "**" for keyword in node.keywords)
+        target = self._unparse(node.func)
         return self._operation(
             OperationKind.CALL,
             location_node or node,
             scope_id,
-            target=self._unparse(node.func),
+            target=target,
             value=self._unparse(node),
             operands=tuple(operands),
+            attributes={
+                "arguments": arguments,
+                "argument_names": argument_names,
+                "receiver": target.rsplit(".", 1)[0] if "." in target else "",
+                "result_targets": self._call_result_targets(node),
+            },
         )
 
     def _lower_remaining_calls(
@@ -440,11 +480,89 @@ class _PythonFileLowerer:
         )
 
     def _first_line(self, node: ast.AST) -> str:
-        return (ast.get_source_segment(self.source, node) or self._line(node.lineno)).splitlines()[0]
+        return (ast.get_source_segment(self.source, node) or self._line(node.lineno)).splitlines()[
+            0
+        ]
 
     def _line(self, line_number: int) -> str:
         index = line_number - 1
         return self.lines[index] if 0 <= index < len(self.lines) else ""
+
+    def _owner_class_name(
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> str:
+        parent = self.parents.get(node)
+        while parent is not None:
+            if isinstance(parent, ast.ClassDef):
+                return parent.name
+            if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return ""
+            parent = self.parents.get(parent)
+        return ""
+
+    @staticmethod
+    def _parameter_specs(
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> list[tuple[ast.arg, str]]:
+        specs = [
+            *((argument, "positional_only") for argument in node.args.posonlyargs),
+            *((argument, "positional") for argument in node.args.args),
+        ]
+        if node.args.vararg is not None:
+            specs.append((node.args.vararg, "vararg"))
+        specs.extend((argument, "keyword_only") for argument in node.args.kwonlyargs)
+        if node.args.kwarg is not None:
+            specs.append((node.args.kwarg, "kwarg"))
+        return specs
+
+    def _call_result_targets(self, node: ast.Call) -> list[str]:
+        parent = self.parents.get(node)
+        while parent is not None and not isinstance(parent, ast.stmt):
+            parent = self.parents.get(parent)
+        if isinstance(parent, ast.Assign):
+            return [name for target in parent.targets for name in self._assignment_targets(target)]
+        if isinstance(parent, ast.AnnAssign):
+            return self._assignment_targets(parent.target)
+        return []
+
+    @staticmethod
+    def _assignment_targets(node: ast.AST) -> list[str]:
+        if isinstance(node, ast.Name):
+            return [node.id]
+        if isinstance(node, (ast.Tuple, ast.List)):
+            return [
+                name for item in node.elts for name in _PythonFileLowerer._assignment_targets(item)
+            ]
+        return []
+
+    def _constructor_type(self, node: ast.AST | None) -> str:
+        if not isinstance(node, ast.Call):
+            return ""
+        target = self._unparse(node.func)
+        return target if target in self.constructor_types else ""
+
+    @staticmethod
+    def _module_constructor_types(root: ast.Module) -> set[str]:
+        """Return class names that have no competing module-level binding."""
+        bindings: dict[str, list[str]] = {}
+        for statement in root.body:
+            if isinstance(statement, ast.ClassDef):
+                bindings.setdefault(statement.name, []).append("class")
+            elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                bindings.setdefault(statement.name, []).append("function")
+            elif isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                targets = (
+                    statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+                )
+                for target in targets:
+                    for name in _PythonFileLowerer._assignment_targets(target):
+                        bindings.setdefault(name, []).append("assignment")
+            elif isinstance(statement, (ast.Import, ast.ImportFrom)):
+                for alias in statement.names:
+                    name = alias.asname or alias.name.split(".", 1)[0]
+                    bindings.setdefault(name, []).append("import")
+        return {name for name, kinds in bindings.items() if kinds == ["class"]}
 
     @staticmethod
     def _unparse(node: ast.AST | None) -> str:

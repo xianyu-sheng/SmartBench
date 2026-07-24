@@ -44,7 +44,9 @@ def test_python_frontend_normalizes_common_operations(tmp_path: Path):
         OperationKind.CALL,
     }.issubset(kinds)
 
-    branch = next(operation for operation in ir.operations if operation.kind == OperationKind.BRANCH)
+    branch = next(
+        operation for operation in ir.operations if operation.kind == OperationKind.BRANCH
+    )
     assert "usage.finish_reason" in branch.operands
     assert "'stop'" in branch.attributes["literals"]
     assert "==" in branch.attributes["operators"]
@@ -53,6 +55,22 @@ def test_python_frontend_normalizes_common_operations(tmp_path: Path):
     assert OperationEdgeKind.NEXT in edge_kinds
     assert OperationEdgeKind.TRUE_BRANCH in edge_kinds
     assert OperationEdgeKind.CONTAINS in edge_kinds
+
+    function = next(
+        operation for operation in ir.operations if operation.kind == OperationKind.FUNCTION
+    )
+    parameters = [
+        operation for operation in ir.operations if operation.kind == OperationKind.PARAMETER
+    ]
+    call = next(
+        operation
+        for operation in ir.operations
+        if operation.kind == OperationKind.CALL and operation.target == "retry_message"
+    )
+    assert function.attributes["return_types"] == ["None"]
+    assert parameters[1].attributes["declared_type"] == "str"
+    assert parameters[1].attributes["position"] == 1
+    assert call.attributes["arguments"] == []
 
 
 def test_python_lowering_is_deterministic_and_retrievable(tmp_path: Path):
@@ -68,7 +86,6 @@ def test_python_lowering_is_deterministic_and_retrievable(tmp_path: Path):
         max_nodes=8,
     )
     assert any(
-        fact.attributes.get("operation_kind") == OperationKind.BRANCH.value
-        for fact in pack.facts
+        fact.attributes.get("operation_kind") == OperationKind.BRANCH.value for fact in pack.facts
     )
     assert any(reference.source == "python_frontend" for reference in pack.evidence)

@@ -47,9 +47,31 @@ class OperationEdgeKind(str, Enum):
     SYNCHRONIZES = "synchronizes"
 
 
+class DataFlowKind(str, Enum):
+    """Stable meanings carried by ``DATA_DEPENDENCY`` edge attributes."""
+
+    ARGUMENT_TO_PARAMETER = "argument_to_parameter"
+    RETURN_TO_CALL = "return_to_call"
+
+
 @dataclass(frozen=True)
 class SemanticOperation:
-    """One normalized operation with precise source provenance."""
+    """One normalized operation with precise source provenance.
+
+    Frontends use a small shared attribute contract for interprocedural data:
+
+    - ``FUNCTION``: ``qualified_name``, ``namespace``, ``receiver_type`` and
+      ``return_types``;
+    - ``PARAMETER``: ``position``, ``declared_type``, ``parameter_kind`` and
+      ``receiver``;
+    - ``ASSIGN``: aligned ``bindings`` entries containing target and type;
+    - ``CALL``/``SPAWN``/``DEFER``: ``arguments``, ``argument_names``,
+      ``receiver`` and ``result_targets``;
+    - ``RETURN``: ``values``.
+
+    Missing type information is represented by an empty string.  An analyzer
+    must never interpret a missing attribute as proof of a type.
+    """
 
     id: str
     kind: OperationKind

@@ -12,7 +12,7 @@ from smartbench.ir import Capability, OperationEdgeKind, OperationKind, Semantic
 pytestmark = pytest.mark.skipif(get_parser("go") is None, reason="tree-sitter Go unavailable")
 
 
-GO_SOURCE = '''
+GO_SOURCE = """
 package sample
 
 func run(usage *Usage, text string, ch chan string) error {
@@ -29,7 +29,7 @@ func run(usage *Usage, text string, ch chan string) error {
     continueWork()
     return nil
 }
-'''.strip()
+""".strip()
 
 
 def _lower(tmp_path: Path) -> SemanticIR:
@@ -63,7 +63,9 @@ def test_go_frontend_normalizes_control_and_concurrency_operations(tmp_path: Pat
     assert OperationKind.SEND in kinds
     assert OperationKind.RECEIVE in kinds
 
-    branch = next(operation for operation in ir.operations if operation.kind == OperationKind.BRANCH)
+    branch = next(
+        operation for operation in ir.operations if operation.kind == OperationKind.BRANCH
+    )
     assert "FinishReason" in branch.operands
     assert '"stop"' in branch.attributes["literals"]
     assert "==" in branch.attributes["operators"]
@@ -72,6 +74,23 @@ def test_go_frontend_normalizes_control_and_concurrency_operations(tmp_path: Pat
     assert OperationEdgeKind.NEXT in edge_kinds
     assert OperationEdgeKind.TRUE_BRANCH in edge_kinds
     assert OperationEdgeKind.CONTAINS in edge_kinds
+
+    function = next(
+        operation for operation in ir.operations if operation.kind == OperationKind.FUNCTION
+    )
+    parameters = [
+        operation for operation in ir.operations if operation.kind == OperationKind.PARAMETER
+    ]
+    call = next(
+        operation
+        for operation in ir.operations
+        if operation.kind == OperationKind.CALL and operation.target == "session.Add"
+    )
+    assert function.attributes["return_types"] == ["error"]
+    assert parameters[0].attributes["declared_type"] == "*Usage"
+    assert parameters[0].attributes["position"] == 0
+    assert call.attributes["arguments"] == ["retryMessage()"]
+    assert call.attributes["receiver"] == "session"
 
 
 def test_go_lowering_is_deterministic_and_graph_rag_can_retrieve_events(tmp_path: Path):
@@ -86,10 +105,7 @@ def test_go_lowering_is_deterministic_and_graph_rag_can_retrieve_events(tmp_path
         "FinishReason stop return retry",
         max_nodes=8,
     )
-    operation_facts = [
-        fact for fact in pack.facts
-        if fact.attributes.get("operation_kind")
-    ]
+    operation_facts = [fact for fact in pack.facts if fact.attributes.get("operation_kind")]
     assert operation_facts
     assert any(
         fact.attributes.get("operation_kind") == OperationKind.BRANCH.value

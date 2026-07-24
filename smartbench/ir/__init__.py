@@ -10,6 +10,7 @@ for a particular language.
 from smartbench.ir.capabilities import Capability, CapabilitySet
 from smartbench.ir.evidence import EvidencePack, EvidenceRef, FactKind, SemanticFact
 from smartbench.ir.operations import (
+    DataFlowKind,
     OperationEdge,
     OperationEdgeKind,
     OperationKind,
@@ -24,6 +25,7 @@ __all__ = [
     "EvidenceRef",
     "FactKind",
     "SemanticFact",
+    "DataFlowKind",
     "OperationEdge",
     "OperationEdgeKind",
     "OperationKind",

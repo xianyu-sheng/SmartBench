@@ -43,16 +43,11 @@ class GoAdapter(LanguageAdapter):
                 Capability.CONTROL_FLOW,
             ],
             partial={
-                Capability.CALL_GRAPH:
-                    "structural resolution does not yet include go/types",
-                Capability.DATA_FLOW:
-                    "operation operands are extracted; interprocedural propagation is pending",
-                Capability.CONCURRENCY:
-                    "goroutine, defer, send, receive and select operations are normalized",
-                Capability.EVENT_MODEL:
-                    "branch and transition operations are intraprocedural",
-                Capability.TYPE_INFO:
-                    "surface type syntax only; go/types integration is pending",
+                Capability.CALL_GRAPH: "surface types resolve proven receivers; no go/types dispatch",
+                Capability.DATA_FLOW: "operation operands plus conservative argument/return propagation",
+                Capability.CONCURRENCY: "goroutine, defer, send, receive and select operations are normalized",
+                Capability.EVENT_MODEL: "branch and transition operations are intraprocedural",
+                Capability.TYPE_INFO: "surface parameter, receiver and return types only; no go/types",
             },
         )
 

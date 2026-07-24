@@ -5,7 +5,11 @@ from smartbench.analysis.control_flow import (
     ControlFlowArc,
     ControlFlowGraph,
 )
-from smartbench.analysis.interprocedural import SemanticLinker, SemanticLinkResult
+from smartbench.analysis.interprocedural import (
+    InterproceduralGraph,
+    SemanticLinker,
+    SemanticLinkResult,
+)
 from smartbench.analysis.spec import (
     STATE_RULE_SCHEMA_VERSION,
     StateRuleConfigError,
@@ -37,4 +41,5 @@ __all__ = [
     "ControlFlowGraph",
     "SemanticLinker",
     "SemanticLinkResult",
+    "InterproceduralGraph",
 ]

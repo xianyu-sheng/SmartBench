@@ -40,14 +40,11 @@ class PythonAdapter(LanguageAdapter):
                 Capability.CONTROL_FLOW,
             ],
             partial={
-                Capability.CALL_GRAPH:
-                    "structural resolution does not include runtime dispatch",
-                Capability.DATA_FLOW:
-                    "operation operands are extracted; interprocedural propagation is pending",
-                Capability.EVENT_MODEL:
-                    "branch and transition operations are intraprocedural",
-                Capability.TYPE_INFO:
-                    "annotations are preserved but are not resolved by a type checker",
+                Capability.CALL_GRAPH: "structural resolution does not include runtime dispatch",
+                Capability.DATA_FLOW: "operation operands plus conservative argument/return propagation; "
+                "dynamic dispatch is unresolved",
+                Capability.EVENT_MODEL: "branch and transition operations are intraprocedural",
+                Capability.TYPE_INFO: "annotations and constructor syntax are preserved; no type checker",
             },
         )
 
