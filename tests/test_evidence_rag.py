@@ -2,11 +2,13 @@
 
 from pathlib import Path
 
+import pytest
+
 from smartbench.detector.fingerprint import ProjectFingerprint
-from smartbench.engine.debate import DebateEngine
+from smartbench.engine.debate import DebateEngine, EvidencePolicy
 from smartbench.graph.evidence import DeterministicGraphRAG
 from smartbench.graph.schema import CodeEdge, CodeGraph, CodeNode, EdgeType, NodeType
-from smartbench.ir import EvidencePack, SemanticIR
+from smartbench.ir import EvidencePack, EvidenceRef, FactKind, SemanticFact, SemanticIR
 
 
 def _sample_ir(tmp_path: Path) -> SemanticIR:
@@ -73,3 +75,57 @@ def test_debate_receives_the_same_evidence_contract(tmp_path: Path):
     assert result.consensus_reached is True
     assert result.debate_log[0]["role"] == "evidence"
     assert all("DETERMINISTIC EVIDENCE PACK" in prompt for prompt in prompts)
+
+
+def test_exclusive_debate_rejects_context_and_unsupported_suggestions(tmp_path: Path):
+    fact = SemanticFact(
+        subject="app.py",
+        predicate=FactKind.STATE_TRANSITION,
+        object="retry without terminal guard",
+        evidence=(EvidenceRef("app.py", 4, snippet="retries += 1"),),
+    )
+    pack = EvidencePack.from_facts("retry", [fact], graph_version="stable-v2")
+    prompts: list[str] = []
+    responses = iter([
+        '{"proposals": ['
+        f'{{"title": "grounded", "fact_ids": ["{fact.fact_id}"]}},'
+        '{"title": "invented", "fact_ids": ["fact-does-not-exist"]}'
+        "]}",
+        '{"verdicts": []}',
+        '{"final_suggestions": ['
+        f'{{"title": "grounded", "fact_ids": ["{fact.fact_id}"]}},'
+        '{"title": "invented", "fact_ids": []}'
+        "]}",
+    ])
+
+    def llm(prompt: str, **_kwargs: object) -> str:
+        prompts.append(prompt)
+        return next(responses)
+
+    engine = DebateEngine(
+        llm,
+        fingerprint=ProjectFingerprint(project_path=tmp_path, project_name="fixture"),
+        max_call_attempts=1,
+        evidence_policy=EvidencePolicy.EXCLUSIVE,
+    )
+    result = engine.debate("RAW_CONTEXT_MUST_NOT_LEAK", evidence_pack=pack)
+
+    assert [item["title"] for item in result.final_suggestions] == ["grounded"]
+    assert all("RAW_CONTEXT_MUST_NOT_LEAK" not in prompt for prompt in prompts)
+    assert all(fact.fact_id in prompt for prompt in prompts)
+    gates = [entry for entry in result.debate_log if entry["role"] == "evidence_gate"]
+    assert [(entry["stage"], entry["rejected"]) for entry in gates] == [
+        ("proposer", 1),
+        ("final", 1),
+    ]
+
+
+def test_required_evidence_policy_rejects_missing_pack(tmp_path: Path):
+    engine = DebateEngine(
+        lambda _prompt: "{}",
+        fingerprint=ProjectFingerprint(project_path=tmp_path, project_name="fixture"),
+        evidence_policy=EvidencePolicy.REQUIRED,
+    )
+
+    with pytest.raises(ValueError, match="evidence_pack is required"):
+        engine.debate("context")

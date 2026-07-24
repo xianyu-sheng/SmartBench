@@ -458,17 +458,32 @@ class TestPhaseOrchestration:
         fingerprint,
         code_graph,
     ):
+        import re
+
         import smartbench.cli.phases as phases
         import smartbench.diagnostics.executor as diagnostic_executor
 
-        responses = iter([
-            STRATEGY_RESPONSE,
-            PROPOSER_RESPONSE,
-            CRITIQUE_RESPONSE,
-            JUDGE_RESPONSE,
-        ])
+        response_index = 0
+
+        def grounded_response(prompt, *args, **kwargs):
+            nonlocal response_index
+            response_index += 1
+            if response_index == 1:
+                return STRATEGY_RESPONSE
+            if response_index == 3:
+                return CRITIQUE_RESPONSE
+            prompt_text = args[0] if args else prompt
+            fact_id = re.search(r"fact-[0-9a-f]{16}", prompt_text).group(0)
+            if response_index == 2:
+                payload = json.loads(PROPOSER_RESPONSE)
+                payload["proposals"][0]["fact_ids"] = [fact_id]
+                return json.dumps(payload)
+            payload = json.loads(JUDGE_RESPONSE)
+            payload["final_suggestions"][0]["fact_ids"] = [fact_id]
+            return json.dumps(payload)
+
         monkeypatch.setattr(
-            phases, "call_llm", lambda *args, **kwargs: next(responses)
+            phases, "call_llm", grounded_response
         )
         monkeypatch.setattr(
             phases, "display_diagnosis_results", lambda *args, **kwargs: None

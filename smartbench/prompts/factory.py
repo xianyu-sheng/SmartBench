@@ -265,6 +265,7 @@ class PromptFactory:
       "problem": "具体问题描述（中文，150字以内）",
       "solution": "具体修复方案，可用伪代码说明",
       "implementation_steps": ["步骤1（中文）", "步骤2（中文）", "步骤3（中文）"],
+      "fact_ids": ["fact-证据包中实际存在的ID"],
       "evidence_claims": [
         {{
           "type": "file_location",
@@ -408,6 +409,7 @@ class PromptFactory:
       "implementation": "具体实施步骤（中文）",
       "location": "文件:行号（如适用，确保引用真实存在的文件）",
       "patch": "可直接应用的完整 unified diff；仅在有充分把握时提供，否则返回空字符串",
+      "fact_ids": ["fact-证据包中实际存在的ID"],
       "evidence_status": "该建议的证据验证状态",
       "priority": 1至5,
       "risk_level": "low/medium/high",

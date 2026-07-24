@@ -9,8 +9,10 @@ from typing import List, Optional
 
 from smartbench.core.adapters.base import LanguageAdapter
 from smartbench.detector.fingerprint import Language
+from smartbench.frontends.python import PythonSemanticLowerer
 from smartbench.graph.builder import CodeGraphBuilder
 from smartbench.graph.schema import CodeGraph
+from smartbench.ir import Capability, CapabilitySet, SemanticIR
 
 
 class PythonAdapter(LanguageAdapter):
@@ -26,6 +28,28 @@ class PythonAdapter(LanguageAdapter):
 
     def can_parse(self, file_path: Path) -> bool:
         return file_path.suffix.lower() in self.file_extensions
+
+    @property
+    def semantic_capabilities(self) -> CapabilitySet:
+        return CapabilitySet.from_values(
+            self.language,
+            [
+                Capability.STRUCTURE,
+                Capability.SOURCE_LOCATIONS,
+                Capability.SYMBOLS,
+                Capability.CONTROL_FLOW,
+            ],
+            partial={
+                Capability.CALL_GRAPH:
+                    "structural resolution does not include runtime dispatch",
+                Capability.DATA_FLOW:
+                    "operation operands are extracted; interprocedural propagation is pending",
+                Capability.EVENT_MODEL:
+                    "branch and transition operations are intraprocedural",
+                Capability.TYPE_INFO:
+                    "annotations are preserved but are not resolved by a type checker",
+            },
+        )
 
     def parse_file(self, file_path: Path, project_root: Path) -> CodeGraph:
         """Parse a single Python file into CodeGraph."""
@@ -75,3 +99,28 @@ class PythonAdapter(LanguageAdapter):
             Language.PYTHON,
             file_filter=str_filter,
         )
+
+    def parse_semantic_file(self, file_path: Path, project_root: Path) -> SemanticIR:
+        ir = super().parse_semantic_file(file_path, project_root)
+        return self._lower_semantics(ir)
+
+    def parse_semantic_project(
+        self,
+        project_path: Path,
+        file_paths: Optional[List[Path]] = None,
+    ) -> SemanticIR:
+        ir = super().parse_semantic_project(project_path, file_paths=file_paths)
+        return self._lower_semantics(ir)
+
+    def _lower_semantics(self, ir: SemanticIR) -> SemanticIR:
+        lowered = PythonSemanticLowerer().lower(ir)
+        ir.operations.extend(lowered.operations)
+        ir.operation_edges.extend(lowered.edges)
+        ir.facts.extend(lowered.facts)
+        ir.meta["python_frontend"] = {
+            "files_analyzed": lowered.files_analyzed,
+            "operations": len(lowered.operations),
+            "operation_edges": len(lowered.edges),
+            "errors": list(lowered.errors),
+        }
+        return ir

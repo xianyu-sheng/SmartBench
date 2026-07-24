@@ -10,6 +10,7 @@ Orchestrates the 5-phase pipeline:
 """
 
 import atexit
+import hashlib
 import os
 import shutil
 import tempfile
@@ -37,11 +38,17 @@ from smartbench.diagnostics.registry import (
     infer_problem_category,
 )
 from smartbench.diagnostics.tools import ALL_TOOLS
-from smartbench.engine.debate import DebateEngine
+from smartbench.engine.debate import DebateEngine, EvidencePolicy
 from smartbench.graph.builder import CodeGraphBuilder
 from smartbench.graph.evidence import DeterministicGraphRAG
 from smartbench.graph.retriever import GraphRetriever
-from smartbench.ir import SemanticIR
+from smartbench.ir import (
+    EvidencePack,
+    EvidenceRef,
+    FactKind,
+    SemanticFact,
+    SemanticIR,
+)
 from smartbench.llm.client import call_llm, parse_json_safe
 from smartbench.llm.provider import load_api_keys_from_env
 from smartbench.path_safety import read_text_prefix, resolve_project_file
@@ -408,7 +415,12 @@ def run_diagnosis_with_graph(
             timeout_seconds=timeout_seconds,
         ) or ""
 
-    debate_engine = DebateEngine(llm_fn, prompt_factory=factory, verifier=verifier)
+    debate_engine = DebateEngine(
+        llm_fn,
+        prompt_factory=factory,
+        verifier=verifier,
+        evidence_policy=EvidencePolicy.EXCLUSIVE,
+    )
 
     def on_progress(role: str, parsed_json, raw_text: str) -> None:
         show_debate_round(console, role, parsed_json, raw_text)
@@ -487,6 +499,7 @@ def run_fallback_analysis(
     factory = PromptFactory(fingerprint)
 
     code_context = ""
+    fallback_facts: list[SemanticFact] = []
     for entry_file in fingerprint.entry_points[:3]:
         try:
             entry_path = resolve_project_file(project_path, entry_file)
@@ -495,7 +508,22 @@ def run_fallback_analysis(
             content = read_text_prefix(entry_path, 64 * 1024)
             if content is None:
                 continue
-            code_context += f"\n// {entry_file}\n{content[:2000]}\n"
+            excerpt = content[:2000]
+            code_context += f"\n// {entry_file}\n{excerpt}\n"
+            fallback_facts.append(
+                SemanticFact(
+                    subject=entry_file,
+                    predicate=FactKind.SOURCE,
+                    object="bounded fallback source",
+                    evidence=(EvidenceRef(
+                        file_path=entry_file,
+                        line_start=1,
+                        line_end=max(1, len(excerpt.splitlines())),
+                        snippet=excerpt,
+                        source="fallback_source",
+                    ),),
+                )
+            )
         except Exception:
             pass
 
@@ -509,9 +537,24 @@ def run_fallback_analysis(
             readme = read_text_prefix(readme_path, 64 * 1024)
             if readme is None:
                 raise OSError("README could not be read safely")
+            readme_excerpt = readme[:2000]
             code_context = (
-                f"// {fingerprint.readme_path}\n{readme[:2000]}\n"
+                f"// {fingerprint.readme_path}\n{readme_excerpt}\n"
                 + code_context
+            )
+            fallback_facts.append(
+                SemanticFact(
+                    subject=fingerprint.readme_path,
+                    predicate=FactKind.SOURCE,
+                    object="bounded fallback documentation",
+                    evidence=(EvidenceRef(
+                        file_path=fingerprint.readme_path,
+                        line_start=1,
+                        line_end=max(1, len(readme_excerpt.splitlines())),
+                        snippet=readme_excerpt,
+                        source="fallback_source",
+                    ),),
+                )
             )
         except Exception:
             pass
@@ -531,8 +574,23 @@ def run_fallback_analysis(
             timeout_seconds=timeout_seconds,
         ) or ""
 
-    debate_engine = DebateEngine(llm_fn, prompt_factory=factory)
-    result = debate_engine.debate(analysis_context, target=concern)
+    version_material = "|".join(fact.fact_id for fact in fallback_facts)
+    evidence_pack = EvidencePack.from_facts(
+        concern,
+        fallback_facts,
+        retrieval_trace=("fallback:bounded-source",),
+        graph_version=hashlib.sha256(version_material.encode("utf-8")).hexdigest()[:16],
+    )
+    debate_engine = DebateEngine(
+        llm_fn,
+        prompt_factory=factory,
+        evidence_policy=EvidencePolicy.EXCLUSIVE,
+    )
+    result = debate_engine.debate(
+        analysis_context,
+        target=concern,
+        evidence_pack=evidence_pack,
+    )
 
     display_diagnosis_results(console, result, fingerprint, None)
     return result

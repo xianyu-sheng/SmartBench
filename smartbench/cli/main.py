@@ -262,6 +262,11 @@ def unified_run(
         min=0,
         help="Maximum finding EvidencePacks to attach",
     ),
+    state_rules: Optional[List[str]] = typer.Option(
+        None,
+        "--state-rules",
+        help="Load a versioned YAML state-machine rule file (repeatable)",
+    ),
 ):
     """Run unified multi-language diagnosis."""
     try:
@@ -276,6 +281,7 @@ def unified_run(
             min_confidence=min_confidence,
             build_evidence_packs=not no_evidence,
             max_evidence_packs=max_evidence_packs,
+            state_rule_paths=state_rules,
         )
     except SystemExit:
         raise

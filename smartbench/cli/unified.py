@@ -181,6 +181,7 @@ def run_unified_diagnosis(
     min_confidence: float = 0.7,
     build_evidence_packs: bool = True,
     max_evidence_packs: int = 50,
+    state_rule_paths: Optional[List[str]] = None,
 ) -> Tuple[UnifiedDiagnosticResult, Optional[Path]]:
     """
     Run unified diagnosis.
@@ -196,6 +197,7 @@ def run_unified_diagnosis(
         min_confidence: Minimum inclusive confidence to include in reports
         build_evidence_packs: Attach deterministic graph evidence to findings
         max_evidence_packs: Maximum number of finding evidence packs
+        state_rule_paths: Versioned YAML state-rule files to evaluate
 
     Returns:
         (result, sarif_path) tuple
@@ -218,6 +220,7 @@ def run_unified_diagnosis(
         min_confidence=min_confidence,
         build_evidence_packs=build_evidence_packs,
         max_evidence_packs=max_evidence_packs,
+        state_rule_paths=[Path(path).expanduser() for path in state_rule_paths or []],
     )
 
     # Run diagnosis

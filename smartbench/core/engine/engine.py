@@ -38,11 +38,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
+from smartbench.analysis import StateRuleConfigError, load_state_rule_file
 from smartbench.core.adapters.base import AdapterRegistry
 from smartbench.core.rules.base import DiagnosticRule, Finding, RuleRegistry
+from smartbench.core.rules.state_machine import DeclarativeStateRule
 from smartbench.detector import ProjectFingerprint, ProjectScanner
 from smartbench.graph.evidence import DeterministicGraphRAG
-from smartbench.ir import EvidencePack, SemanticIR
+from smartbench.ir import EvidencePack, FactKind, SemanticFact, SemanticIR
 
 
 @dataclass
@@ -59,6 +61,7 @@ class UnifiedDiagnosticConfig:
     max_evidence_packs: int = 50
     evidence_hops: int = 2
     evidence_nodes: int = 8
+    state_rule_paths: Optional[List[Path]] = None
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.min_confidence <= 1.0:
@@ -173,6 +176,12 @@ class UnifiedDiagnosticEngine:
                 detected_langs,
                 config,
             )
+            applicable_rules = self._with_state_rules(
+                applicable_rules,
+                detected_langs,
+                config,
+                result,
+            )
 
             if result.ir:
                 for rule in applicable_rules:
@@ -245,6 +254,12 @@ class UnifiedDiagnosticEngine:
             applicable_rules = self._get_applicable_rules(
                 [adapter.language],
                 config,
+            )
+            applicable_rules = self._with_state_rules(
+                applicable_rules,
+                [adapter.language],
+                config,
+                result,
             )
 
             # Run rules
@@ -321,6 +336,9 @@ class UnifiedDiagnosticEngine:
         applicable: List[DiagnosticRule] = []
         seen: Set[str] = set()
 
+        if not config.use_static_rules:
+            return applicable
+
         for lang in languages:
             rules = self.rules.get_rules_for_language(lang)
             for rule in rules:
@@ -333,6 +351,37 @@ class UnifiedDiagnosticEngine:
             applicable = [r for r in applicable if r.rule_id in config.rule_ids]
 
         return applicable
+
+    def _with_state_rules(
+        self,
+        rules: List[DiagnosticRule],
+        languages: List[str],
+        config: UnifiedDiagnosticConfig,
+        result: UnifiedDiagnosticResult,
+    ) -> List[DiagnosticRule]:
+        """Load explicitly supplied declarative rules without mutating the registry."""
+        combined = list(rules)
+        known_ids = {rule.rule_id for rule in combined}
+        detected = set(languages)
+        for path in config.state_rule_paths or []:
+            try:
+                definitions = load_state_rule_file(Path(path))
+            except (OSError, StateRuleConfigError) as exc:
+                result.errors.append(f"State-rule load failed for {path}: {exc}")
+                continue
+            for definition in definitions:
+                if config.rule_ids and definition.rule_id not in config.rule_ids:
+                    continue
+                if definition.languages and not detected.intersection(definition.languages):
+                    continue
+                if definition.rule_id in known_ids:
+                    result.errors.append(
+                        f"State rule {definition.rule_id} skipped: duplicate rule id"
+                    )
+                    continue
+                combined.append(DeclarativeStateRule(definition))
+                known_ids.add(definition.rule_id)
+        return combined
 
     def _filter_by_confidence(
         self,
@@ -442,6 +491,17 @@ class UnifiedDiagnosticEngine:
                     f"Evidence retrieval failed for {location.file_path}:{location.line_start}: {exc}"
                 )
                 continue
+            finding_fact = self._finding_semantic_fact(result.ir, finding)
+            if finding_fact is not None:
+                pack = EvidencePack.from_facts(
+                    query,
+                    [finding_fact, *pack.facts],
+                    retrieval_trace=(
+                        *pack.retrieval_trace,
+                        f"finding:{finding.rule_id}",
+                    ),
+                    graph_version=pack.graph_version,
+                )
             key_material = (
                 f"{finding.rule_id}|{location.file_path}|{location.line_start}|"
                 f"{location.line_end}|{finding.message}"
@@ -450,3 +510,41 @@ class UnifiedDiagnosticEngine:
             packs[key] = pack
             finding.metadata.setdefault("evidence_pack_id", key)
         return packs
+
+    @staticmethod
+    def _finding_semantic_fact(
+        ir: SemanticIR,
+        finding: Finding,
+    ) -> Optional[SemanticFact]:
+        """Recover exact normalized operations referenced by a deterministic finding."""
+        operation_ids = {
+            str(finding.metadata.get("event_operation", "")),
+            str(finding.metadata.get("action_operation", "")),
+        } - {""}
+        if not operation_ids:
+            return None
+        operations = [
+            operation for operation in ir.operations
+            if operation.id in operation_ids
+        ]
+        if not operations:
+            return None
+        operations.sort(
+            key=lambda operation: (
+                operation.location.file_path,
+                operation.location.line_start,
+                operation.id,
+            )
+        )
+        return SemanticFact(
+            subject=str(finding.metadata.get("scope_id", finding.rule_id)),
+            predicate=FactKind.STATE_TRANSITION,
+            object=finding.message,
+            evidence=tuple(operation.location for operation in operations),
+            confidence=finding.confidence,
+            attributes={
+                "rule_id": finding.rule_id,
+                "operation_ids": [operation.id for operation in operations],
+                "missing": finding.metadata.get("missing", ""),
+            },
+        )

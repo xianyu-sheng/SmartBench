@@ -18,12 +18,6 @@ from smartbench.core.rules.common import (
     ResourceLeakRule,
     register_builtin_rules,
 )
-from smartbench.core.rules.security import (
-    CommandInjectionRule,
-    HardcodedSecretRule,
-    PathTraversalRule,
-    register_security_rules,
-)
 from smartbench.core.rules.quality import (
     ExceptionTooBroadRule,
     InsecureRandomRule,
@@ -32,6 +26,13 @@ from smartbench.core.rules.quality import (
     UnusedImportRule,
     register_quality_rules,
 )
+from smartbench.core.rules.security import (
+    CommandInjectionRule,
+    HardcodedSecretRule,
+    PathTraversalRule,
+    register_security_rules,
+)
+from smartbench.core.rules.state_machine import DeclarativeStateRule
 
 __all__ = [
     "DiagnosticRule",
@@ -54,4 +55,5 @@ __all__ = [
     "TodoFixmeRule",
     "UnusedImportRule",
     "register_quality_rules",
+    "DeclarativeStateRule",
 ]

@@ -108,7 +108,21 @@ smartbench unified run --project . --rule null_dereference --rule hardcoded_secr
 
 # Export SARIF report (standard format for GitHub/GitLab code scanning)
 smartbench unified run --project . --sarif report.sarif --output report.json
+
+# Run a versioned declarative state-machine rule
+smartbench unified run \
+  --project /path/to/repository \
+  --language go \
+  --state-rules benchmarks/reasonix/reasoning_stop.yaml \
+  --output state-report.json
 ```
+
+Python and Go semantic frontends normalize control-flow operations into the
+same IR. Declarative state rules use the versioned
+`smartbench.state-rules/v1` schema, remain outside language frontends, and
+produce source-backed JSON/SARIF findings. In evidence-exclusive multi-agent
+mode, every accepted suggestion must cite a stable `fact-*` ID from the
+deterministic EvidencePack.
 
 Inspect available local probes, or run the diagnosis-only path:
 

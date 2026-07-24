@@ -144,10 +144,14 @@ class StateMachineAnalyzer:
         self,
         ir: SemanticIR,
         invariants: Iterable[StateInvariant],
+        languages: Iterable[str] | None = None,
     ) -> StateAnalysisResult:
         invariant_list = list(invariants)
+        language_filter = {language.lower() for language in languages or ()}
         by_scope: dict[str, list[SemanticOperation]] = {}
         for operation in ir.operations:
+            if language_filter and operation.language.lower() not in language_filter:
+                continue
             if not operation.scope_id:
                 continue
             by_scope.setdefault(operation.scope_id, []).append(operation)

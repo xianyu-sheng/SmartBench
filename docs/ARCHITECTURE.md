@@ -10,9 +10,9 @@ source project
     -> language frontend
     -> SemanticIR (v1)
     -> structural code graph + capability matrix
-    -> deterministic analyzers / graph retrieval
+    -> declarative rules + deterministic analyzers / graph retrieval
     -> EvidencePack
-    -> proposer / critic / judge / verifier
+    -> evidence-exclusive proposer / critic / judge / verifier
     -> Finding + SARIF / JSON report
 ```
 
@@ -53,6 +53,7 @@ selection, bounded graph traversal, deterministic ranking, and source-location
 collection. It returns an `EvidencePack` containing:
 
 - graph facts;
+- stable content-addressed fact IDs;
 - source references and snippets;
 - retrieval trace;
 - graph snapshot hash.
@@ -62,15 +63,20 @@ LLM summary.
 
 ### Multi-agent verification
 
-`DebateEngine.debate(..., evidence_pack=pack)` injects the pack into the
-proposer/critic/judge context. Agents may propose or reject hypotheses, but a
-concrete claim must cite an evidence entry. Existing disk and graph verifiers
-remain compatible with SemanticIR through its graph compatibility view.
+Production diagnosis uses `EvidencePolicy.EXCLUSIVE`: arbitrary repository
+context is removed from proposer/critic/judge prompts, and the same pack is
+used in every round. Proposed and final suggestions must cite valid `fact-*`
+IDs; unsupported or unknown IDs are rejected by a deterministic evidence gate.
+The optional policy remains available only for backwards-compatible library
+use. Existing disk and graph verifiers remain compatible with SemanticIR
+through its graph compatibility view.
 
 ## Current migration state
 
-- Existing Python/JavaScript/TypeScript data-flow rules now receive SemanticIR
-  through the unified engine boundary.
+- Python and Go have semantic frontends that lower into the same normalized
+  operation model. Existing JavaScript/TypeScript data-flow rules receive
+  SemanticIR through the unified engine boundary but do not yet claim the new
+  operation capabilities.
 - Existing CodeGraph consumers remain compatible through delegated graph
   queries.
 - Unified results carry bounded EvidencePacks by default; use
@@ -89,6 +95,13 @@ normalized operations. Invariants select an event, an action and an optional
 guard/exit relation; the engine contains no project-specific identifiers.
 Repository-specific expectations belong in benchmark specifications or rules,
 not in the language frontend.
+
+Rule files use the `smartbench.state-rules/v1` YAML schema and are loaded with
+the repeatable `--state-rules` CLI option. A validated rule is adapted to the
+normal `DiagnosticRule` interface, so its violations pass through confidence
+filtering, JSON/SARIF output, and exact EvidencePack construction like built-in
+rules. See `benchmarks/reasonix/reasoning_stop.yaml` for a real pre-fix/post-fix
+specification.
 
 ## Acceptance criteria for new frontends
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Mapping, Sequence
@@ -72,7 +74,21 @@ class SemanticFact:
     def kind(self) -> FactKind | str:
         return self.predicate
 
+    @property
+    def fact_id(self) -> str:
+        """Stable content address used by evidence-constrained agents."""
+        encoded = json.dumps(
+            self._identity_dict(),
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        ).encode("utf-8")
+        return "fact-" + hashlib.sha256(encoded).hexdigest()[:16]
+
     def to_dict(self) -> dict[str, object]:
+        return {"fact_id": self.fact_id, **self._identity_dict()}
+
+    def _identity_dict(self) -> dict[str, object]:
         predicate = self.predicate.value if isinstance(self.predicate, FactKind) else self.predicate
         return {
             "subject": self.subject,

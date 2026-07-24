@@ -1,0 +1,23 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: reasonix-reasoning-stop-before-empty-retry
+    name: Honour reasoning-only stop before retry
+    description: A reasoning-only stop response must be handled before incrementing the empty-final retry counter.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: reasoning-only stop must be honoured before scheduling an empty-final retry
+    invariant:
+      kind: require_guard_before_action
+      event:
+        kinds: [branch]
+        contains_all: [hasVisibleFinalAnswer]
+        attributes:
+          operators: ["!"]
+          calls: [hasVisibleFinalAnswer]
+      guard:
+        kinds: [branch]
+        contains_all: [reasoningOnlyFinishHonoured]
+      action:
+        kinds: [update]
+        contains_all: [emptyFinalBlocks]
