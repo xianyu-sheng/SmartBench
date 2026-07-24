@@ -29,7 +29,10 @@ in the target repository; optional RAG indexing writes cache data under
   synchronization use the same semantic edge model.
 - A versioned `SemanticIR` boundary with frontend contracts, capability
   declarations, normalized operations, control-flow edges, and explicit
-  unknown/unsupported states.
+  `full`/`partial`/`unsupported` analysis status in every JSON report.
+- Deterministic source provenance (`production`, `test`, `fixture`, `example`,
+  `generated`, and `documentation`) shared by all rules; production-scoped
+  rules do not promote fixture findings to product-level bug claims.
 - Bounded interprocedural control-flow and data-flow for Python/Go, including
   call/return paths, argument/parameter links, return propagation, and
   declarative cross-function state rules.
@@ -156,6 +159,12 @@ produce source-backed JSON/SARIF findings. In evidence-exclusive multi-agent
 mode, every accepted suggestion must cite a stable `fact-*` ID from the
 deterministic EvidencePack. Benchmark manifests declare snapshot paths and
 finding expectations, so regression claims are reproducible and measurable.
+
+The JSON result also exposes `analysis_status` and `stats.rules_*`. A `partial`
+rule result is an honest bounded approximation (for example, intra-procedural
+taint analysis); `unsupported` means the rule was not run and is never treated
+as a clean result. Each finding carries its source role when the frontend can
+resolve it.
 
 Try the included cross-function benchmark:
 

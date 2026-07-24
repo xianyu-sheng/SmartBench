@@ -45,11 +45,13 @@ from smartbench.core.rules.state_machine import DeclarativeStateRule
 from smartbench.detector import ProjectFingerprint, ProjectScanner
 from smartbench.graph.evidence import DeterministicGraphRAG
 from smartbench.ir import (
+    CapabilityLevel,
     EvidencePack,
     FactKind,
     OperationEdgeKind,
     SemanticFact,
     SemanticIR,
+    SourceRole,
 )
 
 
@@ -95,6 +97,7 @@ class UnifiedDiagnosticResult:
     duration_ms: int = 0
     errors: List[str] = field(default_factory=list)
     evidence_packs: Dict[str, EvidencePack] = field(default_factory=dict)
+    analysis_status: Dict[str, Dict[str, object]] = field(default_factory=dict)
 
     def to_dict(self) -> Dict:
         return {
@@ -102,6 +105,7 @@ class UnifiedDiagnosticResult:
             "stats": self.stats,
             "duration_ms": self.duration_ms,
             "errors": self.errors,
+            "analysis_status": self.analysis_status,
             "fingerprint": self.fingerprint.to_dict() if self.fingerprint else None,
             "ir_schema_version": self.ir.schema_version if self.ir else None,
             "ir_languages": list(self.ir.languages) if self.ir else [],
@@ -200,18 +204,7 @@ class UnifiedDiagnosticEngine:
                         not config.rule_ids or rule.rule_id not in config.rule_ids
                     ):
                         continue
-                    required = getattr(rule, "required_capabilities", set())
-                    missing = result.ir.missing_capabilities(required) if required else {}
-                    if missing:
-                        result.errors.append(
-                            f"Rule {rule.rule_id} skipped: missing semantic capabilities {missing}"
-                        )
-                        continue
-                    try:
-                        findings = rule.analyze(result.ir)
-                        result.findings.extend(findings)
-                    except Exception as e:
-                        result.errors.append(f"Rule {rule.rule_id} failed: {e}")
+                    self._execute_rule(rule, result.ir, result)
 
             # Step 3.5: Apply confidence threshold filter
             result.findings = self._filter_by_confidence(
@@ -280,18 +273,7 @@ class UnifiedDiagnosticEngine:
                     not config.rule_ids or rule.rule_id not in config.rule_ids
                 ):
                     continue
-                required = getattr(rule, "required_capabilities", set())
-                missing = result.ir.missing_capabilities(required) if required else {}
-                if missing:
-                    result.errors.append(
-                        f"Rule {rule.rule_id} skipped: missing semantic capabilities {missing}"
-                    )
-                    continue
-                try:
-                    findings = rule.analyze(result.ir)
-                    result.findings.extend(findings)
-                except Exception as e:
-                    result.errors.append(f"Rule {rule.rule_id} failed: {e}")
+                self._execute_rule(rule, result.ir, result)
 
             # Apply confidence threshold filter
             result.findings = self._filter_by_confidence(
@@ -357,6 +339,78 @@ class UnifiedDiagnosticEngine:
             applicable = [r for r in applicable if r.rule_id in config.rule_ids]
 
         return applicable
+
+    def _execute_rule(
+        self,
+        rule: DiagnosticRule,
+        ir: SemanticIR,
+        result: UnifiedDiagnosticResult,
+    ) -> None:
+        """Evaluate a rule contract, run it, and attach provenance metadata."""
+        supported = rule.supported_languages
+        targets = (
+            sorted(set(ir.languages) & set(supported))
+            if supported is not None
+            else list(ir.languages)
+        )
+        assessment = ir.assess_requirements(rule.analysis_requirements, targets)
+        status = assessment.to_dict()
+        roles = rule.source_roles
+        if roles is not None:
+            status["source_roles"] = sorted(role.value for role in roles)
+        result.analysis_status[rule.rule_id] = status
+
+        if assessment.status == CapabilityLevel.UNSUPPORTED:
+            missing = {
+                language: [
+                    capability
+                    for capability, detail in details.get("capabilities", {}).items()
+                    if isinstance(detail, dict)
+                    and detail.get("status") == CapabilityLevel.UNSUPPORTED.value
+                ]
+                for language, details in assessment.by_language.items()
+            }
+            missing = {language: values for language, values in missing.items() if values}
+            result.errors.append(
+                f"Rule {rule.rule_id} skipped: missing semantic capabilities {missing}; "
+                f"analysis_status={assessment.status.value}"
+            )
+            return
+
+        try:
+            findings = rule.analyze(ir)
+        except Exception as exc:
+            result.errors.append(f"Rule {rule.rule_id} failed: {exc}")
+            return
+
+        excluded = 0
+        for finding in findings:
+            role = self._source_role(ir, finding.location.file_path)
+            if role is not None:
+                finding.metadata.setdefault("source_role", role.value)
+                finding.metadata.setdefault("analysis_status", assessment.status.value)
+                if assessment.reason:
+                    finding.metadata.setdefault("analysis_limitations", assessment.reason)
+            if roles is not None and role is not None and role not in roles:
+                excluded += 1
+                continue
+            result.findings.append(finding)
+        if excluded:
+            status["excluded_findings"] = excluded
+
+    @staticmethod
+    def _source_role(ir: SemanticIR, file_path: str) -> Optional[SourceRole]:
+        unit = ir.source_units.get(file_path)
+        if unit is not None:
+            return unit.role
+        # A finding may use an absolute path while the IR stores a relative
+        # path.  Resolve that mismatch without weakening path safety.
+        try:
+            relative = str(Path(file_path).resolve().relative_to(Path(ir.project_path).resolve()))
+        except (ValueError, OSError):
+            relative = ""
+        unit = ir.source_units.get(relative) if relative else None
+        return unit.role if unit is not None else None
 
     def _with_state_rules(
         self,
@@ -484,6 +538,16 @@ class UnifiedDiagnosticEngine:
         # Count errors
         stats["errors"] = len(result.errors)
         stats["evidence_packs"] = len(result.evidence_packs)
+        statuses = [entry.get("status") for entry in result.analysis_status.values()]
+        stats["rules_total"] = len(statuses)
+        stats["rules_full"] = sum(1 for status in statuses if status == "full")
+        stats["rules_partial"] = sum(1 for status in statuses if status == "partial")
+        stats["rules_unsupported"] = sum(
+            1 for status in statuses if status == "unsupported"
+        )
+        stats["findings_excluded_source_scope"] = sum(
+            int(entry.get("excluded_findings", 0)) for entry in result.analysis_status.values()
+        )
 
         return stats
 

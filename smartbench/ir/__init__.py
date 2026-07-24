@@ -7,7 +7,7 @@ frontends and analysis backends.  Frontends lower source code into
 for a particular language.
 """
 
-from smartbench.ir.capabilities import Capability, CapabilitySet
+from smartbench.ir.capabilities import Capability, CapabilityLevel, CapabilitySet
 from smartbench.ir.contracts import (
     CONTRACT_SCHEMA_VERSION,
     BindingContract,
@@ -25,10 +25,12 @@ from smartbench.ir.operations import (
     OperationKind,
     SemanticOperation,
 )
-from smartbench.ir.schema import SemanticIR, SourceUnit
+from smartbench.ir.provenance import SourceRole, classify_source_role
+from smartbench.ir.schema import AnalysisAssessment, SemanticIR, SourceUnit
 
 __all__ = [
     "Capability",
+    "CapabilityLevel",
     "CapabilitySet",
     "CONTRACT_SCHEMA_VERSION",
     "BindingContract",
@@ -48,4 +50,7 @@ __all__ = [
     "SemanticOperation",
     "SemanticIR",
     "SourceUnit",
+    "SourceRole",
+    "classify_source_role",
+    "AnalysisAssessment",
 ]

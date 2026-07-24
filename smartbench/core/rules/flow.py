@@ -1,9 +1,10 @@
 """Integration between deterministic data flow and the rule engine."""
 
-from typing import List, Set
+from typing import List, Mapping, Set
 
 from smartbench.core.rules.base import DiagnosticRule, Finding, Severity
 from smartbench.graph.schema import CodeGraph
+from smartbench.ir import Capability, CapabilityLevel, SourceRole
 
 
 class DataFlowSecurityRule(DiagnosticRule):
@@ -31,6 +32,18 @@ class DataFlowSecurityRule(DiagnosticRule):
     @property
     def supported_languages(self) -> Set[str]:
         return {"javascript", "python", "typescript"}
+
+    @property
+    def analysis_requirements(self) -> Mapping[Capability | str, CapabilityLevel | str]:
+        # The taint engine is deliberately intra-procedural and conservative;
+        # claiming FULL data-flow here would make its limitations invisible.
+        return {Capability.DATA_FLOW: CapabilityLevel.PARTIAL}
+
+    @property
+    def source_roles(self) -> Set[SourceRole]:
+        # Test/evaluation fixtures are useful inputs for the analyzer itself,
+        # but findings there are not production bug claims.
+        return {SourceRole.PRODUCTION, SourceRole.UNKNOWN}
 
     def analyze(self, ir: CodeGraph) -> List[Finding]:
         from smartbench.flow import DataFlowAnalyzer

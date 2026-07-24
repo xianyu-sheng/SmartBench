@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from smartbench.graph.schema import CodeGraph
-from smartbench.ir.capabilities import Capability, CapabilitySet
+from smartbench.ir.capabilities import Capability, CapabilityLevel, CapabilitySet
 from smartbench.ir.contracts import CONTRACT_SCHEMA_VERSION, validate_semantic_ir
 from smartbench.ir.evidence import SemanticFact
 from smartbench.ir.operations import OperationEdge, SemanticOperation
+from smartbench.ir.provenance import SourceRole, classify_source_role
 from smartbench.path_safety import read_text_bounded, resolve_project_file
 
 
@@ -22,6 +23,8 @@ class SourceUnit:
     language: str
     line_count: int = 0
     content_hash: str = ""
+    role: SourceRole = SourceRole.PRODUCTION
+    role_reason: str = "default source path"
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -29,6 +32,28 @@ class SourceUnit:
             "language": self.language,
             "line_count": self.line_count,
             "content_hash": self.content_hash,
+            "role": self.role.value,
+            "role_reason": self.role_reason,
+        }
+
+
+@dataclass(frozen=True)
+class AnalysisAssessment:
+    """Result of evaluating one rule's semantic contract."""
+
+    status: CapabilityLevel
+    languages: tuple[str, ...]
+    requirements: dict[str, str]
+    by_language: dict[str, dict[str, object]]
+    reason: str = ""
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "status": self.status.value,
+            "languages": list(self.languages),
+            "requirements": dict(self.requirements),
+            "by_language": self.by_language,
+            "reason": self.reason,
         }
 
 
@@ -71,7 +96,10 @@ class SemanticIR:
             units.setdefault(
                 node.file_path,
                 SourceUnit(
-                    file_path=node.file_path, language=node.language or language or "unknown"
+                    file_path=node.file_path,
+                    language=node.language or language or "unknown",
+                    role=classify_source_role(node.file_path)[0],
+                    role_reason=classify_source_role(node.file_path)[1],
                 ),
             )
         capability_map = dict(capabilities and {capabilities.language: capabilities} or {})
@@ -138,6 +166,68 @@ class SemanticIR:
             for target in targets
             if self.capabilities.get(target, CapabilitySet.from_values(target)).missing(required)
         }
+
+    def assess_requirements(
+        self,
+        required: Mapping[Capability | str, CapabilityLevel | str],
+        languages: Iterable[str] | None = None,
+    ) -> AnalysisAssessment:
+        """Evaluate a rule contract without silently collapsing partial data.
+
+        ``languages`` is the rule's applicability set.  This is important for
+        mixed-language repositories: a Python rule must not be blocked merely
+        because an unrelated Rust frontend is structural-only.
+        """
+        targets = tuple(sorted(set(languages or self.languages)))
+        normalized_requirements: dict[str, CapabilityLevel] = {}
+        for capability, minimum in required.items():
+            key = capability.value if isinstance(capability, Capability) else str(capability)
+            normalized_requirements[key] = (
+                minimum if isinstance(minimum, CapabilityLevel) else CapabilityLevel(minimum)
+            )
+        if not targets:
+            return AnalysisAssessment(
+                status=CapabilityLevel.UNSUPPORTED,
+                languages=(),
+                requirements={key: value.value for key, value in normalized_requirements.items()},
+                by_language={},
+                reason="no applicable frontend language",
+            )
+
+        by_language: dict[str, dict[str, object]] = {}
+        overall = CapabilityLevel.FULL
+        reasons: list[str] = []
+        for language in targets:
+            capability_set = self.capabilities.get(language, CapabilitySet.from_values(language))
+            assessment = capability_set.assess(normalized_requirements)
+            status = CapabilityLevel(str(assessment["status"]))
+            by_language[language] = assessment
+            if status.rank < overall.rank:
+                overall = status
+            if status == CapabilityLevel.PARTIAL:
+                for capability, detail in assessment["capabilities"].items():
+                    if isinstance(detail, dict) and detail.get("reason"):
+                        reasons.append(f"{language}.{capability}: {detail['reason']}")
+            elif status == CapabilityLevel.UNSUPPORTED:
+                reasons.append(f"{language}: required semantic capability is unavailable")
+        return AnalysisAssessment(
+            status=overall,
+            languages=targets,
+            requirements={key: value.value for key, value in normalized_requirements.items()},
+            by_language=by_language,
+            reason="; ".join(dict.fromkeys(reasons)),
+        )
+
+    def source_units_for_roles(
+        self,
+        roles: Iterable[SourceRole] | None = None,
+    ) -> tuple[SourceUnit, ...]:
+        """Return source units in deterministic path order, optionally scoped."""
+        allowed = set(roles) if roles is not None else None
+        units = sorted(self.source_units.values(), key=lambda unit: unit.file_path)
+        if allowed is None:
+            return tuple(units)
+        return tuple(unit for unit in units if unit.role in allowed)
 
     def read_source(self, file_path: str, max_bytes: int = 2 * 1024 * 1024) -> str | None:
         """Read a project file through the IR's bounded source repository."""

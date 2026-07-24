@@ -7,6 +7,10 @@ semantic versioning while it remains in beta.
 
 ### Added
 
+- Capability-strength contracts (`full`/`partial`/`unsupported`) for rules,
+  with per-rule analysis status and limitation metadata in JSON results.
+- Deterministic `SourceRole` provenance on `SemanticIR` source units, including
+  a production-scoped policy for security data-flow findings.
 - Versioned `SemanticIR` contracts for normalized functions, parameters,
   bindings, calls, returns, and explicit capability/unknown reporting.
 - Conservative Python/Go interprocedural linking for calls, arguments,
@@ -21,9 +25,13 @@ semantic versioning while it remains in beta.
 
 ### Validation
 
-- 503 tests passing and 35 skipped (538 collected) on 2026-07-24.
+- 506 tests passing and 35 skipped (541 collected) on 2026-07-24.
 - The cross-function benchmark reports before=1 and after=0; the Reasonix
   fixture detects the known pre-fix issue and not the fixed snapshot.
+- Replayed the same ten public AI coding-agent repositories: all runs completed
+  without parser errors; the new contract reduced only non-production data-flow
+  findings (3 in Aider and 1 in SWE-agent) and did not suppress a confirmed
+  production finding.
 
 These additions are deliberately conservative. Dynamic dispatch, complete type
 checking, exception/async semantics, goroutine happens-before, channel aliases,

@@ -28,6 +28,29 @@ class Capability(str, Enum):
     TEST_MAPPING = "test_mapping"
 
 
+class CapabilityLevel(str, Enum):
+    """Strength at which a semantic capability is available.
+
+    ``PARTIAL`` is intentionally a first-class result.  A backend may use a
+    conservative, intra-procedural approximation, but it must not advertise
+    that approximation as a complete implementation.  Keeping the ordering
+    here lets rule contracts ask for a minimum strength without adding
+    language-specific exceptions in the engine.
+    """
+
+    UNSUPPORTED = "unsupported"
+    PARTIAL = "partial"
+    FULL = "full"
+
+    @property
+    def rank(self) -> int:
+        return {
+            CapabilityLevel.UNSUPPORTED: 0,
+            CapabilityLevel.PARTIAL: 1,
+            CapabilityLevel.FULL: 2,
+        }[self]
+
+
 @dataclass(frozen=True)
 class CapabilitySet:
     """Capabilities for one language frontend.
@@ -63,6 +86,15 @@ class CapabilitySet:
         normalized = capability if isinstance(capability, Capability) else Capability(capability)
         return normalized in self.supported
 
+    def level(self, capability: Capability | str) -> CapabilityLevel:
+        """Return the effective strength of one capability."""
+        normalized = capability if isinstance(capability, Capability) else Capability(capability)
+        if normalized in self.supported:
+            return CapabilityLevel.FULL
+        if normalized in self.partial:
+            return CapabilityLevel.PARTIAL
+        return CapabilityLevel.UNSUPPORTED
+
     def is_partial(self, capability: Capability | str) -> bool:
         normalized = capability if isinstance(capability, Capability) else Capability(capability)
         return normalized in self.partial
@@ -74,6 +106,38 @@ class CapabilitySet:
             for value in required
             if not self.supports(value)
         ]
+
+    def assess(
+        self,
+        required: Mapping[Capability | str, CapabilityLevel | str],
+    ) -> dict[str, object]:
+        """Assess a rule contract against this frontend's capabilities."""
+        capabilities: dict[str, dict[str, str]] = {}
+        overall = CapabilityLevel.FULL
+        for requested, minimum in required.items():
+            capability = requested if isinstance(requested, Capability) else Capability(requested)
+            minimum_level = (
+                minimum
+                if isinstance(minimum, CapabilityLevel)
+                else CapabilityLevel(minimum)
+            )
+            actual = self.level(capability)
+            status = (
+                CapabilityLevel.FULL
+                if actual.rank >= minimum_level.rank and actual == CapabilityLevel.FULL
+                else CapabilityLevel.PARTIAL
+                if actual.rank >= minimum_level.rank
+                else CapabilityLevel.UNSUPPORTED
+            )
+            if status.rank < overall.rank:
+                overall = status
+            capabilities[capability.value] = {
+                "required": minimum_level.value,
+                "actual": actual.value,
+                "status": status.value,
+                "reason": self.partial.get(capability, "") if actual == CapabilityLevel.PARTIAL else "",
+            }
+        return {"status": overall.value, "capabilities": capabilities}
 
     def to_dict(self) -> dict[str, object]:
         return {

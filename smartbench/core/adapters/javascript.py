@@ -11,6 +11,7 @@ from smartbench.core.adapters.base import LanguageAdapter
 from smartbench.detector.fingerprint import Language as DetectorLanguage
 from smartbench.graph.builder import CodeGraphBuilder
 from smartbench.graph.schema import CodeGraph
+from smartbench.ir import Capability, CapabilitySet
 
 
 class JavaScriptAdapter(LanguageAdapter):
@@ -26,6 +27,17 @@ class JavaScriptAdapter(LanguageAdapter):
 
     def can_parse(self, file_path: Path) -> bool:
         return file_path.suffix.lower() in self.file_extensions
+
+    @property
+    def semantic_capabilities(self) -> CapabilitySet:
+        return CapabilitySet.from_values(
+            self.language,
+            [Capability.STRUCTURE, Capability.SOURCE_LOCATIONS, Capability.SYMBOLS],
+            partial={
+                Capability.CALL_GRAPH: "derived from the structural graph; dynamic dispatch is unresolved",
+                Capability.DATA_FLOW: "intra-procedural AST taint analysis; interprocedural flow is unresolved",
+            },
+        )
 
     def parse_file(self, file_path: Path, project_root: Path) -> CodeGraph:
         """Parse a single JavaScript file into CodeGraph."""
@@ -90,6 +102,17 @@ class TypeScriptAdapter(LanguageAdapter):
 
     def can_parse(self, file_path: Path) -> bool:
         return file_path.suffix.lower() in self.file_extensions
+
+    @property
+    def semantic_capabilities(self) -> CapabilitySet:
+        return CapabilitySet.from_values(
+            self.language,
+            [Capability.STRUCTURE, Capability.SOURCE_LOCATIONS, Capability.SYMBOLS],
+            partial={
+                Capability.CALL_GRAPH: "derived from the structural graph; dynamic dispatch is unresolved",
+                Capability.DATA_FLOW: "intra-procedural AST taint analysis; type-aware flow is unresolved",
+            },
+        )
 
     def parse_file(self, file_path: Path, project_root: Path) -> CodeGraph:
         """Parse a single TypeScript file into CodeGraph."""

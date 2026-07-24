@@ -11,7 +11,9 @@ The key abstractions:
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
+
+from smartbench.ir import Capability, CapabilityLevel, SourceRole
 
 
 class Severity(Enum):
@@ -167,6 +169,29 @@ class DiagnosticRule:
         unsupported code as clean.
         """
         return set()
+
+    @property
+    def analysis_requirements(self) -> Mapping[Capability | str, CapabilityLevel | str]:
+        """Minimum semantic strength required by this rule.
+
+        The legacy ``required_capabilities`` set remains supported and means
+        full capability.  New rules can request ``PARTIAL`` explicitly when
+        their algorithm is conservative by construction.
+        """
+        return {
+            capability: CapabilityLevel.FULL
+            for capability in self.required_capabilities
+        }
+
+    @property
+    def source_roles(self) -> Optional[Set[SourceRole]]:
+        """Source provenance roles this rule may make claims about.
+
+        ``None`` preserves the historical all-source behavior.  Rules making
+        production security claims should opt into an explicit subset so test
+        fixtures and generated examples do not become product-level findings.
+        """
+        return None
 
     def _collect_source_files(self, ir: Any) -> List[Tuple[str, str]]:
         """Collect source files from the IR or project path.
