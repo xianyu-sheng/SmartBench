@@ -19,17 +19,17 @@ from smartbench.core.rules.common import (
     ResourceLeakRule,
     register_builtin_rules,
 )
-from smartbench.core.rules.security import (
-    CommandInjectionRule,
-    HardcodedSecretRule,
-    PathTraversalRule,
-)
 from smartbench.core.rules.quality import (
     ExceptionTooBroadRule,
     InsecureRandomRule,
     SqlInjectionRule,
     TodoFixmeRule,
     UnusedImportRule,
+)
+from smartbench.core.rules.security import (
+    CommandInjectionRule,
+    HardcodedSecretRule,
+    PathTraversalRule,
 )
 from smartbench.graph.schema import CodeGraph, CodeNode, NodeType
 
@@ -220,6 +220,31 @@ class TestSecurityRules:
         assert rule.rule_id == "hardcoded_secret"
         assert rule.severity == Severity.WARNING
 
+    def test_legacy_path_rule_ignores_relative_import(self):
+        findings = PathTraversalRule()._find_path_patterns(
+            'import { readFile } from "../../../files";',
+            "src/index.ts",
+            "typescript",
+        )
+        assert findings == []
+
+    def test_legacy_path_rule_keeps_suspicious_file_operation(self):
+        findings = PathTraversalRule()._find_path_patterns(
+            "fs.readFile(`../${req.query.path}`);",
+            "src/index.ts",
+            "typescript",
+        )
+        assert len(findings) == 1
+        assert findings[0].confidence == 0.7
+
+    def test_test_placeholder_secret_has_low_confidence(self):
+        findings = HardcodedSecretRule()._find_secret_patterns(
+            'access_token = "test-access-token"',
+            "tests/test_auth.py",
+        )
+        assert len(findings) == 1
+        assert findings[0].confidence == 0.2
+
     def test_null_dereference_finds_patterns(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             test_file = Path(tmpdir) / "test.py"
@@ -244,8 +269,7 @@ def bad_func():
             graph.add_node(node)
 
             findings = rule.analyze(graph)
-            # Rule looks for patterns - may or may not find depending on content
-            # Just verify it doesn't crash
+            assert isinstance(findings, list)
 
 
 class TestQualityRules:
@@ -253,6 +277,11 @@ class TestQualityRules:
         rule = TodoFixmeRule()
         assert rule.rule_id == "todo_fixme"
         assert rule.severity == Severity.INFO
+
+    def test_todo_comment_is_not_reported_twice(self):
+        findings = TodoFixmeRule()._find_comments("// TODO: remove duplication", "app.ts")
+        assert len(findings) == 1
+        assert findings[0].severity == Severity.INFO
 
     def test_unused_import_metadata(self):
         rule = UnusedImportRule()
@@ -273,6 +302,7 @@ class TestQualityRules:
         rule = SqlInjectionRule()
         assert rule.rule_id == "sql_injection"
         assert rule.severity == Severity.ERROR
+        assert rule.enabled_by_default is False
 
     def test_all_rules_registered(self):
         registry = RuleRegistry()
@@ -283,5 +313,7 @@ class TestQualityRules:
         assert len(rule_ids) >= 5
         assert "null_dereference" in rule_ids
         assert "resource_leak" in rule_ids
-        assert "command_injection" in rule_ids
+        assert "command_injection" not in rule_ids
+        assert "path_traversal" not in rule_ids
+        assert "security_data_flow" in rule_ids
         assert "todo_fixme" in rule_ids

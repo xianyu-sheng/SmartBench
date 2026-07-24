@@ -36,6 +36,7 @@ class Chunk:
 
 
 # Lazy imports to avoid circular dependencies  # noqa: E402
+from smartbench.graph.evidence import DeterministicGraphRAG  # noqa: E402
 from smartbench.rag.chunker import CodeChunker  # noqa: E402
 from smartbench.rag.embedder import CodeEmbedder  # noqa: E402
 from smartbench.rag.indexer import IndexPipeline  # noqa: E402
@@ -49,4 +50,5 @@ __all__ = [
     "VectorStore",
     "IndexPipeline",
     "HybridRetriever",
+    "DeterministicGraphRAG",
 ]

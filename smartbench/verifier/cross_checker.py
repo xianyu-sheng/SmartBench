@@ -43,8 +43,8 @@ class CrossChecker:
             graph_retriever: GraphRetriever instance
             hybrid_retriever: Optional HybridRetriever (for RAG verification)
         """
-        self.graph = graph
-        self.project_path = project_path
+        self.graph = getattr(graph, "graph", graph)
+        self.project_path = project_path or getattr(graph, "project_path", "")
         self.graph_retriever = graph_retriever
         self.hybrid_retriever = hybrid_retriever
         self.loc_verifier = LocationVerifier(project_path)

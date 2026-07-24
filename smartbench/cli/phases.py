@@ -39,7 +39,9 @@ from smartbench.diagnostics.registry import (
 from smartbench.diagnostics.tools import ALL_TOOLS
 from smartbench.engine.debate import DebateEngine
 from smartbench.graph.builder import CodeGraphBuilder
+from smartbench.graph.evidence import DeterministicGraphRAG
 from smartbench.graph.retriever import GraphRetriever
+from smartbench.ir import SemanticIR
 from smartbench.llm.client import call_llm, parse_json_safe
 from smartbench.llm.provider import load_api_keys_from_env
 from smartbench.path_safety import read_text_prefix, resolve_project_file
@@ -338,6 +340,18 @@ def run_diagnosis_with_graph(
     else:
         code_context = retriever.retrieve(concern)
 
+    # Build the versioned semantic boundary once and hand the same
+    # deterministic evidence pack to both the prompt and the debate engine.
+    # The legacy graph context remains for compatibility with existing prompt
+    # templates; the pack is the auditable factual boundary.
+    semantic_ir = SemanticIR.from_graph(
+        graph,
+        project_path=str(Path(project_path).resolve()),
+    )
+    evidence_rag = DeterministicGraphRAG(semantic_ir)
+    evidence_pack = evidence_rag.retrieve(concern, hops=2, max_nodes=12)
+    code_context = code_context + "\n\n" + evidence_rag.render(evidence_pack)
+
     # ── Execute diagnostic tools ──────────────────────────────────
     tool_context = ""
     if selected and selected != "auto":
@@ -368,7 +382,7 @@ def run_diagnosis_with_graph(
             from smartbench.verifier.verifier import Verifier
             verifier = Verifier(
                 project_path=project_path,
-                graph=graph,
+                graph=semantic_ir,
                 graph_retriever=retriever,
                 hybrid_retriever=hybrid_retriever,
             )
@@ -402,6 +416,7 @@ def run_diagnosis_with_graph(
     result = debate_engine.debate(
         analysis_context, target=concern, on_progress=on_progress,
         strategy=selected,
+        evidence_pack=evidence_pack,
     )
 
     # Verification stats

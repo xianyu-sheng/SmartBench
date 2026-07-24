@@ -9,7 +9,9 @@ This module provides the adapter abstraction for multi-language support:
 
 from smartbench.core.adapters.base import (
     AdapterRegistry,
+    FrontendRegistry,
     LanguageAdapter,
+    LanguageFrontend,
 )
 from smartbench.core.adapters.go import GoAdapter
 from smartbench.core.adapters.java import JavaAdapter
@@ -30,7 +32,9 @@ def register_all_adapters(registry: AdapterRegistry) -> None:
 
 __all__ = [
     "AdapterRegistry",
+    "FrontendRegistry",
     "LanguageAdapter",
+    "LanguageFrontend",
     "PythonAdapter",
     "GoAdapter",
     "JavaAdapter",

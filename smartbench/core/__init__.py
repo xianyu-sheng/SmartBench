@@ -11,10 +11,12 @@ The existing `smartbench.graph` module is our IR foundation.
 
 from smartbench.core.adapters import (
     AdapterRegistry,
+    FrontendRegistry,
     GoAdapter,
     JavaAdapter,
     JavaScriptAdapter,
     LanguageAdapter,
+    LanguageFrontend,
     PythonAdapter,
     RustAdapter,
     TypeScriptAdapter,
@@ -77,7 +79,9 @@ __all__ = [
     "UnifiedDiagnosticResult",
     # Adapters
     "AdapterRegistry",
+    "FrontendRegistry",
     "LanguageAdapter",
+    "LanguageFrontend",
     "PythonAdapter",
     "GoAdapter",
     "JavaAdapter",

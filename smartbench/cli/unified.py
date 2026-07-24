@@ -5,8 +5,6 @@ This module provides the CLI interface for the multi-language
 unified diagnostic framework.
 """
 
-import os
-from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -24,7 +22,6 @@ from smartbench.core import (
     register_all_adapters,
     register_builtin_rules,
 )
-from smartbench.core.rules.base import Finding
 from smartbench.core.sarif import save_sarif_log
 from smartbench.terminal import safe_terminal_text
 
@@ -108,6 +105,12 @@ def print_diagnosis_result(
     # Print project info
     console.print(f"📁 Project: {safe_terminal_text(project_path)}")
     console.print(f"⏱️  Duration: {result.duration_ms}ms")
+    if result.ir:
+        console.print(
+            f"🧩 SemanticIR: {result.ir.schema_version} · "
+            f"languages={','.join(result.ir.languages) or 'unknown'} · "
+            f"evidence_packs={len(result.evidence_packs)}"
+        )
 
     if result.errors:
         console.print()
@@ -175,6 +178,9 @@ def run_unified_diagnosis(
     rules: Optional[List[str]] = None,
     languages: Optional[List[str]] = None,
     use_llm: bool = False,
+    min_confidence: float = 0.7,
+    build_evidence_packs: bool = True,
+    max_evidence_packs: int = 50,
 ) -> Tuple[UnifiedDiagnosticResult, Optional[Path]]:
     """
     Run unified diagnosis.
@@ -187,6 +193,9 @@ def run_unified_diagnosis(
         rules: Optional rule ID filter
         languages: Optional language filter
         use_llm: Enable LLM-enhanced rules
+        min_confidence: Minimum inclusive confidence to include in reports
+        build_evidence_packs: Attach deterministic graph evidence to findings
+        max_evidence_packs: Maximum number of finding evidence packs
 
     Returns:
         (result, sarif_path) tuple
@@ -206,13 +215,14 @@ def run_unified_diagnosis(
         use_static_rules=True,
         rule_ids=rules,
         languages=languages,
+        min_confidence=min_confidence,
+        build_evidence_packs=build_evidence_packs,
+        max_evidence_packs=max_evidence_packs,
     )
 
     # Run diagnosis
     console.print(f"🔍 Analyzing: {safe_terminal_text(project_path)}")
-    start_time = datetime.now()
     result = engine.diagnose(project_path, config)
-    end_time = datetime.now()
 
     # Print results
     print_diagnosis_result(console, result, project_path)
@@ -237,13 +247,9 @@ def run_unified_diagnosis(
         output_path = Path(output).expanduser().absolute()
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
-            json.dump({
-                "findings": [f.to_dict() for f in result.findings],
-                "stats": result.stats,
-                "duration_ms": result.duration_ms,
-                "errors": result.errors,
-                "project_path": str(project_path),
-            }, f, ensure_ascii=False, indent=2)
+            payload = result.to_dict()
+            payload["project_path"] = str(project_path)
+            json.dump(payload, f, ensure_ascii=False, indent=2)
         console.print(f"💾 JSON report saved to: [cyan]{safe_terminal_text(output_path)}[/cyan]")
 
     return result, sarif_path

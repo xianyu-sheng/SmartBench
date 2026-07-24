@@ -6,8 +6,7 @@ across multiple languages without language-specific logic.
 """
 
 import re
-from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 from smartbench.core.rules.base import (
     DiagnosticRule,
@@ -16,10 +15,7 @@ from smartbench.core.rules.base import (
     RuleRegistry,
     Severity,
 )
-from smartbench.graph.schema import (
-    CodeGraph,
-    NodeType,
-)
+from smartbench.graph.schema import CodeGraph
 
 
 class NullDereferenceRule(DiagnosticRule):
@@ -217,8 +213,9 @@ class ResourceLeakRule(DiagnosticRule):
 
 def register_builtin_rules(registry: RuleRegistry) -> None:
     """Register all built-in diagnostic rules with a registry."""
-    from smartbench.core.rules.security import register_security_rules
+    from smartbench.core.rules.flow import register_flow_rules
     from smartbench.core.rules.quality import register_quality_rules
+    from smartbench.core.rules.security import register_security_rules
 
     # Common rules
     registry.register(NullDereferenceRule())
@@ -229,3 +226,6 @@ def register_builtin_rules(registry: RuleRegistry) -> None:
 
     # Quality rules
     register_quality_rules(registry)
+
+    # Deterministic data-flow security rules
+    register_flow_rules(registry)

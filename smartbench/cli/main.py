@@ -244,6 +244,24 @@ def unified_run(
     use_llm: bool = typer.Option(
         False, "--llm", help="Enable LLM-enhanced rules"
     ),
+    min_confidence: float = typer.Option(
+        0.7,
+        "--min-confidence",
+        min=0.0,
+        max=1.0,
+        help="Only report findings at or above this confidence",
+    ),
+    no_evidence: bool = typer.Option(
+        False,
+        "--no-evidence",
+        help="Disable deterministic graph EvidencePack generation",
+    ),
+    max_evidence_packs: int = typer.Option(
+        50,
+        "--max-evidence-packs",
+        min=0,
+        help="Maximum finding EvidencePacks to attach",
+    ),
 ):
     """Run unified multi-language diagnosis."""
     try:
@@ -255,6 +273,9 @@ def unified_run(
             rules=rule,
             languages=language,
             use_llm=use_llm,
+            min_confidence=min_confidence,
+            build_evidence_packs=not no_evidence,
+            max_evidence_packs=max_evidence_packs,
         )
     except SystemExit:
         raise

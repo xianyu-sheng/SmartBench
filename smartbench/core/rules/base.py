@@ -158,30 +158,38 @@ class DiagnosticRule:
         """
         raise NotImplementedError()
 
+    @property
+    def required_capabilities(self) -> Set[str]:
+        """Semantic IR capabilities required by this rule.
+
+        Rules that need richer information can declare requirements here.  The
+        engine will report the missing capability instead of silently treating
+        unsupported code as clean.
+        """
+        return set()
+
     def _collect_source_files(self, ir: Any) -> List[Tuple[str, str]]:
         """Collect source files from the IR or project path.
 
         Returns:
             List of (file_path, language) tuples
         """
-        from pathlib import Path
-        from smartbench.graph.schema import CodeGraph
-
-        if not isinstance(ir, CodeGraph):
+        graph = getattr(ir, "graph", ir)
+        if not hasattr(graph, "nodes"):
             return []
 
         # First get files from nodes
         seen_files = set()
         files = []
 
-        for node in ir.nodes.values():
+        for node in graph.nodes.values():
             if node.file_path not in seen_files:
                 seen_files.add(node.file_path)
                 files.append((node.file_path, node.language))
 
         # If no nodes found, try to scan the project directory
         if not files:
-            project_path = ir.meta.get("project_path")
+            project_path = getattr(ir, "project_path", "") or graph.meta.get("project_path")
             if project_path:
                 root = Path(project_path)
                 if root.exists() and root.is_dir():
@@ -210,12 +218,17 @@ class DiagnosticRule:
 
     def _read_source(self, ir: Any, file_path: str) -> Optional[str]:
         """Read source file given a relative path from the graph."""
-        from pathlib import Path
         from smartbench.path_safety import read_text_bounded
         try:
-            from smartbench.graph.schema import CodeGraph
-            if isinstance(ir, CodeGraph):
-                project_path = ir.meta.get("project_path")
+            project_path = getattr(ir, "project_path", "")
+            if project_path:
+                from smartbench.path_safety import resolve_project_file
+                resolved = resolve_project_file(Path(project_path).resolve(), file_path)
+                if resolved is not None:
+                    return read_text_bounded(resolved, 2 * 1024 * 1024)
+            graph = getattr(ir, "graph", ir)
+            if hasattr(graph, "meta"):
+                project_path = graph.meta.get("project_path")
                 if project_path:
                     full_path = Path(project_path) / file_path
                     content = read_text_bounded(full_path, 2 * 1024 * 1024)

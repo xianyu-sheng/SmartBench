@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from smartbench.detector.fingerprint import ProjectFingerprint
+from smartbench.ir import EvidencePack
 from smartbench.llm.client import parse_json_safe
 from smartbench.prompts.factory import PromptFactory
 
@@ -90,6 +91,7 @@ class DebateEngine:
         model_name: str = "default",
         on_progress: callable = None,
         strategy: str = "",
+        evidence_pack: Optional[EvidencePack] = None,
     ) -> DebateResult:
         """
         Run a full debate cycle.
@@ -99,6 +101,9 @@ class DebateEngine:
             target: What we're trying to achieve
             model_name: Name of the model being used (for logging)
             on_progress: Optional callback(role, parsed_json, raw_text) after each round
+            evidence_pack: Optional deterministic evidence retrieved from the
+                SemanticIR.  The pack is injected as bounded, source-backed
+                context; agents must not treat unsupported claims as facts.
 
         Returns:
             DebateResult with final suggestions
@@ -110,6 +115,15 @@ class DebateEngine:
         start_time = time.time()
         log: List[Dict[str, Any]] = []
         total_chars = 0  # approximate token count: chars / 3
+
+        if evidence_pack is not None:
+            analysis_context = self._append_evidence_pack(analysis_context, evidence_pack)
+            log.append({
+                "role": "evidence",
+                "graph_version": evidence_pack.graph_version,
+                "fact_count": len(evidence_pack.facts),
+                "evidence_count": len(evidence_pack.evidence),
+            })
 
         # ── Round 1: Proposer ─────────────────────────────────────────
         proposer_prompt = self.factory.build_proposer_prompt(
@@ -276,6 +290,21 @@ class DebateEngine:
             iterations=3,
             total_tokens_used=total_chars // 3,
             duration_ms=elapsed,
+        )
+
+    @staticmethod
+    def _append_evidence_pack(analysis_context: str, pack: EvidencePack) -> str:
+        """Add a bounded, explicitly labelled evidence contract to prompts."""
+        payload = json.dumps(pack.to_dict(), ensure_ascii=False, indent=2)
+        return (
+            f"{analysis_context}\n\n"
+            "[DETERMINISTIC EVIDENCE PACK]\n"
+            "The following facts were retrieved from a versioned code graph. "
+            "Use them as the factual boundary for this debate. Every concrete "
+            "claim must cite a fact or source evidence entry; if the pack does "
+            "not establish a claim, mark it as unknown and request more evidence.\n"
+            f"{payload}\n"
+            "[END DETERMINISTIC EVIDENCE PACK]"
         )
 
     # ── Helpers ───────────────────────────────────────────────────────

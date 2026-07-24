@@ -32,6 +32,7 @@ Usage:
         print(f"{finding.severity}: {finding.message} at {finding.location}")
 """
 
+import hashlib
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,7 +41,8 @@ from typing import Dict, List, Optional, Set
 from smartbench.core.adapters.base import AdapterRegistry
 from smartbench.core.rules.base import DiagnosticRule, Finding, RuleRegistry
 from smartbench.detector import ProjectFingerprint, ProjectScanner
-from smartbench.graph.schema import CodeGraph
+from smartbench.graph.evidence import DeterministicGraphRAG
+from smartbench.ir import EvidencePack, SemanticIR
 
 
 @dataclass
@@ -52,17 +54,36 @@ class UnifiedDiagnosticConfig:
     rule_ids: Optional[List[str]] = None
     languages: Optional[List[str]] = None
     file_paths: Optional[List[Path]] = None
+    min_confidence: float = 0.7
+    build_evidence_packs: bool = True
+    max_evidence_packs: int = 50
+    evidence_hops: int = 2
+    evidence_nodes: int = 8
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.min_confidence <= 1.0:
+            raise ValueError("min_confidence must be between 0.0 and 1.0")
+        if self.max_evidence_packs < 0:
+            raise ValueError("max_evidence_packs must be non-negative")
+        if self.evidence_hops < 0:
+            raise ValueError("evidence_hops must be non-negative")
+        if self.evidence_nodes < 0:
+            raise ValueError("evidence_nodes must be non-negative")
 
 
 @dataclass
 class UnifiedDiagnosticResult:
     """Result of a unified diagnostic run."""
-    ir: Optional[CodeGraph] = None
+    # ``ir`` is now the language-neutral SemanticIR.  SemanticIR deliberately
+    # delegates graph queries to its legacy CodeGraph so existing integrations
+    # continue to work while analyzers migrate to the new contract.
+    ir: Optional[SemanticIR] = None
     findings: List[Finding] = field(default_factory=list)
     fingerprint: Optional[ProjectFingerprint] = None
     stats: Dict[str, int] = field(default_factory=dict)
     duration_ms: int = 0
     errors: List[str] = field(default_factory=list)
+    evidence_packs: Dict[str, EvidencePack] = field(default_factory=dict)
 
     def to_dict(self) -> Dict:
         return {
@@ -71,6 +92,18 @@ class UnifiedDiagnosticResult:
             "duration_ms": self.duration_ms,
             "errors": self.errors,
             "fingerprint": self.fingerprint.to_dict() if self.fingerprint else None,
+            "ir_schema_version": self.ir.schema_version if self.ir else None,
+            "ir_languages": list(self.ir.languages) if self.ir else [],
+            "ir_capabilities": (
+                {
+                    language: capabilities.to_dict()
+                    for language, capabilities in self.ir.capabilities.items()
+                }
+                if self.ir else {}
+            ),
+            "evidence_packs": {
+                key: pack.to_dict() for key, pack in self.evidence_packs.items()
+            },
         }
 
 
@@ -117,14 +150,14 @@ class UnifiedDiagnosticEngine:
             result.fingerprint = self._fingerprint(project_path)
 
             # Step 2: Build IR for each detected language
-            irs: List[CodeGraph] = []
+            irs: List[SemanticIR] = []
             detected_langs = self._get_detected_languages(result.fingerprint, config)
 
             for lang in detected_langs:
                 adapter = self.adapters.get_adapter_for_language(lang)
                 if adapter:
                     try:
-                        ir = adapter.parse_project(
+                        ir = adapter.parse_semantic_project(
                             project_path,
                             file_paths=config.file_paths,
                         )
@@ -145,11 +178,32 @@ class UnifiedDiagnosticEngine:
                 for rule in applicable_rules:
                     if rule.requires_llm and not config.use_llm_rules:
                         continue
+                    # Skip rules that are disabled by default
+                    if not getattr(rule, "enabled_by_default", True) and (
+                        not config.rule_ids or rule.rule_id not in config.rule_ids
+                    ):
+                        continue
+                    required = getattr(rule, "required_capabilities", set())
+                    missing = result.ir.missing_capabilities(required) if required else {}
+                    if missing:
+                        result.errors.append(
+                            f"Rule {rule.rule_id} skipped: missing semantic capabilities {missing}"
+                        )
+                        continue
                     try:
                         findings = rule.analyze(result.ir)
                         result.findings.extend(findings)
                     except Exception as e:
                         result.errors.append(f"Rule {rule.rule_id} failed: {e}")
+
+            # Step 3.5: Apply confidence threshold filter
+            result.findings = self._filter_by_confidence(
+                result.findings,
+                config.min_confidence,
+            )
+
+            if result.ir and config.build_evidence_packs:
+                result.evidence_packs = self._build_evidence_packs(result, config)
 
             # Step 4: Compute stats
             result.stats = self._compute_stats(result, detected_langs)
@@ -185,7 +239,7 @@ class UnifiedDiagnosticEngine:
                 return result
 
             # Parse the file
-            result.ir = adapter.parse_file(file_path, project_root)
+            result.ir = adapter.parse_semantic_file(file_path, project_root)
 
             # Get applicable rules
             applicable_rules = self._get_applicable_rules(
@@ -197,11 +251,32 @@ class UnifiedDiagnosticEngine:
             for rule in applicable_rules:
                 if rule.requires_llm and not config.use_llm_rules:
                     continue
+                # Skip rules that are disabled by default
+                if not getattr(rule, "enabled_by_default", True) and (
+                    not config.rule_ids or rule.rule_id not in config.rule_ids
+                ):
+                    continue
+                required = getattr(rule, "required_capabilities", set())
+                missing = result.ir.missing_capabilities(required) if required else {}
+                if missing:
+                    result.errors.append(
+                        f"Rule {rule.rule_id} skipped: missing semantic capabilities {missing}"
+                    )
+                    continue
                 try:
                     findings = rule.analyze(result.ir)
                     result.findings.extend(findings)
                 except Exception as e:
                     result.errors.append(f"Rule {rule.rule_id} failed: {e}")
+
+            # Apply confidence threshold filter
+            result.findings = self._filter_by_confidence(
+                result.findings,
+                config.min_confidence,
+            )
+
+            if result.ir and config.build_evidence_packs:
+                result.evidence_packs = self._build_evidence_packs(result, config)
 
             # Compute stats
             result.stats = self._compute_stats(result, [adapter.language])
@@ -259,23 +334,40 @@ class UnifiedDiagnosticEngine:
 
         return applicable
 
+    def _filter_by_confidence(
+        self,
+        findings: List[Finding],
+        min_confidence: float,
+    ) -> List[Finding]:
+        """Return findings meeting the configured inclusive threshold."""
+        if min_confidence <= 0:
+            return findings
+        return [
+            finding
+            for finding in findings
+            if finding.confidence >= min_confidence
+        ]
+
     def _merge_irs(
         self,
-        irs: List[CodeGraph],
+        irs: List[SemanticIR],
         project_path: Path,
-    ) -> Optional[CodeGraph]:
+    ) -> Optional[SemanticIR]:
         """Merge multiple language-specific IRs into one."""
         if not irs:
             return None
         if len(irs) == 1:
             return irs[0]
 
-        # Use the existing merge functionality
+        # Use the semantic merge contract.  The structural graph remains the
+        # compatibility backing store, while capabilities and source units are
+        # merged explicitly rather than hidden in graph metadata.
         merged = irs[0]
         for ir in irs[1:]:
             merged = merged.merge(ir)
 
-        merged.meta["project_path"] = str(project_path.resolve())
+        merged.project_path = str(project_path.resolve())
+        merged.meta["project_path"] = merged.project_path
         merged.meta["merged_languages"] = True
         return merged
 
@@ -309,5 +401,49 @@ class UnifiedDiagnosticEngine:
 
         # Count errors
         stats["errors"] = len(result.errors)
+        stats["evidence_packs"] = len(result.evidence_packs)
 
         return stats
+
+    def _build_evidence_packs(
+        self,
+        result: UnifiedDiagnosticResult,
+        config: UnifiedDiagnosticConfig,
+    ) -> Dict[str, EvidencePack]:
+        """Attach bounded deterministic graph evidence to findings.
+
+        Findings remain backwards-compatible while agents receive an explicit
+        evidence channel.  Retrieval failures are recorded as diagnostics, not
+        converted into false clean results.
+        """
+        if not result.ir or config.max_evidence_packs == 0:
+            return {}
+        try:
+            rag = DeterministicGraphRAG(result.ir)
+        except Exception as exc:
+            result.errors.append(f"Evidence graph unavailable: {exc}")
+            return {}
+
+        packs: Dict[str, EvidencePack] = {}
+        for finding in result.findings[: config.max_evidence_packs]:
+            location = finding.location
+            query = f"{location.file_path} {finding.message}"
+            try:
+                pack = rag.retrieve(
+                    query,
+                    hops=config.evidence_hops,
+                    max_nodes=config.evidence_nodes,
+                )
+            except Exception as exc:
+                result.errors.append(
+                    f"Evidence retrieval failed for {location.file_path}:{location.line_start}: {exc}"
+                )
+                continue
+            key_material = (
+                f"{finding.rule_id}|{location.file_path}|{location.line_start}|"
+                f"{location.line_end}|{finding.message}"
+            )
+            key = "finding-" + hashlib.sha256(key_material.encode("utf-8")).hexdigest()[:16]
+            packs[key] = pack
+            finding.metadata.setdefault("evidence_pack_id", key)
+        return packs

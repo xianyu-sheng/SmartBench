@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from smartbench.graph.schema import CodeGraph
+from smartbench.ir import Capability, CapabilitySet, SemanticIR
 
 
 class LanguageAdapter(ABC):
@@ -47,6 +48,51 @@ class LanguageAdapter(ABC):
     ) -> CodeGraph:
         """Parse an entire project and return its IR."""
         pass
+
+    @property
+    def semantic_capabilities(self) -> CapabilitySet:
+        """Capabilities exposed by the frontend's current lowering.
+
+        Existing adapters are structural graph frontends, so the default is
+        intentionally conservative.  A richer frontend can override this
+        property without changing any backend analyzer or rule.
+        """
+        return CapabilitySet.from_values(
+            self.language,
+            [
+                Capability.STRUCTURE,
+                Capability.SOURCE_LOCATIONS,
+                Capability.SYMBOLS,
+            ],
+            partial={
+                Capability.CALL_GRAPH:
+                    "derived from the structural graph; resolution may be heuristic",
+            },
+        )
+
+    def parse_semantic_file(self, file_path: Path, project_root: Path) -> SemanticIR:
+        """Lower one source file into the versioned language-neutral IR."""
+        graph = self.parse_file(file_path, project_root)
+        return SemanticIR.from_graph(
+            graph,
+            language=self.language,
+            capabilities=self.semantic_capabilities,
+            project_path=str(project_root.resolve()),
+        )
+
+    def parse_semantic_project(
+        self,
+        project_path: Path,
+        file_paths: Optional[List[Path]] = None,
+    ) -> SemanticIR:
+        """Lower a project into the versioned language-neutral IR."""
+        graph = self.parse_project(project_path, file_paths=file_paths)
+        return SemanticIR.from_graph(
+            graph,
+            language=self.language,
+            capabilities=self.semantic_capabilities,
+            project_path=str(project_path.resolve()),
+        )
 
 
 class AdapterRegistry:
@@ -91,3 +137,9 @@ class AdapterRegistry:
     def list_languages(self) -> List[str]:
         """List all supported languages."""
         return list(self._adapters_by_lang.keys())
+
+
+# Architectural names used by the new frontend/IR boundary.  The aliases keep
+# the existing public ``AdapterRegistry`` API stable during migration.
+LanguageFrontend = LanguageAdapter
+FrontendRegistry = AdapterRegistry

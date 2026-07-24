@@ -46,8 +46,8 @@ class Verifier:
             graph_retriever: GraphRetriever for structural context
             hybrid_retriever: Optional HybridRetriever for RAG verification
         """
-        self.project_path = project_path
-        self.graph = graph
+        self.project_path = project_path or getattr(graph, "project_path", "")
+        self.graph = getattr(graph, "graph", graph)
         self.loc_verifier = LocationVerifier(project_path)
         self.extractor = EvidenceExtractor(project_path, graph)
         self.cross_checker = CrossChecker(

@@ -8,14 +8,15 @@ from pathlib import Path
 import pytest
 
 from smartbench.core import (
+    AdapterRegistry,
+    RuleRegistry,
     UnifiedDiagnosticConfig,
     UnifiedDiagnosticEngine,
     UnifiedDiagnosticResult,
-    AdapterRegistry,
-    RuleRegistry,
 )
 from smartbench.core.adapters import PythonAdapter
 from smartbench.core.rules import NullDereferenceRule, ResourceLeakRule
+from smartbench.core.rules.base import DiagnosticRule, Finding, Location, Severity
 
 
 class TestUnifiedDiagnosticConfig:
@@ -26,6 +27,11 @@ class TestUnifiedDiagnosticConfig:
         assert config.max_files == 500
         assert config.rule_ids is None
         assert config.languages is None
+        assert config.min_confidence == 0.7
+
+    def test_invalid_confidence_threshold(self):
+        with pytest.raises(ValueError, match="min_confidence"):
+            UnifiedDiagnosticConfig(min_confidence=1.1)
 
     def test_custom_config(self):
         config = UnifiedDiagnosticConfig(
@@ -108,3 +114,92 @@ f.write("hello")
             result = self.engine.diagnose_file(test_file, tmp_path, config)
 
             assert result is not None
+
+    def test_confidence_filter_is_applied(self):
+        class ConfidenceRule(DiagnosticRule):
+            @property
+            def rule_id(self):
+                return "confidence_test"
+
+            @property
+            def rule_name(self):
+                return "Confidence Test"
+
+            def analyze(self, ir):
+                return [
+                    Finding(
+                        rule_id=self.rule_id,
+                        rule_name=self.rule_name,
+                        severity=Severity.WARNING,
+                        location=Location("test.py", 1),
+                        message="low",
+                        confidence=0.6,
+                    ),
+                    Finding(
+                        rule_id=self.rule_id,
+                        rule_name=self.rule_name,
+                        severity=Severity.WARNING,
+                        location=Location("test.py", 2),
+                        message="high",
+                        confidence=0.9,
+                    ),
+                ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            test_file = tmp_path / "test.py"
+            test_file.write_text("value = 1")
+            rules = RuleRegistry()
+            rules.register(ConfidenceRule())
+            engine = UnifiedDiagnosticEngine(self.adapters, rules)
+
+            result = engine.diagnose_file(
+                test_file,
+                tmp_path,
+                UnifiedDiagnosticConfig(min_confidence=0.8),
+            )
+
+            assert [finding.message for finding in result.findings] == ["high"]
+
+    def test_disabled_rule_requires_explicit_selection(self):
+        class DisabledRule(DiagnosticRule):
+            enabled_by_default = False
+
+            @property
+            def rule_id(self):
+                return "disabled_test"
+
+            @property
+            def rule_name(self):
+                return "Disabled Test"
+
+            def analyze(self, ir):
+                return [
+                    Finding(
+                        rule_id=self.rule_id,
+                        rule_name=self.rule_name,
+                        severity=Severity.WARNING,
+                        location=Location("test.py", 1),
+                        message="explicit only",
+                    )
+                ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            test_file = tmp_path / "test.py"
+            test_file.write_text("value = 1")
+            rules = RuleRegistry()
+            rules.register(DisabledRule())
+            engine = UnifiedDiagnosticEngine(self.adapters, rules)
+
+            default_result = engine.diagnose_file(test_file, tmp_path)
+            explicit_result = engine.diagnose_file(
+                test_file,
+                tmp_path,
+                UnifiedDiagnosticConfig(rule_ids=["disabled_test"]),
+            )
+
+            assert default_result.findings == []
+            assert [finding.message for finding in explicit_result.findings] == [
+                "explicit only"
+            ]

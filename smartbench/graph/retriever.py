@@ -39,7 +39,7 @@ class GraphRetriever:
     exactly the functions and their neighbors that matter.
     """
 
-    def __init__(self, graph: CodeGraph, project_path: str,
+    def __init__(self, graph: CodeGraph, project_path: str = "",
                  max_tokens_estimate: int = 4000):
         """
         Args:
@@ -47,8 +47,8 @@ class GraphRetriever:
             project_path: Root path for reading source files
             max_tokens_estimate: Rough token budget (chars ≈ tokens for code)
         """
-        self.graph = graph
-        self.project_path = project_path
+        self.graph = getattr(graph, "graph", graph)
+        self.project_path = project_path or getattr(graph, "project_path", "")
         try:
             token_budget = int(max_tokens_estimate)
         except (TypeError, ValueError):
