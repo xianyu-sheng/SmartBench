@@ -9,8 +9,11 @@ from typing import List, Optional
 
 from smartbench.core.adapters.base import LanguageAdapter
 from smartbench.detector.fingerprint import Language
+from smartbench.frontends.go import GoSemanticLowerer
 from smartbench.graph.builder import CodeGraphBuilder
 from smartbench.graph.schema import CodeGraph
+from smartbench.graph.tree_parser import get_parser
+from smartbench.ir import Capability, CapabilitySet, SemanticIR
 
 
 class GoAdapter(LanguageAdapter):
@@ -26,6 +29,32 @@ class GoAdapter(LanguageAdapter):
 
     def can_parse(self, file_path: Path) -> bool:
         return file_path.suffix.lower() in self.file_extensions
+
+    @property
+    def semantic_capabilities(self) -> CapabilitySet:
+        if get_parser("go") is None:
+            return super().semantic_capabilities
+        return CapabilitySet.from_values(
+            self.language,
+            [
+                Capability.STRUCTURE,
+                Capability.SOURCE_LOCATIONS,
+                Capability.SYMBOLS,
+                Capability.CONTROL_FLOW,
+            ],
+            partial={
+                Capability.CALL_GRAPH:
+                    "structural resolution does not yet include go/types",
+                Capability.DATA_FLOW:
+                    "operation operands are extracted; interprocedural propagation is pending",
+                Capability.CONCURRENCY:
+                    "goroutine, defer, send, receive and select operations are normalized",
+                Capability.EVENT_MODEL:
+                    "branch and transition operations are intraprocedural",
+                Capability.TYPE_INFO:
+                    "surface type syntax only; go/types integration is pending",
+            },
+        )
 
     def parse_file(self, file_path: Path, project_root: Path) -> CodeGraph:
         """Parse a single Go file into CodeGraph."""
@@ -72,3 +101,28 @@ class GoAdapter(LanguageAdapter):
             Language.GO,
             file_filter=str_filter,
         )
+
+    def parse_semantic_file(self, file_path: Path, project_root: Path) -> SemanticIR:
+        ir = super().parse_semantic_file(file_path, project_root)
+        return self._lower_semantics(ir)
+
+    def parse_semantic_project(
+        self,
+        project_path: Path,
+        file_paths: Optional[List[Path]] = None,
+    ) -> SemanticIR:
+        ir = super().parse_semantic_project(project_path, file_paths=file_paths)
+        return self._lower_semantics(ir)
+
+    def _lower_semantics(self, ir: SemanticIR) -> SemanticIR:
+        lowered = GoSemanticLowerer().lower(ir)
+        ir.operations.extend(lowered.operations)
+        ir.operation_edges.extend(lowered.edges)
+        ir.facts.extend(lowered.facts)
+        ir.meta["go_frontend"] = {
+            "files_analyzed": lowered.files_analyzed,
+            "operations": len(lowered.operations),
+            "operation_edges": len(lowered.edges),
+            "errors": list(lowered.errors),
+        }
+        return ir

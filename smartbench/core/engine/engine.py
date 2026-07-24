@@ -398,6 +398,9 @@ class UnifiedDiagnosticEngine:
         if result.ir:
             stats["ir_nodes"] = len(result.ir.nodes)
             stats["ir_edges"] = len(result.ir.edges)
+            stats["ir_operations"] = len(result.ir.operations)
+            stats["ir_operation_edges"] = len(result.ir.operation_edges)
+            stats["ir_facts"] = len(result.ir.facts)
 
         # Count errors
         stats["errors"] = len(result.errors)

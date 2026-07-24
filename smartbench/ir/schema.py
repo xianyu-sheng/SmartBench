@@ -9,6 +9,7 @@ from typing import Any, Iterable
 from smartbench.graph.schema import CodeGraph
 from smartbench.ir.capabilities import Capability, CapabilitySet
 from smartbench.ir.evidence import SemanticFact
+from smartbench.ir.operations import OperationEdge, SemanticOperation
 from smartbench.path_safety import read_text_bounded, resolve_project_file
 
 
@@ -45,6 +46,8 @@ class SemanticIR:
     capabilities: dict[str, CapabilitySet] = field(default_factory=dict)
     source_units: dict[str, SourceUnit] = field(default_factory=dict)
     facts: list[SemanticFact] = field(default_factory=list)
+    operations: list[SemanticOperation] = field(default_factory=list)
+    operation_edges: list[OperationEdge] = field(default_factory=list)
     schema_version: str = "semantic-ir/v1"
 
     @classmethod
@@ -153,6 +156,16 @@ class SemanticIR:
         for fact in other.facts:
             if fact not in facts:
                 facts.append(fact)
+        operations = list(self.operations)
+        known_operations = {operation.id for operation in operations}
+        for operation in other.operations:
+            if operation.id not in known_operations:
+                operations.append(operation)
+                known_operations.add(operation.id)
+        operation_edges = list(self.operation_edges)
+        for edge in other.operation_edges:
+            if edge not in operation_edges:
+                operation_edges.append(edge)
         merged_graph.meta["semantic_ir_version"] = self.schema_version
         merged_graph.meta["languages"] = list(languages)
         return SemanticIR(
@@ -162,6 +175,8 @@ class SemanticIR:
             capabilities=capability_map,
             source_units=units,
             facts=facts,
+            operations=operations,
+            operation_edges=operation_edges,
             schema_version=self.schema_version,
         )
 
@@ -178,5 +193,7 @@ class SemanticIR:
                 path: unit.to_dict() for path, unit in sorted(self.source_units.items())
             },
             "facts": [fact.to_dict() for fact in self.facts] if include_facts else [],
+            "operations": [operation.to_dict() for operation in self.operations],
+            "operation_edges": [edge.to_dict() for edge in self.operation_edges],
             "graph": self.graph.to_dict(),
         }

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any
 
 from smartbench.graph.retriever import GraphRetriever
@@ -46,11 +47,12 @@ class DeterministicGraphRAG:
     def retrieve(self, query: str, hops: int = 2, max_nodes: int = 15) -> EvidencePack:
         """Return deterministic facts and source references for ``query``."""
         normalized_query = str(query)
+        operation_matches = self._operation_matches(normalized_query, max_nodes)
         seeds = self._file_seeds(normalized_query)
         if not seeds:
             seeds = self.retriever._find_seeds(normalized_query)
         trace = [f"query:{normalized_query}"]
-        if not seeds:
+        if not seeds and not operation_matches:
             trace.append("seeds:none")
             return EvidencePack.from_facts(
                 normalized_query,
@@ -59,18 +61,20 @@ class DeterministicGraphRAG:
                 graph_version=self.graph_version(),
             )
 
-        trace.append("seeds:" + ",".join(node.id for node in seeds))
+        trace.append("seeds:" + (",".join(node.id for node in seeds) or "operations-only"))
         subgraph = self.ir.graph.expand(
             [node.id for node in seeds],
             hops=max(0, int(hops)),
             edge_types={EdgeType.CALLS, EdgeType.CONTAINS, EdgeType.REFERENCES},
             direction="both",
-        )
-        ranked = self.retriever._rank_nodes(subgraph, seeds, normalized_query)
+        ) if seeds else CodeGraph()
+        ranked = self.retriever._rank_nodes(subgraph, seeds, normalized_query) if seeds else []
         selected = ranked[: max(0, int(max_nodes))]
         selected_ids = {node.id for node in selected}
         trace.append(f"expand:{max(0, int(hops))}")
         trace.append("selected:" + ",".join(node.id for node in selected))
+        if operation_matches:
+            trace.append("operations:" + ",".join(operation.id for operation in operation_matches))
 
         facts: list[SemanticFact] = []
         for node in selected:
@@ -109,6 +113,22 @@ class DeterministicGraphRAG:
                 )
             )
 
+        for operation in operation_matches:
+            facts.append(
+                SemanticFact(
+                    subject=operation.scope_id or operation.location.file_path,
+                    predicate=FactKind.STATE_TRANSITION,
+                    object=operation.target or operation.value or operation.kind.value,
+                    evidence=(operation.location,),
+                    attributes={
+                        "operation_id": operation.id,
+                        "operation_kind": operation.kind.value,
+                        "operands": list(operation.operands),
+                        **dict(operation.attributes),
+                    },
+                )
+            )
+
         return EvidencePack.from_facts(
             normalized_query,
             facts,
@@ -133,7 +153,12 @@ class DeterministicGraphRAG:
 
     def graph_version(self) -> str:
         """Stable content address for the graph snapshot used in retrieval."""
-        payload = self.ir.graph.to_dict()
+        payload = {
+            "schema_version": self.ir.schema_version,
+            "graph": self.ir.graph.to_dict(),
+            "operations": [operation.to_dict() for operation in self.ir.operations],
+            "operation_edges": [edge.to_dict() for edge in self.ir.operation_edges],
+        }
         encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()[:16]
 
@@ -159,6 +184,36 @@ class DeterministicGraphRAG:
             key=lambda node: (len(node.file_path), node.file_path, node.name),
             reverse=True,
         )[:10]
+
+    def _operation_matches(self, query: str, limit: int) -> list[Any]:
+        """Retrieve normalized operations when graph names are insufficient."""
+        tokens = {
+            token.lower()
+            for token in re.findall(r"[A-Za-z0-9_]+", query)
+            if len(token) >= 3
+        }
+        scored: list[tuple[int, Any]] = []
+        for operation in self.ir.operations:
+            haystack = " ".join(
+                [
+                    operation.target,
+                    operation.value,
+                    " ".join(operation.operands),
+                    json.dumps(dict(operation.attributes), ensure_ascii=False),
+                ]
+            ).lower()
+            score = sum(1 for token in tokens if token in haystack)
+            if score:
+                scored.append((score, operation))
+        scored.sort(
+            key=lambda item: (
+                -item[0],
+                item[1].location.file_path,
+                item[1].location.line_start,
+                item[1].id,
+            )
+        )
+        return [operation for _, operation in scored[: max(0, int(limit))]]
 
     def _snippet(self, file_path: str, line_start: int, line_end: int) -> str:
         source = self.ir.read_source(file_path)

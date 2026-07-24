@@ -40,6 +40,7 @@ must not import that language's parser.
 - detected languages;
 - a capability matrix;
 - versioned semantic facts;
+- normalized operations and control-flow edges;
 - a schema version (`semantic-ir/v1`).
 
 Capability declarations are conservative. Unsupported information is reported
@@ -75,8 +76,19 @@ remain compatible with SemanticIR through its graph compatibility view.
 - Unified results carry bounded EvidencePacks by default; use
   `--no-evidence` or `--max-evidence-packs` to control output size.
 - Go is recognized by the structural frontend but does not yet claim semantic
-  data-flow or state-machine capabilities. Its frontend is the next adapter
-  milestone, not a collection of Go-specific rule patches.
+  type or interprocedural data-flow capabilities. Its first semantic frontend
+  now lowers functions, parameters, assignments, calls, branches, loops,
+  returns, goroutines, defer, channel send/receive and select into the common
+  operation model. State/event and concurrency capabilities remain explicitly
+  partial until interprocedural resolution is available.
+
+### Declarative state-machine analysis
+
+`smartbench.analysis.StateMachineAnalyzer` evaluates reusable invariants over
+normalized operations. Invariants select an event, an action and an optional
+guard/exit relation; the engine contains no project-specific identifiers.
+Repository-specific expectations belong in benchmark specifications or rules,
+not in the language frontend.
 
 ## Acceptance criteria for new frontends
 

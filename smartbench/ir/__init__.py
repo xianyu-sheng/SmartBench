@@ -9,6 +9,12 @@ for a particular language.
 
 from smartbench.ir.capabilities import Capability, CapabilitySet
 from smartbench.ir.evidence import EvidencePack, EvidenceRef, FactKind, SemanticFact
+from smartbench.ir.operations import (
+    OperationEdge,
+    OperationEdgeKind,
+    OperationKind,
+    SemanticOperation,
+)
 from smartbench.ir.schema import SemanticIR, SourceUnit
 
 __all__ = [
@@ -18,6 +24,10 @@ __all__ = [
     "EvidenceRef",
     "FactKind",
     "SemanticFact",
+    "OperationEdge",
+    "OperationEdgeKind",
+    "OperationKind",
+    "SemanticOperation",
     "SemanticIR",
     "SourceUnit",
 ]
