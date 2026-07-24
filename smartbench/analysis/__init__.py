@@ -5,6 +5,12 @@ from smartbench.analysis.control_flow import (
     ControlFlowArc,
     ControlFlowGraph,
 )
+from smartbench.analysis.icfg import (
+    ICFGArc,
+    ICFGArcKind,
+    ICFGPath,
+    InterproceduralControlFlowGraph,
+)
 from smartbench.analysis.interprocedural import (
     InterproceduralGraph,
     SemanticLinker,
@@ -24,6 +30,10 @@ from smartbench.analysis.state_machine import (
     StateInvariantViolation,
     StateMachineAnalyzer,
 )
+from smartbench.analysis.state_paths import (
+    InterproceduralStatePath,
+    InterproceduralStatePathQuery,
+)
 
 __all__ = [
     "InvariantKind",
@@ -42,4 +52,10 @@ __all__ = [
     "SemanticLinker",
     "SemanticLinkResult",
     "InterproceduralGraph",
+    "ICFGArc",
+    "ICFGArcKind",
+    "ICFGPath",
+    "InterproceduralControlFlowGraph",
+    "InterproceduralStatePath",
+    "InterproceduralStatePathQuery",
 ]

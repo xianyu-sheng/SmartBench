@@ -458,6 +458,10 @@ class UnifiedDiagnosticEngine:
             stats["ir_operations"] = len(result.ir.operations)
             stats["ir_operation_edges"] = len(result.ir.operation_edges)
             stats["ir_facts"] = len(result.ir.facts)
+            contract_meta = result.ir.meta.get("semantic_contract", {})
+            stats["ir_contract_errors"] = len(
+                contract_meta.get("errors", []) if isinstance(contract_meta, dict) else []
+            )
             stats["ir_call_edges"] = sum(
                 edge.kind == OperationEdgeKind.CALLS for edge in result.ir.operation_edges
             )

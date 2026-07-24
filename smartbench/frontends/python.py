@@ -83,6 +83,7 @@ class _PythonFileLowerer:
         self._ordinal = 0
         self.parents: dict[ast.AST, ast.AST] = {}
         self._emitted_calls: set[int] = set()
+        self._call_hosts: dict[int, str] = {}
         self.constructor_types: set[str] = set()
         module_path = PurePosixPath(file_path.replace("\\", "/")).with_suffix("")
         module_parts = list(module_path.parts)
@@ -241,6 +242,7 @@ class _PythonFileLowerer:
                 operands=tuple(self._identifiers(node.value)),
                 attributes={"values": values},
             )
+            self._register_call_hosts(node.value, operation.id)
             return _FlowFragment(entry_id=operation.id)
         if isinstance(node, ast.Continue):
             operation = self._operation(OperationKind.CONTINUE, node, scope_id)
@@ -267,6 +269,7 @@ class _PythonFileLowerer:
                 "calls": self._calls(node.test),
             },
         )
+        self._register_call_hosts(node.test, branch.id)
         consequence = self._lower_sequence(node.body, scope_id)
         if consequence.entry_id is not None:
             self._edge(branch.id, consequence.entry_id, OperationEdgeKind.TRUE_BRANCH)
@@ -306,6 +309,7 @@ class _PythonFileLowerer:
             operands=tuple(self._identifiers(value_node)),
             attributes={"infinite": infinite},
         )
+        self._register_call_hosts(value_node, loop.id)
         body = self._lower_sequence(node.body, scope_id)
         if body.entry_id is not None:
             self._edge(loop.id, body.entry_id, OperationEdgeKind.BODY)
@@ -359,6 +363,7 @@ class _PythonFileLowerer:
                 "bindings": bindings,
             },
         )
+        self._register_call_hosts(value_node, operation.id)
         return _FlowFragment.simple(operation.id)
 
     def _lower_call(
@@ -388,6 +393,7 @@ class _PythonFileLowerer:
                 "argument_names": argument_names,
                 "receiver": target.rsplit(".", 1)[0] if "." in target else "",
                 "result_targets": self._call_result_targets(node),
+                "host_operation": self._call_hosts.get(id(node), ""),
             },
         )
 
@@ -525,6 +531,13 @@ class _PythonFileLowerer:
         if isinstance(parent, ast.AnnAssign):
             return self._assignment_targets(parent.target)
         return []
+
+    def _register_call_hosts(self, node: ast.AST | None, host_operation: str) -> None:
+        if node is None:
+            return
+        for descendant in ast.walk(node):
+            if isinstance(descendant, ast.Call):
+                self._call_hosts[id(descendant)] = host_operation
 
     @staticmethod
     def _assignment_targets(node: ast.AST) -> list[str]:

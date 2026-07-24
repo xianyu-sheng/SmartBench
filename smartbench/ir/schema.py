@@ -8,6 +8,7 @@ from typing import Any, Iterable
 
 from smartbench.graph.schema import CodeGraph
 from smartbench.ir.capabilities import Capability, CapabilitySet
+from smartbench.ir.contracts import CONTRACT_SCHEMA_VERSION, validate_semantic_ir
 from smartbench.ir.evidence import SemanticFact
 from smartbench.ir.operations import OperationEdge, SemanticOperation
 from smartbench.path_safety import read_text_bounded, resolve_project_file
@@ -69,7 +70,9 @@ class SemanticIR:
                 continue
             units.setdefault(
                 node.file_path,
-                SourceUnit(file_path=node.file_path, language=node.language or language or "unknown"),
+                SourceUnit(
+                    file_path=node.file_path, language=node.language or language or "unknown"
+                ),
             )
         capability_map = dict(capabilities and {capabilities.language: capabilities} or {})
         for detected in languages:
@@ -78,7 +81,9 @@ class SemanticIR:
                 CapabilitySet.from_values(
                     detected,
                     [Capability.STRUCTURE, Capability.SOURCE_LOCATIONS, Capability.SYMBOLS],
-                    partial={Capability.CALL_GRAPH: "derived from structural graph; resolution may be heuristic"},
+                    partial={
+                        Capability.CALL_GRAPH: "derived from structural graph; resolution may be heuristic"
+                    },
                 ),
             )
         return cls(
@@ -127,7 +132,9 @@ class SemanticIR:
     ) -> dict[str, list[str]]:
         targets = [language] if language else list(self.languages)
         return {
-            target: self.capabilities.get(target, CapabilitySet.from_values(target)).missing(required)
+            target: self.capabilities.get(target, CapabilitySet.from_values(target)).missing(
+                required
+            )
             for target in targets
             if self.capabilities.get(target, CapabilitySet.from_values(target)).missing(required)
         }
@@ -168,6 +175,12 @@ class SemanticIR:
                 operation_edges.append(edge)
         merged_graph.meta["semantic_ir_version"] = self.schema_version
         merged_graph.meta["languages"] = list(languages)
+        contract_errors = validate_semantic_ir(operations)
+        merged_graph.meta["semantic_contract"] = {
+            "version": CONTRACT_SCHEMA_VERSION,
+            "valid": not contract_errors,
+            "errors": list(contract_errors),
+        }
         return SemanticIR(
             graph=merged_graph,
             project_path=self.project_path or other.project_path,

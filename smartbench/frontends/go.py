@@ -101,6 +101,7 @@ class _GoFileLowerer:
         self.package_name = ""
         self._emitted_calls: set[tuple[int, int]] = set()
         self._call_bindings: dict[tuple[int, int], list[str]] = {}
+        self._call_hosts: dict[tuple[int, int], str] = {}
 
     def lower(self, root: Any) -> GoLoweringResult:
         package_clause = next(
@@ -220,6 +221,7 @@ class _GoFileLowerer:
                 value=self._statement_value(node, "return"),
                 attributes={"values": values},
             )
+            self._register_call_hosts(node, operation.id)
             return _FlowFragment(entry_id=operation.id)
         if node_type == "continue_statement":
             operation = self._operation(OperationKind.CONTINUE, node, scope_id)
@@ -294,6 +296,7 @@ class _GoFileLowerer:
                 "calls": self._calls(condition),
             },
         )
+        self._register_call_hosts(condition, branch.id)
 
         consequence = node.child_by_field_name("consequence")
         if consequence is None:
@@ -349,6 +352,7 @@ class _GoFileLowerer:
             operands=tuple(self._identifiers(condition)),
             attributes={"infinite": infinite},
         )
+        self._register_call_hosts(condition or range_clause, loop.id)
         body_fragment = _FlowFragment()
         if body is not None:
             body_fragment = self._lower_sequence(self._statement_nodes(body), scope_id)
@@ -413,6 +417,7 @@ class _GoFileLowerer:
                 **({"channel": channel} if channel else {}),
             },
         )
+        self._register_call_hosts(value_node, operation.id)
         return _FlowFragment.simple(operation.id)
 
     def _call_like(
@@ -453,6 +458,7 @@ class _GoFileLowerer:
                 "argument_names": [""] * len(argument_values),
                 "receiver": self._text(receiver),
                 "result_targets": self._call_bindings.get(key, []),
+                "host_operation": self._call_hosts.get(key, ""),
             }
         return self._operation(
             kind,
@@ -572,6 +578,13 @@ class _GoFileLowerer:
             names = [child for child in declaration.named_children if child.type == "identifier"]
             types.extend([type_text] * max(1, len(names)))
         return types
+
+    def _register_call_hosts(self, node: Any | None, host_operation: str) -> None:
+        if node is None:
+            return
+        for descendant in self._descendants(node):
+            if descendant.type == "call_expression":
+                self._call_hosts[(descendant.start_byte, descendant.end_byte)] = host_operation
 
     def _assignment_parts(self, node: Any) -> tuple[Any | None, Any | None, str]:
         if node.type == "var_declaration":

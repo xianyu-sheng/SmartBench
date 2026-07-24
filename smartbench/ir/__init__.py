@@ -8,6 +8,15 @@ for a particular language.
 """
 
 from smartbench.ir.capabilities import Capability, CapabilitySet
+from smartbench.ir.contracts import (
+    CONTRACT_SCHEMA_VERSION,
+    BindingContract,
+    CallContract,
+    FunctionContract,
+    ParameterContract,
+    validate_operation_contract,
+    validate_semantic_ir,
+)
 from smartbench.ir.evidence import EvidencePack, EvidenceRef, FactKind, SemanticFact
 from smartbench.ir.operations import (
     DataFlowKind,
@@ -21,6 +30,13 @@ from smartbench.ir.schema import SemanticIR, SourceUnit
 __all__ = [
     "Capability",
     "CapabilitySet",
+    "CONTRACT_SCHEMA_VERSION",
+    "BindingContract",
+    "CallContract",
+    "FunctionContract",
+    "ParameterContract",
+    "validate_operation_contract",
+    "validate_semantic_ir",
     "EvidencePack",
     "EvidenceRef",
     "FactKind",

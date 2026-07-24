@@ -43,6 +43,13 @@ must not import that language's parser.
 - normalized operations and control-flow edges;
 - a schema version (`semantic-ir/v1`).
 
+Interprocedural operations additionally conform to
+`semantic-ir/contracts/v1`: functions expose typed signature metadata,
+parameters expose positions and receiver status, assignments expose aligned
+bindings, calls expose argument/result bindings and a host operation, and
+returns expose value lists. Contract validation checks shape and alignment;
+empty types remain explicit unknowns rather than being treated as proof.
+
 Capability declarations are conservative. Unsupported information is reported
 as missing/unknown instead of being treated as a clean result.
 
@@ -81,6 +88,14 @@ read-only callers, callees, bindings, returns and shortest call-path queries;
 call-path depth is explicitly bounded and does not pretend to be whole-program
 dominance.
 
+`InterproceduralControlFlowGraph` adds a bounded, stack-consistent view over
+the intraprocedural CFG. Embedded calls cannot be bypassed by a direct host to
+continuation edge; their continuation is reintroduced only by a matching
+`CALL_RETURN`. `InterproceduralStatePathQuery` exposes event-to-action paths
+across function scopes as source-backed `STATE_TRANSITION` facts. It does not
+turn path existence into an invariant violation: dominance and guard claims
+remain the responsibility of a state analyzer with an explicit proof policy.
+
 Go channel sends and receives expose a normalized `channel` attribute. The
 linker emits `SYNCHRONIZES` edges only for matching channel expressions inside
 the same function; interprocedural channel alias analysis remains explicitly
@@ -117,6 +132,9 @@ through its graph compatibility view.
   self-analysis resolves conservative call edges and reports unresolved and
   ambiguous counts in `ir.meta.semantic_linker`; these are coverage signals,
   not clean-result claims.
+- The ICFG is deliberately bounded and synchronous. It does not yet model
+  callbacks, recursion summaries, dynamic dispatch, exceptions, goroutine
+  happens-before, or channel aliases; those cases remain unknown.
 
 ### Declarative state-machine analysis
 

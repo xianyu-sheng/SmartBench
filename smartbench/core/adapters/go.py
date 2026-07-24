@@ -13,7 +13,7 @@ from smartbench.frontends.go import GoSemanticLowerer
 from smartbench.graph.builder import CodeGraphBuilder
 from smartbench.graph.schema import CodeGraph
 from smartbench.graph.tree_parser import get_parser
-from smartbench.ir import Capability, CapabilitySet, SemanticIR
+from smartbench.ir import Capability, CapabilitySet, SemanticIR, validate_semantic_ir
 
 
 class GoAdapter(LanguageAdapter):
@@ -114,10 +114,16 @@ class GoAdapter(LanguageAdapter):
         ir.operations.extend(lowered.operations)
         ir.operation_edges.extend(lowered.edges)
         ir.facts.extend(lowered.facts)
+        contract_errors = validate_semantic_ir(lowered.operations)
         ir.meta["go_frontend"] = {
             "files_analyzed": lowered.files_analyzed,
             "operations": len(lowered.operations),
             "operation_edges": len(lowered.edges),
-            "errors": list(lowered.errors),
+            "errors": [*lowered.errors, *contract_errors],
+        }
+        ir.meta["semantic_contract"] = {
+            "version": "semantic-ir/contracts/v1",
+            "valid": not contract_errors,
+            "errors": list(contract_errors),
         }
         return ir
