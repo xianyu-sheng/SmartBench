@@ -277,7 +277,8 @@ class CodeGraphBuilder:
 
     # Files to exclude
     EXCLUDED_PATTERNS: List[str] = [
-        "*_test.go", "*_test.py", "test_*.py", "*.spec.ts", "*.test.ts",
+        # Tests are source units, not parser noise.  Keep them in the graph
+        # so provenance can classify and scope findings deterministically.
         "*.pb.go", "*.pb.cc", "*_generated.go",
     ]
 

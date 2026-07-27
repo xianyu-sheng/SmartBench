@@ -8,6 +8,7 @@ This module defines the rule abstraction and provides built-in rules:
 """
 
 from smartbench.core.rules.base import (
+    AnalysisMethod,
     DiagnosticRule,
     Finding,
     RuleRegistry,
@@ -36,6 +37,7 @@ from smartbench.core.rules.state_machine import DeclarativeStateRule
 
 __all__ = [
     "DiagnosticRule",
+    "AnalysisMethod",
     "Finding",
     "RuleRegistry",
     "Severity",

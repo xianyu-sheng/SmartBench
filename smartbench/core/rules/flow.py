@@ -2,13 +2,15 @@
 
 from typing import List, Mapping, Set
 
-from smartbench.core.rules.base import DiagnosticRule, Finding, Severity
+from smartbench.core.rules.base import AnalysisMethod, DiagnosticRule, Finding, Severity
 from smartbench.graph.schema import CodeGraph
-from smartbench.ir import Capability, CapabilityLevel, SourceRole
+from smartbench.ir import Capability, CapabilityLevel, RepositoryZone, SourceRole
 
 
 class DataFlowSecurityRule(DiagnosticRule):
     """Run the AST-based security data-flow suite once per graph."""
+
+    analysis_method = AnalysisMethod.SEMANTIC
 
     @property
     def rule_id(self) -> str:
@@ -44,6 +46,10 @@ class DataFlowSecurityRule(DiagnosticRule):
         # Test/evaluation fixtures are useful inputs for the analyzer itself,
         # but findings there are not production bug claims.
         return {SourceRole.PRODUCTION, SourceRole.UNKNOWN}
+
+    @property
+    def source_zones(self) -> Set[RepositoryZone]:
+        return {RepositoryZone.FIRST_PARTY, RepositoryZone.UNKNOWN}
 
     def analyze(self, ir: CodeGraph) -> List[Finding]:
         from smartbench.flow import DataFlowAnalyzer

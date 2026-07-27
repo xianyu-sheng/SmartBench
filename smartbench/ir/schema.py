@@ -12,7 +12,12 @@ from smartbench.ir.contracts import CONTRACT_SCHEMA_VERSION, validate_semantic_i
 from smartbench.ir.evidence import SemanticFact
 from smartbench.ir.operations import OperationEdge, SemanticOperation
 from smartbench.path_safety import read_text_bounded, read_text_prefix, resolve_project_file
-from smartbench.provenance import SourceRole, classify_source_role
+from smartbench.provenance import (
+    RepositoryZone,
+    SourceRole,
+    classify_repository_zone,
+    classify_source_role,
+)
 
 
 @dataclass(frozen=True)
@@ -25,6 +30,8 @@ class SourceUnit:
     content_hash: str = ""
     role: SourceRole = SourceRole.PRODUCTION
     role_reason: str = "default source path"
+    repository_zone: RepositoryZone = RepositoryZone.FIRST_PARTY
+    repository_zone_reason: str = "default repository ownership"
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -34,6 +41,8 @@ class SourceUnit:
             "content_hash": self.content_hash,
             "role": self.role.value,
             "role_reason": self.role_reason,
+            "repository_zone": self.repository_zone.value,
+            "repository_zone_reason": self.repository_zone_reason,
         }
 
 
@@ -99,11 +108,14 @@ class SemanticIR:
                 if resolved is not None:
                     prefix = read_text_prefix(resolved, 4 * 1024)
             role, role_reason = classify_source_role(node.file_path, prefix)
+            zone, zone_reason = classify_repository_zone(node.file_path, prefix, role)
             units[node.file_path] = SourceUnit(
                 file_path=node.file_path,
                 language=node.language or language or "unknown",
                 role=role,
                 role_reason=role_reason,
+                repository_zone=zone,
+                repository_zone_reason=zone_reason,
             )
         capability_map = dict(capabilities and {capabilities.language: capabilities} or {})
         for detected in languages:
@@ -213,6 +225,10 @@ class SemanticIR:
                         reasons.append(f"{language}.{capability}: {detail['reason']}")
             elif status == CapabilityLevel.UNSUPPORTED:
                 reasons.append(f"{language}: required semantic capability is unavailable")
+            elif status == CapabilityLevel.UNKNOWN:
+                reasons.append(
+                    f"{language}: rule declares no semantic capability requirements"
+                )
         return AnalysisAssessment(
             status=overall,
             languages=targets,

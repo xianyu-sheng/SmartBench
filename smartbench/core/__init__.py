@@ -28,6 +28,7 @@ from smartbench.core.engine import (
     UnifiedDiagnosticResult,
 )
 from smartbench.core.rules import (
+    AnalysisMethod,
     CommandInjectionRule,
     DiagnosticRule,
     ExceptionTooBroadRule,
@@ -54,6 +55,7 @@ from smartbench.core.sarif import (
 __all__ = [
     # Rules
     "DiagnosticRule",
+    "AnalysisMethod",
     "Finding",
     "RuleRegistry",
     "Severity",

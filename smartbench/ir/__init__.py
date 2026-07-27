@@ -25,7 +25,12 @@ from smartbench.ir.operations import (
     OperationKind,
     SemanticOperation,
 )
-from smartbench.ir.provenance import SourceRole, classify_source_role
+from smartbench.ir.provenance import (
+    RepositoryZone,
+    SourceRole,
+    classify_repository_zone,
+    classify_source_role,
+)
 from smartbench.ir.schema import AnalysisAssessment, SemanticIR, SourceUnit
 
 __all__ = [
@@ -51,6 +56,8 @@ __all__ = [
     "SemanticIR",
     "SourceUnit",
     "SourceRole",
+    "RepositoryZone",
+    "classify_repository_zone",
     "classify_source_role",
     "AnalysisAssessment",
 ]

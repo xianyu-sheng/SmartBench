@@ -117,6 +117,14 @@ class UnifiedDiagnosticResult:
                 if self.ir
                 else {}
             ),
+            "ir_source_units": (
+                {
+                    path: unit.to_dict()
+                    for path, unit in sorted(self.ir.source_units.items())
+                }
+                if self.ir
+                else {}
+            ),
             "evidence_packs": {key: pack.to_dict() for key, pack in self.evidence_packs.items()},
         }
 
@@ -355,9 +363,15 @@ class UnifiedDiagnosticEngine:
         )
         assessment = ir.assess_requirements(rule.analysis_requirements, targets)
         status = assessment.to_dict()
+        method = getattr(rule, "analysis_method", "unknown")
+        method = method.value if hasattr(method, "value") else str(method)
+        status["analysis_method"] = method
         roles = rule.source_roles
         if roles is not None:
             status["source_roles"] = sorted(role.value for role in roles)
+        zones = rule.source_zones
+        if zones is not None:
+            status["source_zones"] = sorted(zone.value for zone in zones)
         result.analysis_status[rule.rule_id] = status
 
         if assessment.status == CapabilityLevel.UNSUPPORTED:
@@ -385,13 +399,21 @@ class UnifiedDiagnosticEngine:
 
         excluded = 0
         for finding in findings:
-            role = self._source_role(ir, finding.location.file_path)
+            unit = self._source_unit(ir, finding.location.file_path)
+            role = unit.role if unit is not None else None
+            zone = unit.repository_zone if unit is not None else None
             if role is not None:
                 finding.metadata.setdefault("source_role", role.value)
                 finding.metadata.setdefault("analysis_status", assessment.status.value)
                 if assessment.reason:
                     finding.metadata.setdefault("analysis_limitations", assessment.reason)
-            if roles is not None and role is not None and role not in roles:
+            if zone is not None:
+                finding.metadata.setdefault("repository_zone", zone.value)
+            finding.metadata.setdefault("analysis_method", method)
+            out_of_scope = (
+                roles is not None and role is not None and role not in roles
+            ) or (zones is not None and zone is not None and zone not in zones)
+            if out_of_scope:
                 excluded += 1
                 continue
             result.findings.append(finding)
@@ -400,17 +422,21 @@ class UnifiedDiagnosticEngine:
 
     @staticmethod
     def _source_role(ir: SemanticIR, file_path: str) -> Optional[SourceRole]:
+        unit = UnifiedDiagnosticEngine._source_unit(ir, file_path)
+        return unit.role if unit is not None else None
+
+    @staticmethod
+    def _source_unit(ir: SemanticIR, file_path: str):
         unit = ir.source_units.get(file_path)
         if unit is not None:
-            return unit.role
+            return unit
         # A finding may use an absolute path while the IR stores a relative
         # path.  Resolve that mismatch without weakening path safety.
         try:
             relative = str(Path(file_path).resolve().relative_to(Path(ir.project_path).resolve()))
         except (ValueError, OSError):
             relative = ""
-        unit = ir.source_units.get(relative) if relative else None
-        return unit.role if unit is not None else None
+        return ir.source_units.get(relative) if relative else None
 
     def _with_state_rules(
         self,
@@ -547,6 +573,7 @@ class UnifiedDiagnosticEngine:
         stats["rules_total"] = len(statuses)
         stats["rules_full"] = sum(1 for status in statuses if status == "full")
         stats["rules_partial"] = sum(1 for status in statuses if status == "partial")
+        stats["rules_unknown"] = sum(1 for status in statuses if status == "unknown")
         stats["rules_unsupported"] = sum(
             1 for status in statuses if status == "unsupported"
         )

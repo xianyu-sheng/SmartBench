@@ -38,6 +38,10 @@ class CapabilityLevel(str, Enum):
     language-specific exceptions in the engine.
     """
 
+    # ``UNKNOWN`` is deliberately distinct from ``UNSUPPORTED``.  The former
+    # means that a rule did not declare a semantic contract, while the latter
+    # means a declared contract could not be satisfied by the frontend.
+    UNKNOWN = "unknown"
     UNSUPPORTED = "unsupported"
     PARTIAL = "partial"
     FULL = "full"
@@ -45,6 +49,7 @@ class CapabilityLevel(str, Enum):
     @property
     def rank(self) -> int:
         return {
+            CapabilityLevel.UNKNOWN: -1,
             CapabilityLevel.UNSUPPORTED: 0,
             CapabilityLevel.PARTIAL: 1,
             CapabilityLevel.FULL: 2,
@@ -113,6 +118,12 @@ class CapabilitySet:
     ) -> dict[str, object]:
         """Assess a rule contract against this frontend's capabilities."""
         capabilities: dict[str, dict[str, str]] = {}
+        if not required:
+            return {
+                "status": CapabilityLevel.UNKNOWN.value,
+                "capabilities": capabilities,
+                "reason": "rule declares no semantic capability requirements",
+            }
         overall = CapabilityLevel.FULL
         for requested, minimum in required.items():
             capability = requested if isinstance(requested, Capability) else Capability(requested)

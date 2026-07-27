@@ -6,12 +6,14 @@ from typing import Optional, Set
 
 from smartbench.analysis import StateMachineAnalyzer
 from smartbench.analysis.spec import StateRuleDefinition
-from smartbench.core.rules.base import DiagnosticRule, Finding, Location, Severity
+from smartbench.core.rules.base import AnalysisMethod, DiagnosticRule, Finding, Location, Severity
 from smartbench.ir import Capability, SemanticIR
 
 
 class DeclarativeStateRule(DiagnosticRule):
     """Expose one validated state invariant through the common rule API."""
+
+    analysis_method = AnalysisMethod.SEMANTIC
 
     def __init__(self, definition: StateRuleDefinition):
         self.definition = definition

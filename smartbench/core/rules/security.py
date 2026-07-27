@@ -10,6 +10,7 @@ import re
 from typing import Dict, List, Tuple
 
 from smartbench.core.rules.base import (
+    AnalysisMethod,
     DiagnosticRule,
     Finding,
     Location,
@@ -28,6 +29,7 @@ class CommandInjectionRule(DiagnosticRule):
 
     # Mark as disabled by default due to high false positive rate
     enabled_by_default: bool = False
+    analysis_method = AnalysisMethod.HEURISTIC
 
     @property
     def rule_id(self) -> str:
@@ -134,6 +136,7 @@ class PathTraversalRule(DiagnosticRule):
 
     # Mark as disabled by default due to extremely high false positive rate
     enabled_by_default: bool = False
+    analysis_method = AnalysisMethod.HEURISTIC
 
     @property
     def rule_id(self) -> str:
@@ -269,6 +272,8 @@ class PathTraversalRule(DiagnosticRule):
 
 class HardcodedSecretRule(DiagnosticRule):
     """Detects potential hardcoded secrets."""
+
+    analysis_method = AnalysisMethod.HEURISTIC
 
     @property
     def rule_id(self) -> str:

@@ -52,10 +52,14 @@ returns expose value lists. Contract validation checks shape and alignment;
 empty types remain explicit unknowns rather than being treated as proof.
 
 Rules declare minimum capability strength. The engine evaluates each relevant
-language as `full`, `partial`, or `unsupported`, records limitations in
-`analysis_status`, and never treats a skipped unsupported rule as a clean
-result. Production-scoped rules use shared `SourceRole` provenance rather than
-repository-specific path filters.
+language as `full`, `partial`, `unsupported`, or `unknown`; the last value is
+used when a rule has not declared a semantic capability contract and must not
+be upgraded to `full`. The report also records the rule's derivation method
+(`heuristic` or `semantic`). Unsupported rules are never treated as clean.
+Source roles (test, fixture, generated, and so on) are kept separate from
+repository zones (`first_party`, `legacy`, `third_party`, `vendored`, and
+`generated`) so a legacy production file cannot be mistaken for current
+first-party production code.
 
 ### Deterministic graph retrieval
 

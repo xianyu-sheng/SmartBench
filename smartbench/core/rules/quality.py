@@ -6,6 +6,7 @@ import re
 from typing import Dict, List, Tuple
 
 from smartbench.core.rules.base import (
+    AnalysisMethod,
     DiagnosticRule,
     Finding,
     Location,
@@ -16,6 +17,8 @@ from smartbench.graph.schema import CodeGraph
 
 class TodoFixmeRule(DiagnosticRule):
     """Detects TODO/FIXME comments that need attention."""
+
+    analysis_method = AnalysisMethod.HEURISTIC
 
     @property
     def rule_id(self) -> str:
@@ -84,6 +87,8 @@ class TodoFixmeRule(DiagnosticRule):
 
 class UnusedImportRule(DiagnosticRule):
     """Detects potentially unused imports."""
+
+    analysis_method = AnalysisMethod.HEURISTIC
 
     @property
     def rule_id(self) -> str:
@@ -160,6 +165,8 @@ class UnusedImportRule(DiagnosticRule):
 
 class ExceptionTooBroadRule(DiagnosticRule):
     """Detects overly broad exception handling."""
+
+    analysis_method = AnalysisMethod.HEURISTIC
 
     @property
     def rule_id(self) -> str:
@@ -245,6 +252,8 @@ class ExceptionTooBroadRule(DiagnosticRule):
 class InsecureRandomRule(DiagnosticRule):
     """Detects use of insecure random number generators."""
 
+    analysis_method = AnalysisMethod.HEURISTIC
+
     @property
     def rule_id(self) -> str:
         return "insecure_random"
@@ -324,6 +333,8 @@ class InsecureRandomRule(DiagnosticRule):
 
 class SqlInjectionRule(DiagnosticRule):
     """Detects potential SQL injection vulnerabilities."""
+
+    analysis_method = AnalysisMethod.HEURISTIC
 
     # Structural regex matching cannot prove that interpolated values are
     # attacker-controlled. Keep the heuristic available for explicit audits,

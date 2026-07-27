@@ -9,6 +9,7 @@ import re
 from typing import Dict, List
 
 from smartbench.core.rules.base import (
+    AnalysisMethod,
     DiagnosticRule,
     Finding,
     Location,
@@ -26,6 +27,8 @@ class NullDereferenceRule(DiagnosticRule):
       - Functions that can return None, but the result is used without checking
       - Null assignments followed by dereference
     """
+
+    analysis_method = AnalysisMethod.HEURISTIC
 
     @property
     def rule_id(self) -> str:
@@ -128,6 +131,8 @@ class ResourceLeakRule(DiagnosticRule):
       - File handles that go out of scope
       - Missing with/try/use blocks for resources
     """
+
+    analysis_method = AnalysisMethod.HEURISTIC
 
     @property
     def rule_id(self) -> str:

@@ -33,10 +33,14 @@ in the target repository; optional RAG indexing writes cache data under
   explicitly partial.
 - A versioned `SemanticIR` boundary with frontend contracts, capability
   declarations, normalized operations, control-flow edges, and explicit
-  `full`/`partial`/`unsupported` analysis status in every JSON report.
+  `full`/`partial`/`unsupported`/`unknown` analysis status in every JSON
+  report. `unknown` means a rule has not declared a semantic capability
+  contract; it is never promoted to `full`.
 - Deterministic source provenance (`production`, `test`, `fixture`, `example`,
-  `generated`, and `documentation`) shared by all rules; production-scoped
-  rules do not promote fixture findings to product-level bug claims.
+  `generated`, and `documentation`) shared by all rules, plus an independent
+  repository zone (`first_party`, `legacy`, `third_party`, `vendored`, or
+  `generated`); production-scoped rules do not promote fixture findings to
+  product-level bug claims.
 - Bounded interprocedural control-flow and data-flow for Python/Go, including
   call/return paths, argument/parameter links, return propagation, and
   declarative cross-function state rules.
@@ -169,8 +173,9 @@ finding expectations, so regression claims are reproducible and measurable.
 The JSON result also exposes `analysis_status` and `stats.rules_*`. A `partial`
 rule result is an honest bounded approximation (for example, intra-procedural
 taint analysis); `unsupported` means the rule was not run and is never treated
-as a clean result. Each finding carries its source role when the frontend can
-resolve it.
+as a clean result; `unknown` means the rule has no declared semantic
+requirements. Each finding carries its source role, repository zone, and
+analysis method (`heuristic` or `semantic`) when the frontend can resolve it.
 
 Try the included cross-function benchmark:
 

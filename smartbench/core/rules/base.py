@@ -13,7 +13,21 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
-from smartbench.ir import Capability, CapabilityLevel, SourceRole
+from smartbench.ir import Capability, CapabilityLevel, RepositoryZone, SourceRole
+
+
+class AnalysisMethod(str, Enum):
+    """How a rule derives a result.
+
+    Capability coverage and derivation method are separate contracts.  A rule
+    with no semantic requirements is therefore ``unknown`` in capability
+    coverage, never ``full``; its method must still say whether it is a
+    heuristic or a semantic analyzer.
+    """
+
+    UNKNOWN = "unknown"
+    HEURISTIC = "heuristic"
+    SEMANTIC = "semantic"
 
 
 class Severity(Enum):
@@ -149,6 +163,11 @@ class DiagnosticRule:
         """Whether this rule requires LLM assistance."""
         return False
 
+    # Built-in source-pattern rules override this class attribute explicitly.
+    # Keeping the default unknown makes newly added rules visible in reports
+    # until their analysis contract is documented.
+    analysis_method: AnalysisMethod = AnalysisMethod.UNKNOWN
+
     def analyze(self, ir: Any) -> List[Finding]:
         """Analyze the given IR and return findings.
 
@@ -191,6 +210,11 @@ class DiagnosticRule:
         production security claims should opt into an explicit subset so test
         fixtures and generated examples do not become product-level findings.
         """
+        return None
+
+    @property
+    def source_zones(self) -> Optional[Set[RepositoryZone]]:
+        """Repository ownership zones this rule may make claims about."""
         return None
 
     def _collect_source_files(self, ir: Any) -> List[Tuple[str, str]]:
