@@ -43,6 +43,7 @@ from smartbench.core.adapters.base import AdapterRegistry
 from smartbench.core.rules.base import DiagnosticRule, Finding, RuleRegistry
 from smartbench.core.rules.state_machine import DeclarativeStateRule
 from smartbench.detector import ProjectFingerprint, ProjectScanner
+from smartbench.graph.builder import CodeGraphBuilder
 from smartbench.graph.evidence import DeterministicGraphRAG
 from smartbench.ir import (
     CapabilityLevel,
@@ -174,6 +175,9 @@ class UnifiedDiagnosticEngine:
             # Step 2: Build IR for each detected language
             irs: List[SemanticIR] = []
             detected_langs = self._get_detected_languages(result.fingerprint, config)
+            files_by_language = self._plan_frontend_files(
+                project_path, detected_langs, config
+            )
 
             for lang in detected_langs:
                 adapter = self.adapters.get_adapter_for_language(lang)
@@ -181,7 +185,7 @@ class UnifiedDiagnosticEngine:
                     try:
                         ir = adapter.parse_semantic_project(
                             project_path,
-                            file_paths=config.file_paths,
+                            file_paths=files_by_language.get(lang, []),
                         )
                         irs.append(ir)
                     except Exception as e:
@@ -322,6 +326,56 @@ class UnifiedDiagnosticEngine:
             return [lang.value for lang in languages if lang.value != "unknown"]
 
         return []
+
+    def _plan_frontend_files(
+        self,
+        project_path: Path,
+        languages: List[str],
+        config: UnifiedDiagnosticConfig,
+    ) -> Dict[str, List[Path]]:
+        """Discover source files once, then partition them by frontend.
+
+        Previously each adapter received ``None`` and rebuilt the same
+        repository walk independently.  The scan plan makes the file set an
+        explicit input to every adapter, preserving language-specific parsing
+        while ensuring directory traversal, exclusion, and file budgets are
+        shared.  An explicit empty list is meaningful: an unsupported or
+        absent language must not trigger a fallback full-repository scan.
+        """
+        plan: Dict[str, List[Path]] = {language: [] for language in languages}
+        adapters = {
+            language: self.adapters.get_adapter_for_language(language)
+            for language in languages
+        }
+        adapters = {language: adapter for language, adapter in adapters.items() if adapter}
+        if not adapters:
+            return plan
+
+        extensions = {
+            extension.lower()
+            for adapter in adapters.values()
+            for extension in adapter.file_extensions
+        }
+        # Keep the historical per-language budget while bounding the one
+        # shared discovery result.  Each partition is capped again below.
+        per_language_limit = max(1, int(config.max_files))
+        builder = CodeGraphBuilder(
+            max_files=per_language_limit * max(1, len(adapters)),
+            use_treesitter=False,
+        )
+        discovered = builder.discover_files_for_extensions(
+            project_path.resolve(),
+            extensions,
+            file_filter=config.file_paths,
+        )
+        for language, adapter in adapters.items():
+            accepted = set(extension.lower() for extension in adapter.file_extensions)
+            plan[language] = [
+                path
+                for path in discovered
+                if path.suffix.lower() in accepted
+            ][:per_language_limit]
+        return plan
 
     def _get_applicable_rules(
         self,

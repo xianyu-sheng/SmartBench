@@ -77,12 +77,12 @@ class GoAdapter(LanguageAdapter):
     ) -> CodeGraph:
         """Parse an entire Go project."""
         builder = CodeGraphBuilder(
-            max_files=500,
+            max_files=max(1, len(file_paths)) if file_paths is not None else 500,
             use_treesitter=True,
         )
 
         str_filter = None
-        if file_paths:
+        if file_paths is not None:
             root = project_path.resolve()
             str_filter = []
             for fp in file_paths:

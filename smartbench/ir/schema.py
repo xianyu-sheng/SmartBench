@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -10,7 +11,7 @@ from smartbench.graph.schema import CodeGraph
 from smartbench.ir.capabilities import Capability, CapabilityLevel, CapabilitySet
 from smartbench.ir.contracts import CONTRACT_SCHEMA_VERSION, validate_semantic_ir
 from smartbench.ir.evidence import SemanticFact
-from smartbench.ir.operations import OperationEdge, SemanticOperation
+from smartbench.ir.operations import OperationEdge, OperationEdgeKind, SemanticOperation
 from smartbench.path_safety import read_text_bounded, read_text_prefix, resolve_project_file
 from smartbench.provenance import (
     RepositoryZone,
@@ -269,9 +270,11 @@ class SemanticIR:
         units.update(other.source_units)
         languages = tuple(sorted(set(self.languages) | set(other.languages)))
         facts = list(self.facts)
+        known_facts = {fact.fact_id for fact in facts}
         for fact in other.facts:
-            if fact not in facts:
+            if fact.fact_id not in known_facts:
                 facts.append(fact)
+                known_facts.add(fact.fact_id)
         operations = list(self.operations)
         known_operations = {operation.id for operation in operations}
         for operation in other.operations:
@@ -279,9 +282,11 @@ class SemanticIR:
                 operations.append(operation)
                 known_operations.add(operation.id)
         operation_edges = list(self.operation_edges)
+        known_edges = {_operation_edge_key(edge) for edge in operation_edges}
         for edge in other.operation_edges:
-            if edge not in operation_edges:
+            if _operation_edge_key(edge) not in known_edges:
                 operation_edges.append(edge)
+                known_edges.add(_operation_edge_key(edge))
         merged_graph.meta["semantic_ir_version"] = self.schema_version
         merged_graph.meta["languages"] = list(languages)
         contract_errors = validate_semantic_ir(operations)
@@ -319,3 +324,12 @@ class SemanticIR:
             "operation_edges": [edge.to_dict() for edge in self.operation_edges],
             "graph": self.graph.to_dict(),
         }
+
+
+def _operation_edge_key(edge: OperationEdge) -> tuple[str, str, str, str]:
+    """Return a stable, hashable identity for an edge's merge semantics."""
+    kind = edge.kind.value if isinstance(edge.kind, OperationEdgeKind) else str(edge.kind)
+    attributes = json.dumps(
+        dict(edge.attributes), ensure_ascii=False, sort_keys=True, default=str
+    )
+    return edge.source_id, edge.target_id, kind, attributes

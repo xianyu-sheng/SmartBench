@@ -8,8 +8,9 @@ from smartbench.core import (
     UnifiedDiagnosticConfig,
     UnifiedDiagnosticEngine,
 )
-from smartbench.core.adapters import PythonAdapter
+from smartbench.core.adapters import GoAdapter, PythonAdapter
 from smartbench.core.rules.base import DiagnosticRule, Finding, Location, Severity
+from smartbench.graph.builder import CodeGraphBuilder
 from smartbench.graph.schema import CodeGraph, CodeNode, NodeType
 from smartbench.ir import (
     Capability,
@@ -57,6 +58,42 @@ def test_repository_zone_is_separate_from_source_role():
 
     zone, _ = classify_repository_zone("vendor/client.py")
     assert zone == RepositoryZone.VENDORED
+
+
+def test_engine_scan_plan_walks_once_and_partitions_languages(tmp_path: Path, monkeypatch):
+    (tmp_path / "app.py").write_text("value = 1\n", encoding="utf-8")
+    (tmp_path / "main.go").write_text("package main\n", encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("ignored\n", encoding="utf-8")
+
+    adapters = AdapterRegistry()
+    adapters.register(PythonAdapter())
+    adapters.register(GoAdapter())
+    engine = UnifiedDiagnosticEngine(adapters, RuleRegistry())
+
+    calls = []
+    original = CodeGraphBuilder.discover_files_for_extensions
+
+    def counted(self, root, extensions, file_filter=None):
+        calls.append((root, set(extensions)))
+        return original(self, root, extensions, file_filter)
+
+    monkeypatch.setattr(CodeGraphBuilder, "discover_files_for_extensions", counted)
+    plan = engine._plan_frontend_files(
+        tmp_path,
+        ["python", "go"],
+        UnifiedDiagnosticConfig(max_files=10),
+    )
+
+    assert len(calls) == 1
+    assert [path.name for path in plan["python"]] == ["app.py"]
+    assert [path.name for path in plan["go"]] == ["main.go"]
+
+    empty = engine._plan_frontend_files(
+        tmp_path,
+        ["python", "go"],
+        UnifiedDiagnosticConfig(file_paths=[]),
+    )
+    assert empty == {"python": [], "go": []}
 
 
 def test_semantic_ir_uses_generated_header_provenance(tmp_path: Path):

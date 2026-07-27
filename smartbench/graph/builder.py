@@ -426,12 +426,37 @@ class CodeGraphBuilder:
 
     def _discover_files(self, root: Path, language: Language,
                         file_filter: Optional[List[str]] = None) -> List[Path]:
+        """Find bounded project source files for one language."""
+        return self._discover_files_for_extensions(
+            root, set(_LANG_EXTENSIONS.get(language, [])), file_filter
+        )
+
+    def discover_files_for_extensions(
+        self,
+        root: Path,
+        extensions: Set[str],
+        file_filter: Optional[List[str]] = None,
+    ) -> List[Path]:
+        """Discover several language extensions with one pruned repository walk.
+
+        The returned list is intentionally language-neutral.  Callers can
+        partition it by suffix and pass those explicit lists to each frontend;
+        this avoids repeating the expensive directory traversal once per
+        detected language.
+        """
+        return self._discover_files_for_extensions(root, set(extensions), file_filter)
+
+    def _discover_files_for_extensions(
+        self,
+        root: Path,
+        extensions: Set[str],
+        file_filter: Optional[List[str]] = None,
+    ) -> List[Path]:
         """Find bounded project source files with a single pruned walk."""
-        extensions = set(_LANG_EXTENSIONS.get(language, []))
         if not extensions:
             return []
 
-        if file_filter:
+        if file_filter is not None:
             filtered = []
             for requested in file_filter:
                 if not isinstance(requested, (str, Path)):
