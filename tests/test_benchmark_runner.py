@@ -75,6 +75,7 @@ cases:
     language: go
     state_rules: [rules.yaml]
     rules: [terminal-before-retry]
+    metadata: {repository: fixture/example, before_commit: abc, after_commit: def}
     snapshots:
       - {label: bad, path: bad, min_findings: 1, max_findings: 1, expected_rule_ids: [terminal-before-retry]}
       - {label: fixed, path: fixed, max_findings: 0}
@@ -120,3 +121,8 @@ def test_benchmark_cli_writes_machine_readable_report(tmp_path: Path):
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["passed"] is True
     assert report["summary"] == {"total": 2, "passed": 2, "failed": 0}
+    assert report["snapshots"][0]["metadata"] == {
+        "repository": "fixture/example",
+        "before_commit": "abc",
+        "after_commit": "def",
+    }

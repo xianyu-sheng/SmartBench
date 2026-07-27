@@ -213,6 +213,8 @@ class _PythonFileLowerer:
     def _lower_statement(self, node: ast.stmt, scope_id: str) -> _FlowFragment:
         if isinstance(node, ast.If):
             return self._lower_branch(node, scope_id)
+        if isinstance(node, ast.Try):
+            return self._lower_try(node, scope_id)
         if isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
             return self._lower_loop(node, scope_id)
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
@@ -255,6 +257,59 @@ class _PythonFileLowerer:
                 self._lower_call(node.value, scope_id, location_node=node).id
             )
         return _FlowFragment()
+
+    def _lower_try(self, node: ast.Try, scope_id: str) -> _FlowFragment:
+        """Lower try/except/finally as conservative CFG branches.
+
+        Python exception edges are not fully modeled yet, but omitting the
+        entire construct loses every operation nested in its body.  Keeping a
+        structural branch preserves normal-flow reachability and exposes
+        handler/finally paths to later exception-aware analyses.
+        """
+        marker = self._operation(
+            OperationKind.BRANCH,
+            node,
+            scope_id,
+            value="try",
+            attributes={"construct": "try", "handlers": len(node.handlers)},
+        )
+        body = self._lower_sequence(node.body, scope_id)
+        if body.entry_id is not None:
+            self._edge(marker.id, body.entry_id, OperationEdgeKind.TRUE_BRANCH)
+        else:
+            body.fallthroughs.append(_PendingEdge(marker.id, OperationEdgeKind.TRUE_BRANCH))
+
+        handler_fragments: list[_FlowFragment] = []
+        for handler in node.handlers:
+            fragment = self._lower_sequence(handler.body, scope_id)
+            handler_fragments.append(fragment)
+            if fragment.entry_id is not None:
+                self._edge(marker.id, fragment.entry_id, OperationEdgeKind.FALSE_BRANCH)
+            else:
+                fragment.fallthroughs.append(_PendingEdge(marker.id, OperationEdgeKind.FALSE_BRANCH))
+
+        alternate = self._lower_sequence(node.orelse, scope_id)
+        paths = [body, *handler_fragments]
+        if alternate.entry_id is not None:
+            for pending in body.fallthroughs:
+                self._edge(pending.source_id, alternate.entry_id, pending.kind)
+            body.fallthroughs = list(alternate.fallthroughs)
+        paths.append(alternate)
+
+        final = self._lower_sequence(node.finalbody, scope_id)
+        fallthroughs = [pending for fragment in paths for pending in fragment.fallthroughs]
+        if final.entry_id is not None:
+            for pending in fallthroughs:
+                self._edge(pending.source_id, final.entry_id, pending.kind)
+            fallthroughs = list(final.fallthroughs)
+        else:
+            fallthroughs = fallthroughs or list(final.fallthroughs)
+        return _FlowFragment(
+            entry_id=marker.id,
+            fallthroughs=fallthroughs,
+            breaks=[item for fragment in paths for item in fragment.breaks],
+            continues=[item for fragment in paths for item in fragment.continues],
+        )
 
     def _lower_branch(self, node: ast.If, scope_id: str) -> _FlowFragment:
         branch = self._operation(
@@ -412,7 +467,14 @@ class _PythonFileLowerer:
             ):
                 parent = self.parents.get(parent)
             if parent is function_node:
-                self._lower_call(descendant, scope_id)
+                call = self._lower_call(descendant, scope_id)
+                host_operation = self._call_hosts.get(id(descendant))
+                if host_operation and host_operation != call.id:
+                    # Calls nested in an assignment/branch/return are emitted
+                    # after their host operation is lowered.  Connect the call
+                    # back to that host so CFG reachability can prove paths
+                    # through expression-level calls as well.
+                    self._edge(call.id, host_operation, OperationEdgeKind.NEXT)
 
     def _operation(
         self,

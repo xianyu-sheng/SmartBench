@@ -41,6 +41,7 @@ class BenchmarkCase:
     state_rule_paths: tuple[Path, ...]
     rule_ids: tuple[str, ...]
     snapshots: tuple[BenchmarkSnapshot, ...]
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -50,6 +51,7 @@ class BenchmarkSnapshotResult:
     path: str
     findings: int
     finding_rule_ids: list[str] = field(default_factory=list)
+    metadata: dict[str, object] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     passed: bool = False
     duration_ms: int = 0
@@ -61,6 +63,7 @@ class BenchmarkSnapshotResult:
             "path": self.path,
             "findings": self.findings,
             "finding_rule_ids": self.finding_rule_ids,
+            "metadata": self.metadata,
             "errors": self.errors,
             "passed": self.passed,
             "duration_ms": self.duration_ms,
@@ -161,6 +164,7 @@ class BenchmarkRunner:
             path=str(snapshot.path),
             findings=len(finding_ids),
             finding_rule_ids=finding_ids,
+            metadata=dict(case.metadata),
             errors=list(result.errors),
             passed=passed,
             duration_ms=int((time.time() - start) * 1000),
@@ -170,7 +174,11 @@ class BenchmarkRunner:
 def _parse_case(value: Any, index: int, base: Path) -> BenchmarkCase:
     path = f"cases[{index}]"
     case = _mapping(value, path)
-    _reject_unknown(case, {"id", "language", "state_rules", "rules", "snapshots"}, path)
+    _reject_unknown(
+        case,
+        {"id", "language", "state_rules", "rules", "snapshots", "metadata"},
+        path,
+    )
     case_id = _non_empty_string(case.get("id"), f"{path}.id")
     language = _non_empty_string(case.get("language"), f"{path}.language").lower()
     rule_paths = tuple(
@@ -185,7 +193,8 @@ def _parse_case(value: Any, index: int, base: Path) -> BenchmarkCase:
         _parse_snapshot(item, index, base, case_id)
         for index, item in enumerate(raw_snapshots)
     )
-    return BenchmarkCase(case_id, language, rule_paths, rule_ids, snapshots)
+    metadata = _parse_metadata(case.get("metadata", {}), f"{path}.metadata")
+    return BenchmarkCase(case_id, language, rule_paths, rule_ids, snapshots, metadata)
 
 
 def _parse_snapshot(value: Any, index: int, base: Path, case_id: str) -> BenchmarkSnapshot:
@@ -242,6 +251,16 @@ def _string_list(value: Any, path: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) and item.strip() for item in value):
         raise BenchmarkConfigError(f"{path} must be a string or list of non-empty strings")
     return [item.strip() for item in value]
+
+
+def _parse_metadata(value: Any, path: str) -> dict[str, object]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise BenchmarkConfigError(f"{path} must be a mapping")
+    if not all(isinstance(key, str) and key.strip() for key in value):
+        raise BenchmarkConfigError(f"{path} keys must be non-empty strings")
+    return {key.strip(): item for key, item in value.items()}
 
 
 def _non_negative_int(value: Any, path: str) -> int:

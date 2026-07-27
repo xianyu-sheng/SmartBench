@@ -374,8 +374,8 @@ class StateMachineAnalyzer:
                         and invariant.guard.matches(operation)
                         and cfg.reachable(event.id, operation.id)
                         and cfg.reachable(operation.id, action.id)
-                        and cfg.dominates(operation.id, action.id)
-                        and cfg.branch_controls(operation.id, action.id)
+                        and cfg.dominates_between(event.id, operation.id, action.id)
+                        and self._guard_proves_action(event, operation, action, cfg)
                     ]
                     if guards:
                         continue
@@ -412,6 +412,26 @@ class StateMachineAnalyzer:
                         )
                     )
         return violations
+
+    @staticmethod
+    def _guard_proves_action(
+        event: SemanticOperation,
+        guard: SemanticOperation,
+        action: SemanticOperation,
+        cfg: ControlFlowGraph,
+    ) -> bool:
+        """Check whether a matched guard establishes protection for an action.
+
+        Branch guards need an exclusive outcome that controls the action.  A
+        regular semantic operation (for example, registering a cleanup,
+        acquiring a lock, or setting a transaction marker) is proven by
+        dominance alone: it must execute on every path from the matched event
+        to the action.  Keeping this distinction in the language-neutral
+        analyzer lets frontends expose either shape through the same IR.
+        """
+        if guard.kind == OperationKind.BRANCH:
+            return cfg.branch_controls(guard.id, action.id)
+        return cfg.dominates_between(event.id, guard.id, action.id)
 
     @staticmethod
     def _order_key(operation: SemanticOperation) -> tuple[str, int, int, str]:

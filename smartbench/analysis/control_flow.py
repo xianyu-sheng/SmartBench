@@ -127,6 +127,51 @@ class ControlFlowGraph:
         scope_dominators = self._dominators(operation.scope_id)
         return dominator_id in scope_dominators.get(operation_id, frozenset())
 
+    def dominates_between(self, start_id: str, dominator_id: str, operation_id: str) -> bool:
+        """Return whether every path from ``start_id`` to ``operation_id`` visits ``dominator_id``.
+
+        Global dominance is often too strong for temporal invariants: an event
+        may occur only on one conditional path while the action is also
+        reachable from unrelated paths.  This query keeps the proof scoped to
+        paths that actually begin at the matched event.
+        """
+        start = self.operations.get(start_id)
+        dominator = self.operations.get(dominator_id)
+        target = self.operations.get(operation_id)
+        if (
+            start is None
+            or dominator is None
+            or target is None
+            or len({start.scope_id, dominator.scope_id, target.scope_id}) != 1
+        ):
+            return False
+        if start_id == dominator_id:
+            return True
+        if operation_id == dominator_id:
+            return bool(self.reachable(start_id, operation_id))
+
+        # Look for a counterexample path that reaches the target without
+        # visiting the proposed dominator.
+        queue = deque(
+            arc.target_id
+            for arc in self._successors.get(start_id, ())
+            if arc.target_id != dominator_id
+        )
+        visited: set[str] = set()
+        while queue:
+            current = queue.popleft()
+            if current == dominator_id or current in visited:
+                continue
+            if current == operation_id:
+                return False
+            visited.add(current)
+            queue.extend(
+                arc.target_id
+                for arc in self._successors.get(current, ())
+                if arc.target_id != dominator_id and arc.target_id not in visited
+            )
+        return True
+
     def branch_controls(self, branch_id: str, operation_id: str) -> bool:
         """Return whether exactly one branch outcome can reach an operation.
 

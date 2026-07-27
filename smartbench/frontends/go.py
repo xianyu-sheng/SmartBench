@@ -477,7 +477,10 @@ class _GoFileLowerer:
             key = (descendant.start_byte, descendant.end_byte)
             if key in self._emitted_calls:
                 continue
-            self._call_like(OperationKind.CALL, descendant, scope_id)
+            call = self._call_like(OperationKind.CALL, descendant, scope_id)
+            host_operation = self._call_hosts.get(key)
+            if host_operation and host_operation != call.id:
+                self._edge(call.id, host_operation, OperationEdgeKind.NEXT)
 
     def _operation(
         self,

@@ -10,7 +10,7 @@ from smartbench.analysis import (
     StateInvariant,
     StateMachineAnalyzer,
 )
-from smartbench.core.adapters import GoAdapter
+from smartbench.core.adapters import GoAdapter, PythonAdapter
 from smartbench.graph.tree_parser import get_parser
 from smartbench.ir import OperationKind
 
@@ -109,3 +109,42 @@ def test_converging_guard_does_not_hide_a_retry_violation(tmp_path: Path):
 
     assert len(result.violations) == 1
     assert result.violations[0].missing == "guard"
+
+
+def test_call_guard_is_proven_on_event_to_action_path(tmp_path: Path):
+    source = """
+def run(request, stack, response):
+    try:
+        body = request.form()
+        stack.push_async_callback(body.close)
+    except Exception:
+        raise
+    response.headers.raw.extend([])
+""".strip()
+    (tmp_path / "handler.py").write_text(source, encoding="utf-8")
+    ir = PythonAdapter().parse_semantic_project(tmp_path)
+    invariant = StateInvariant(
+        invariant_id="form-cleanup-before-response",
+        kind=InvariantKind.REQUIRE_GUARD_BEFORE_ACTION,
+        event=OperationSelector.of(OperationKind.CALL, contains_all=("request.form",)),
+        guard=OperationSelector.of(
+            OperationKind.CALL, contains_all=("push_async_callback",)
+        ),
+        action=OperationSelector.of(
+            OperationKind.CALL, contains_all=("response.headers.raw.extend",)
+        ),
+        message="form parsing must register cleanup before response",
+    )
+
+    result = StateMachineAnalyzer().analyze(ir, [invariant])
+
+    assert result.violations == []
+
+    (tmp_path / "handler.py").write_text(
+        source.replace("        stack.push_async_callback(body.close)\n", ""),
+        encoding="utf-8",
+    )
+    before_ir = PythonAdapter().parse_semantic_project(tmp_path)
+    before = StateMachineAnalyzer().analyze(before_ir, [invariant])
+    assert len(before.violations) == 1
+    assert before.violations[0].missing == "guard"
