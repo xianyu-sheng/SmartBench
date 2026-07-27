@@ -27,6 +27,10 @@ in the target repository; optional RAG indexing writes cache data under
 - Conservative operation-level Python/Go call linking with explicit resolved,
   unresolved, and ambiguous counts; Go spawn/defer and intraprocedural channel
   synchronization use the same semantic edge model.
+- A shared JavaScript/TypeScript frontend lowers functions, parameters,
+  assignments, branches, loops, returns, calls, and surface type annotations
+  into the same operation model; its async/exception/type semantics remain
+  explicitly partial.
 - A versioned `SemanticIR` boundary with frontend contracts, capability
   declarations, normalized operations, control-flow edges, and explicit
   `full`/`partial`/`unsupported` analysis status in every JSON report.
@@ -59,7 +63,7 @@ source repository
    │
    ├─ deterministic fingerprint ── language / framework / build / Git signals
    │
-   ├─ language frontend ────────── Python/Go SemanticIR; structural fallbacks
+   ├─ language frontend ────────── Python/Go + partial JS/TS SemanticIR
    │                │
    │                ├─ CFG / ICFG / data-flow / state rules
    │                └─ deterministic GraphRAG EvidencePack
@@ -76,12 +80,14 @@ A finding with a missing file or invalid line is marked hallucinated. A fuzzy pa
 Repository fingerprinting recognizes Python, Go, Rust, C, C++, Java, Kotlin, JavaScript, TypeScript, Ruby, Swift, C#, and Zig, plus mixed-language repositories.
 
 The optional tree-sitter backend currently covers Python, Go, JavaScript,
-TypeScript, and Rust. Python and Go additionally lower to the common semantic
-operation model. JavaScript/TypeScript, Java, and Rust currently provide
-structural compatibility and are not yet equivalent semantic backends. Other
-languages use heuristic structure extraction; C currently receives file-level
-discovery. The fallback graph is useful for retrieval context but is not
-compiler-grade analysis.
+TypeScript, and Rust. Python and Go lower to the common semantic operation
+model with the deepest current control-flow support. JavaScript and TypeScript
+now lower the common statement/call/type surface through one shared frontend,
+while async scheduling, exceptions, dynamic dispatch, and type-checker facts
+remain partial. Java and Rust currently provide structural compatibility.
+Other languages use heuristic structure extraction; C currently receives
+file-level discovery. The fallback graph is useful for retrieval context but
+is not compiler-grade analysis.
 
 ## Quick start
 
@@ -226,7 +232,7 @@ smartbench/
 ├── core/             unified engine, rules, adapters, and SARIF bridge
 ├── ir/               versioned SemanticIR, contracts, facts, and capabilities
 ├── analysis/         CFG, ICFG, interprocedural, and state analysis
-├── frontends/        Python/Go semantic lowering
+├── frontends/        Python/Go and shared JavaScript/TypeScript lowering
 ├── detector/        deterministic repository fingerprint
 ├── graph/           tree-sitter adapters, fallback graph, graph retrieval
 ├── rag/             optional chunking, embeddings, vector retrieval, evaluation
@@ -255,8 +261,9 @@ CI runs lint, compilation, and tests on Python 3.10, 3.11, and 3.12; separately 
 
 The current development snapshot was validated on 2026-07-24 with:
 
-- 503 tests passing and 35 skipped (538 collected), including the semantic
-  frontend, interprocedural linker/ICFG, evidence gate, and benchmark tests.
+- 547 tests passing with the graph extras installed; 509 passing and 38 skipped
+  without optional parsers, including the semantic frontends,
+  interprocedural linker/ICFG, evidence gate, and benchmark tests.
 - Ruff, bytecode compilation, wheel, and source-distribution checks passing.
 - The included interprocedural benchmark passing with before=1 and after=0.
 - The Reasonix reasoning-stop benchmark detecting the known pre-fix issue and

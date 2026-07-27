@@ -9,9 +9,10 @@ from typing import List, Optional
 
 from smartbench.core.adapters.base import LanguageAdapter
 from smartbench.detector.fingerprint import Language as DetectorLanguage
+from smartbench.frontends.javascript import JavaScriptSemanticLowerer
 from smartbench.graph.builder import CodeGraphBuilder
 from smartbench.graph.schema import CodeGraph
-from smartbench.ir import Capability, CapabilitySet
+from smartbench.ir import Capability, CapabilitySet, SemanticIR, validate_semantic_ir
 
 
 class JavaScriptAdapter(LanguageAdapter):
@@ -36,8 +37,40 @@ class JavaScriptAdapter(LanguageAdapter):
             partial={
                 Capability.CALL_GRAPH: "derived from the structural graph; dynamic dispatch is unresolved",
                 Capability.DATA_FLOW: "intra-procedural AST taint analysis; interprocedural flow is unresolved",
+                Capability.CONTROL_FLOW: "branches and loops are normalized; exceptions and async scheduling are unresolved",
+                Capability.EVENT_MODEL: "statement-level events are normalized; framework lifecycle is unresolved",
             },
         )
+
+    def parse_semantic_file(self, file_path: Path, project_root: Path) -> SemanticIR:
+        return self._lower_semantics(super().parse_semantic_file(file_path, project_root))
+
+    def parse_semantic_project(
+        self, project_path: Path, file_paths: Optional[List[Path]] = None
+    ) -> SemanticIR:
+        return self._lower_semantics(
+            super().parse_semantic_project(project_path, file_paths=file_paths)
+        )
+
+    @staticmethod
+    def _lower_semantics(ir: SemanticIR) -> SemanticIR:
+        lowered = JavaScriptSemanticLowerer().lower(ir)
+        ir.operations.extend(lowered.operations)
+        ir.operation_edges.extend(lowered.edges)
+        ir.facts.extend(lowered.facts)
+        contract_errors = validate_semantic_ir(lowered.operations)
+        ir.meta["javascript_frontend"] = {
+            "files_analyzed": lowered.files_analyzed,
+            "operations": len(lowered.operations),
+            "operation_edges": len(lowered.edges),
+            "errors": [*lowered.errors, *contract_errors],
+        }
+        ir.meta["semantic_contract"] = {
+            "version": "semantic-ir/contracts/v1",
+            "valid": not contract_errors,
+            "errors": list(contract_errors),
+        }
+        return ir
 
     def parse_file(self, file_path: Path, project_root: Path) -> CodeGraph:
         """Parse a single JavaScript file into CodeGraph."""
@@ -111,7 +144,22 @@ class TypeScriptAdapter(LanguageAdapter):
             partial={
                 Capability.CALL_GRAPH: "derived from the structural graph; dynamic dispatch is unresolved",
                 Capability.DATA_FLOW: "intra-procedural AST taint analysis; type-aware flow is unresolved",
+                Capability.CONTROL_FLOW: "branches and loops are normalized; exceptions and async scheduling are unresolved",
+                Capability.EVENT_MODEL: "statement-level events are normalized; framework lifecycle is unresolved",
+                Capability.TYPE_INFO: "surface annotations are preserved; no TypeScript type checker is invoked",
             },
+        )
+
+    def parse_semantic_file(self, file_path: Path, project_root: Path) -> SemanticIR:
+        return JavaScriptAdapter._lower_semantics(
+            super().parse_semantic_file(file_path, project_root)
+        )
+
+    def parse_semantic_project(
+        self, project_path: Path, file_paths: Optional[List[Path]] = None
+    ) -> SemanticIR:
+        return JavaScriptAdapter._lower_semantics(
+            super().parse_semantic_project(project_path, file_paths=file_paths)
         )
 
     def parse_file(self, file_path: Path, project_root: Path) -> CodeGraph:

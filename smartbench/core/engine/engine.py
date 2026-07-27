@@ -509,6 +509,11 @@ class UnifiedDiagnosticEngine:
         if result.ir:
             stats["ir_nodes"] = len(result.ir.nodes)
             stats["ir_edges"] = len(result.ir.edges)
+            stats["ir_source_units"] = len(result.ir.source_units)
+            for role in SourceRole:
+                stats[f"ir_source_units_{role.value}"] = sum(
+                    unit.role == role for unit in result.ir.source_units.values()
+                )
             stats["ir_operations"] = len(result.ir.operations)
             stats["ir_operation_edges"] = len(result.ir.operation_edges)
             stats["ir_facts"] = len(result.ir.facts)

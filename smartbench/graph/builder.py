@@ -25,8 +25,10 @@ from smartbench.graph.schema import (
 from smartbench.path_safety import (
     is_project_file,
     read_text_bounded,
+    read_text_prefix,
     resolve_project_file,
 )
+from smartbench.provenance import SourceRole, classify_source_role
 
 _GRAPH_MAX_DIRECTORIES = 5_000
 _GRAPH_MAX_DISCOVERED_FILES = 50_000
@@ -451,6 +453,10 @@ class CodeGraphBuilder:
 
         files: List[Path] = []
         visited_directories = 0
+        # Count files relevant to this frontend, not every unrelated file in
+        # a monorepo.  A global filename counter can starve a secondary
+        # language when an earlier top-level package contains many assets or
+        # sources in another language.
         discovered_files = 0
         for current, dirnames, filenames in os.walk(
             root, topdown=True, followlinks=False
@@ -479,9 +485,6 @@ class CodeGraphBuilder:
             dirnames[:] = safe_dirs
 
             for filename in sorted(filenames):
-                discovered_files += 1
-                if discovered_files > _GRAPH_MAX_DISCOVERED_FILES:
-                    return files
                 candidate = current_path / filename
                 if candidate.suffix not in extensions:
                     continue
@@ -490,6 +493,9 @@ class CodeGraphBuilder:
                     for pattern in self.EXCLUDED_PATTERNS
                 ):
                     continue
+                discovered_files += 1
+                if discovered_files > _GRAPH_MAX_DISCOVERED_FILES:
+                    return self._bounded_file_sample(files)
                 if not is_project_file(root, candidate):
                     continue
                 try:
@@ -498,10 +504,62 @@ class CodeGraphBuilder:
                 except OSError:
                     continue
                 files.append(candidate)
-                if len(files) >= self.max_files:
-                    return files
 
-        return files
+        return self._bounded_file_sample(files)
+
+    def _bounded_file_sample(self, files: List[Path]) -> List[Path]:
+        """Select a deterministic repository-wide sample.
+
+        Returning as soon as ``max_files`` is reached makes the result depend
+        on which top-level directory sorts first and can entirely starve later
+        packages in a monorepo.  Source provenance prioritizes authored code;
+        evenly spaced selection within a role preserves repository-wide path
+        coverage without weakening the hard bound.
+        """
+        ordered = sorted(set(files))
+        if len(ordered) <= self.max_files:
+            return ordered
+        priorities = {
+            SourceRole.PRODUCTION: 0,
+            SourceRole.UNKNOWN: 0,
+            SourceRole.TEST: 1,
+            SourceRole.FIXTURE: 2,
+            SourceRole.EXAMPLE: 2,
+            SourceRole.GENERATED: 3,
+            SourceRole.DOCUMENTATION: 3,
+        }
+        buckets: Dict[int, List[Path]] = {}
+        for path in ordered:
+            role, _ = classify_source_role(
+                path.as_posix(),
+                read_text_prefix(path, 4 * 1024),
+            )
+            buckets.setdefault(priorities[role], []).append(path)
+
+        selected: List[Path] = []
+        for priority in sorted(buckets):
+            candidates = buckets[priority]
+            remaining = self.max_files - len(selected)
+            if remaining <= 0:
+                break
+            if len(candidates) <= remaining:
+                selected.extend(candidates)
+                continue
+            selected.extend(self._even_sample(candidates, remaining))
+            break
+        return sorted(selected)
+
+    @staticmethod
+    def _even_sample(files: List[Path], limit: int) -> List[Path]:
+        if limit <= 0:
+            return []
+        if limit == 1:
+            return files[:1]
+        last = len(files) - 1
+        return [
+            files[round(index * last / (limit - 1))]
+            for index in range(limit)
+        ]
 
     @staticmethod
     def _match_pattern(name: str, pattern: str) -> bool:

@@ -22,6 +22,7 @@ SmartBench 是一款可以持续迭代的诊断工作台，而不是“已经能
 - 版本化 `SemanticIR` 分析边界、前端契约、能力声明、规范化操作、控制流边以及明确的 `full`/`partial`/`unsupported` 分析状态。
 - 统一的源码来源角色（生产、测试、夹具、示例、生成、文档）会随 IR 传递；声明为生产级的规则不会把夹具结果提升为产品 Bug。
 - Python/Go 的有限跨函数控制流与数据流，包括调用/返回路径、实参到形参、返回值传播，以及声明式跨函数状态规则。
+- JavaScript/TypeScript 共用一个语义前端，将函数、参数、赋值、分支、循环、返回、调用和表层类型注解降低到同一操作模型；异步、异常和类型检查语义仍明确标记为 partial。
 - 确定性的 EvidencePack，包含稳定 fact ID、图快照哈希和源代码位置；证据独占模式会拒绝没有引用证据 fact 的建议。
 - Proposer、Critique、Judge 三个审查角色，可共用模型，也可分别配置模型。
 - 对引用路径、行号、符号和部分调用链做确定性核验；模糊路径修正会明确标记为“部分可信”。
@@ -40,7 +41,7 @@ SmartBench 是一款可以持续迭代的诊断工作台，而不是“已经能
    │
    ├─ 确定性指纹 ── 语言 / 框架 / 构建 / Git 信号
    │
-   ├─ 语言前端 ─── Python/Go SemanticIR + 其他语言结构化回退
+   ├─ 语言前端 ─── Python/Go + 部分 JS/TS SemanticIR
    │       │
    │       ├─ CFG / ICFG / 数据流 / 状态规则
    │       └─ 确定性 GraphRAG EvidencePack
@@ -56,7 +57,7 @@ SmartBench 是一款可以持续迭代的诊断工作台，而不是“已经能
 
 仓库指纹可识别 Python、Go、Rust、C、C++、Java、Kotlin、JavaScript、TypeScript、Ruby、Swift、C# 和 Zig，也能识别混合语言项目。
 
-可选 tree-sitter 后端目前覆盖 Python、Go、JavaScript、TypeScript 和 Rust。Python 和 Go 还会降低到统一的语义操作模型；JavaScript/TypeScript、Java 和 Rust 当前主要提供结构化兼容能力，尚未达到同等的语义后端深度。其他语言使用启发式结构解析；C 目前只有文件级发现。回退图适合上下文检索，但不是编译器级分析。
+可选 tree-sitter 后端目前覆盖 Python、Go、JavaScript、TypeScript 和 Rust。Python 和 Go 当前具有最深的统一操作与控制流支持；JavaScript/TypeScript 已通过一个共享前端降低常见语句、调用和表层类型，但异步调度、异常、动态分派及类型检查事实仍是 partial。Java 和 Rust 当前主要提供结构化兼容能力。其他语言使用启发式结构解析；C 目前只有文件级发现。回退图适合上下文检索，但不是编译器级分析。
 
 ## 快速开始
 
@@ -185,7 +186,7 @@ smartbench/
 ├── core/             统一引擎、规则、适配器与 SARIF 桥接
 ├── ir/               版本化 SemanticIR、契约、事实与能力声明
 ├── analysis/         CFG、ICFG、跨函数和状态分析
-├── frontends/        Python/Go 语义降低
+├── frontends/        Python/Go 与共享 JavaScript/TypeScript 语义降低
 ├── detector/        确定性仓库指纹
 ├── graph/           tree-sitter 适配、回退结构图与图检索
 ├── rag/             可选分块、嵌入、向量检索与评测
@@ -214,7 +215,7 @@ CI 会在 Python 3.10、3.11、3.12 上执行 lint、编译检查和测试，单
 
 当前开发快照于 2026-07-24 完成以下验证：
 
-- 503 项测试通过、35 项跳过（共收集 538 项），覆盖语义前端、跨函数 linker/ICFG、证据门和 benchmark。
+- 安装 graph 可选依赖时 547 项测试全部通过；无可选解析器时 509 项通过、38 项跳过，覆盖语义前端、跨函数 linker/ICFG、证据门和 benchmark。
 - Ruff、字节码编译、wheel 和源码包构建通过。
 - 内置跨函数 benchmark 通过，before=1、after=0。
 - Reasonix reasoning-stop benchmark 能够在已知的修复前快照中发现问题，并对修复后快照返回零发现。

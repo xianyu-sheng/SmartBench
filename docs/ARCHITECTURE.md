@@ -36,7 +36,8 @@ must not import that language's parser.
 `smartbench.ir.SemanticIR` is the stable analysis boundary. It contains:
 
 - the compatibility structural graph;
-- source-unit metadata and bounded project file access;
+- source-unit metadata, deterministic provenance roles, and bounded project
+  file access;
 - detected languages;
 - a capability matrix;
 - versioned semantic facts;
@@ -50,8 +51,11 @@ bindings, calls expose argument/result bindings and a host operation, and
 returns expose value lists. Contract validation checks shape and alignment;
 empty types remain explicit unknowns rather than being treated as proof.
 
-Capability declarations are conservative. Unsupported information is reported
-as missing/unknown instead of being treated as a clean result.
+Rules declare minimum capability strength. The engine evaluates each relevant
+language as `full`, `partial`, or `unsupported`, records limitations in
+`analysis_status`, and never treats a skipped unsupported rule as a clean
+result. Production-scoped rules use shared `SourceRole` provenance rather than
+repository-specific path filters.
 
 ### Deterministic graph retrieval
 
@@ -114,10 +118,13 @@ through its graph compatibility view.
 
 ## Current migration state
 
-- Python and Go have semantic frontends that lower into the same normalized
-  operation model. Existing JavaScript/TypeScript data-flow rules receive
-  SemanticIR through the unified engine boundary but do not yet claim the new
-  operation capabilities.
+- Python, Go, JavaScript, and TypeScript lower into the same normalized
+  operation model. JavaScript and TypeScript share one frontend; their common
+  statement/call surface is normalized while async scheduling, exceptions,
+  dynamic dispatch, and type-checker facts remain explicit partial capability.
+- Bounded discovery collects candidates across the repository before applying
+  provenance-aware deterministic selection. Generated schema trees therefore
+  cannot starve authored packages merely because they sort first.
 - Existing CodeGraph consumers remain compatible through delegated graph
   queries.
 - Unified results carry bounded EvidencePacks by default; use

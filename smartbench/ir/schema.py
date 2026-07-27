@@ -11,8 +11,8 @@ from smartbench.ir.capabilities import Capability, CapabilityLevel, CapabilitySe
 from smartbench.ir.contracts import CONTRACT_SCHEMA_VERSION, validate_semantic_ir
 from smartbench.ir.evidence import SemanticFact
 from smartbench.ir.operations import OperationEdge, SemanticOperation
-from smartbench.ir.provenance import SourceRole, classify_source_role
-from smartbench.path_safety import read_text_bounded, resolve_project_file
+from smartbench.path_safety import read_text_bounded, read_text_prefix, resolve_project_file
+from smartbench.provenance import SourceRole, classify_source_role
 
 
 @dataclass(frozen=True)
@@ -91,16 +91,19 @@ class SemanticIR:
             languages.add(language)
         units: dict[str, SourceUnit] = {}
         for node in graph.nodes.values():
-            if not node.file_path:
+            if not node.file_path or node.file_path in units:
                 continue
-            units.setdefault(
-                node.file_path,
-                SourceUnit(
-                    file_path=node.file_path,
-                    language=node.language or language or "unknown",
-                    role=classify_source_role(node.file_path)[0],
-                    role_reason=classify_source_role(node.file_path)[1],
-                ),
+            prefix = None
+            if root:
+                resolved = resolve_project_file(Path(root).resolve(), node.file_path)
+                if resolved is not None:
+                    prefix = read_text_prefix(resolved, 4 * 1024)
+            role, role_reason = classify_source_role(node.file_path, prefix)
+            units[node.file_path] = SourceUnit(
+                file_path=node.file_path,
+                language=node.language or language or "unknown",
+                role=role,
+                role_reason=role_reason,
             )
         capability_map = dict(capabilities and {capabilities.language: capabilities} or {})
         for detected in languages:

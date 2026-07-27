@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+import smartbench.graph.builder as graph_builder
 from smartbench.detector.fingerprint import Language
 from smartbench.graph.builder import CodeGraphBuilder
 from smartbench.graph.retriever import GraphRetriever
@@ -1146,6 +1147,50 @@ def broken(:
         builder = CodeGraphBuilder(max_files=3, use_treesitter=False)
         graph = builder.build(str(test_dir), Language.PYTHON)
         assert len(graph.nodes) <= 6  # max 3 files x (1 file node + 1 func node per file)
+
+    def test_unrelated_monorepo_files_do_not_starve_language_frontend(
+        self, test_dir, monkeypatch
+    ):
+        monkeypatch.setattr(graph_builder, "_GRAPH_MAX_DISCOVERED_FILES", 1)
+        unrelated = test_dir / "a-rust-package"
+        unrelated.mkdir()
+        for index in range(4):
+            (unrelated / f"module{index}.rs").write_text("fn run() {}\n")
+        typescript = test_dir / "z-typescript-package"
+        typescript.mkdir()
+        (typescript / "app.ts").write_text("export function run() {}\n")
+
+        graph = CodeGraphBuilder(use_treesitter=False).build(
+            str(test_dir), Language.TYPESCRIPT
+        )
+
+        assert any(
+            node.file_path == "z-typescript-package/app.ts"
+            for node in graph.nodes.values()
+        )
+
+    def test_bounded_sampling_spans_monorepo_path_range(self, test_dir):
+        generated = test_dir / "a-generated-schema"
+        generated.mkdir()
+        for index in range(10):
+            (generated / f"schema{index}.ts").write_text(
+                f"export type Schema{index} = string\n"
+            )
+        sdk = test_dir / "z-sdk"
+        sdk.mkdir()
+        (sdk / "client.ts").write_text("export function run() {}\n")
+
+        graph = CodeGraphBuilder(max_files=3, use_treesitter=False).build(
+            str(test_dir), Language.TYPESCRIPT
+        )
+        files = {
+            node.file_path
+            for node in graph.nodes.values()
+            if node.node_type == NodeType.FILE
+        }
+
+        assert len(files) == 3
+        assert "z-sdk/client.ts" in files
 
     def test_discovery_uses_one_pruned_walk(self, test_dir, monkeypatch):
         (test_dir / "src").mkdir()
