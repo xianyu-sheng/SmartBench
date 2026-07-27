@@ -160,6 +160,11 @@ smartbench unified run \
 smartbench benchmark run \
   --manifest benchmarks/your-project/manifest.yaml \
   --output benchmark-report.json
+
+# Run the auditable historical FastAPI before/after case
+smartbench benchmark run \
+  --manifest benchmarks/real/fastapi_form_cleanup/manifest.yaml \
+  --output fastapi-benchmark-report.json
 ```
 
 Python and Go semantic frontends normalize control-flow operations into the
@@ -266,17 +271,24 @@ CI runs lint, compilation, and tests on Python 3.10, 3.11, and 3.12; separately 
 
 The current development snapshot was validated on 2026-07-24 with:
 
-- 547 tests passing with the graph extras installed; 509 passing and 38 skipped
+- 550 tests passing with the graph extras installed; 512 passing and 38 skipped
   without optional parsers, including the semantic frontends,
   interprocedural linker/ICFG, evidence gate, and benchmark tests.
 - Ruff, bytecode compilation, wheel, and source-distribution checks passing.
 - The included interprocedural benchmark passing with before=1 and after=0.
+- The auditable FastAPI FormData lifecycle benchmark passing with before=1 and
+  after=0, using the historical commits recorded in its manifest.
 - The Reasonix reasoning-stop benchmark detecting the known pre-fix issue and
   producing no finding for the fixed snapshot.
 
 The benchmark evidence is intentionally small. It demonstrates that the
 pipeline can detect a real defect and a cross-function regression, but it does
 not yet establish general precision or recall across languages and bug types.
+
+Historical benchmark cases retain their source repository, fixing PR,
+before/after commits, bug category, and expected behavior in the machine-readable
+report. The FastAPI case is documented in
+[`benchmarks/real/fastapi_form_cleanup/README.md`](benchmarks/real/fastapi_form_cleanup/README.md).
 
 Release details are recorded in the [changelog](CHANGELOG.md).
 

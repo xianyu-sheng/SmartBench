@@ -47,6 +47,28 @@ jobs:
         env:
           SMARTBENCH_REQUIRE_TREE_SITTER: "1"
 
+  benchmark:
+    name: Historical effect benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project
+        run: python -m pip install -e ".[dev]"
+      - name: Run auditable before-after benchmark
+        run: |
+          smartbench benchmark run \
+            --manifest benchmarks/real/fastapi_form_cleanup/manifest.yaml \
+            --output benchmark-report.json
+      - name: Upload benchmark report
+        uses: actions/upload-artifact@v4
+        with:
+          name: historical-benchmark-report
+          path: benchmark-report.json
+
   package:
     name: Build and install package
     runs-on: ubuntu-latest
