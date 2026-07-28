@@ -1,0 +1,21 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: response-close-before-body-read
+    name: HTTP response cleanup must precede body read
+    description: HTTP response cleanup must be registered before a body read that can fail.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: HTTP response body cleanup must be registered before reading the body
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [call]
+        contains_all: [httpclient.New().Do]
+      guard:
+        kinds: [defer]
+        contains_all: [resp.Body.Close]
+      action:
+        kinds: [assign]
+        contains_all: [ioutil.ReadAll, resp.Body]

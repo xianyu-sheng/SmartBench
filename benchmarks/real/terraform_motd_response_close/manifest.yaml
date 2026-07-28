@@ -1,0 +1,24 @@
+version: smartbench.benchmarks/v1
+cases:
+  - id: terraform-motd-response-close-38585
+    language: go
+    state_rules: [rules.yaml]
+    rules: [response-close-before-body-read]
+    metadata:
+      repository: hashicorp/terraform
+      source_url: https://github.com/hashicorp/terraform
+      issue_url: https://github.com/hashicorp/terraform/pull/38585
+      before_commit: 820f37b35f4c5d260029e3d5d4688f0ed1e8980a
+      after_commit: 3c94ef65b3487839e5829d6c7d9342da7867cea0
+      bug_category: resource-lifecycle
+      expected_behavior: MOTD HTTP response bodies are closed even when body reads fail.
+      fixture_note: Full internal/command/login.go snapshots at the two historical commits.
+    snapshots:
+      - label: before
+        path: before
+        min_findings: 1
+        max_findings: 1
+        expected_rule_ids: [response-close-before-body-read]
+      - label: after
+        path: after
+        max_findings: 0

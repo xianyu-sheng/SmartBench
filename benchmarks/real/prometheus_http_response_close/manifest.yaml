@@ -1,0 +1,24 @@
+version: smartbench.benchmarks/v1
+cases:
+  - id: prometheus-http-response-body-close-1070
+    language: go
+    state_rules: [rules.yaml]
+    rules: [http-response-close-before-error-return]
+    metadata:
+      repository: prometheus/prometheus
+      source_url: https://github.com/prometheus/prometheus
+      issue_url: https://github.com/prometheus/prometheus/pull/1070
+      before_commit: 66f376f75a4ffb61870f9edd7c021d9740163371
+      after_commit: 9fb65a91af5ce5f0a17931530112c023dbdfd406
+      bug_category: resource-lifecycle
+      expected_behavior: HTTP response bodies are closed on status and decoder error paths.
+      fixture_note: Full retrieval/target.go snapshots at the two historical commits.
+    snapshots:
+      - label: before
+        path: before
+        min_findings: 1
+        max_findings: 1
+        expected_rule_ids: [http-response-close-before-error-return]
+      - label: after
+        path: after
+        max_findings: 0

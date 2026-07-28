@@ -61,7 +61,7 @@ jobs:
       - name: Run auditable before-after benchmark
         run: |
           smartbench benchmark run \
-            --manifest benchmarks/real/fastapi_form_cleanup/manifest.yaml \
+            --manifest benchmarks/real/manifest.yaml \
             --output benchmark-report.json
       - name: Upload benchmark report
         uses: actions/upload-artifact@v4
