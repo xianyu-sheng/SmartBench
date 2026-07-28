@@ -69,6 +69,13 @@ jobs:
             --manifest benchmarks/real/manifest.yaml \
             --negative-path benchmarks/experiments/project_reader_resource/negative \
             --output project-reader-experiment.json
+      - name: Run blind ProjectReader transfer experiment
+        run: |
+          python -m smartbench.experiments.project_reader_blind \
+            --benchmark-manifest benchmarks/real/manifest.yaml \
+            --blind-manifest benchmarks/experiments/project_reader_blind/manifest.yaml \
+            --negative-path benchmarks/experiments/project_reader_resource/negative \
+            --output project-reader-blind.json
       - name: Upload benchmark reports
         uses: actions/upload-artifact@v4
         with:
@@ -76,6 +83,7 @@ jobs:
           path: |
             benchmark-report.json
             project-reader-experiment.json
+            project-reader-blind.json
 
   package:
     name: Build and install package

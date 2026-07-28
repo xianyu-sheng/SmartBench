@@ -109,6 +109,14 @@ symbols, and explicit ownership transfer to the caller produce abstentions
 rather than findings. The current proof policy covers normalized defer-style
 cleanup registration; other cleanup mechanisms remain unknown.
 
+Validated resource protocols have two acquire match modes. `exact` requires the
+same normalized call symbol. `method_shape` may transfer an independently
+observed protocol across receiver spellings only when the method name, result
+position, resource member path, cleanup method, and target-side member use all
+agree. Shape transfer requires a non-empty member path and carries lower
+confidence because receiver type proof is not yet available; method name alone
+is never sufficient.
+
 ### Interprocedural and concurrency linking
 
 `smartbench.analysis.SemanticLinker` builds conservative operation-level call
@@ -226,6 +234,16 @@ API keys, raw prompts, and raw model responses are not persisted. Missing
 provider configuration is an explicit `unavailable` result, never a successful
 abstention. Because external model behavior is nondeterministic and incurs
 cost, this online experiment is not a required CI check.
+
+The blind transfer experiment removes each historical target file and fix from
+the reference inventory. Pinned, hashed files from unrelated project modules
+provide admissible positive evidence. On the current four-case Go resource
+corpus, exact symbol transfer detects one case and method-shape transfer detects
+two; both detected cases remain clean after their historical fix and the
+independent negative fixture produces no finding. Gin and Terraform remain
+unsupported because no same-project reference survives target exclusion. The
+reported 50% coverage is a deliberate partial result, not a clean-project or
+general recall claim.
 
 ## Acceptance criteria for new frontends
 
