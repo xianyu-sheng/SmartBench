@@ -1,0 +1,181 @@
+"""ProjectReader hypotheses stay outside the deterministic fact boundary."""
+
+import json
+from pathlib import Path
+
+import pytest
+
+from smartbench.core.adapters import GoAdapter
+from smartbench.engine.project_reader import (
+    CandidateSemanticMapping,
+    MappingStatus,
+    ProjectModel,
+    ProjectModelValidator,
+    ProjectReaderAgent,
+    build_project_inventory,
+)
+from smartbench.graph.tree_parser import get_parser
+
+pytestmark = pytest.mark.skipif(get_parser("go") is None, reason="tree-sitter Go unavailable")
+
+
+SOURCE = """
+package sample
+
+func load(path string) error {
+    file, err := os.Open(path)
+    if err != nil {
+        return err
+    }
+    defer file.Close()
+    return parse(file)
+}
+""".strip()
+
+
+def _ir(tmp_path: Path):
+    (tmp_path / "loader.go").write_text(SOURCE, encoding="utf-8")
+    return GoAdapter().parse_semantic_project(tmp_path)
+
+
+def _acquire_fact(inventory):
+    return next(
+        fact
+        for fact in inventory.facts
+        if fact.object == "os.Open" and fact.attributes.get("primary_result_call") is True
+    )
+
+
+def _cleanup_fact(inventory):
+    return next(
+        fact
+        for fact in inventory.facts
+        if fact.object == "file.Close"
+        and fact.attributes.get("inventory_role") == "cleanup_registration"
+    )
+
+
+def test_project_reader_candidate_is_structurally_grounded(tmp_path: Path):
+    ir = _ir(tmp_path)
+    inventory = build_project_inventory(ir)
+    fact = _acquire_fact(inventory)
+    cleanup_fact = _cleanup_fact(inventory)
+    output = {
+        "architecture_summary": "The loader opens and parses a file.",
+        "components": ["loader"],
+        "resource_candidates": [
+            {
+                "candidate_id": "file-protocol",
+                "operation_id": fact.attributes["operation_id"],
+                "acquire_symbol": "os.Open",
+                "resource_result_index": 0,
+                "cleanup_methods": ["Close"],
+                "confidence": 0.8,
+                "fact_ids": [fact.fact_id, cleanup_fact.fact_id],
+            }
+        ],
+        "uncertainties": ["Resource meaning is still a hypothesis."],
+    }
+    reader = ProjectReaderAgent(lambda _prompt, role="": json.dumps(output))
+    result = reader.read(ir)
+
+    assert result.error == ""
+    assert result.model is not None
+    validation = ProjectModelValidator().validate(ir, result.model, result.inventory)
+    assert len(validation.protocols) == 1
+    assert validation.decisions[0].status == MappingStatus.SUPPORTED
+    assert validation.protocols[0].acquire_symbol == "os.Open"
+    assert validation.protocols[0].evidence_fact_ids == (
+        fact.fact_id,
+        cleanup_fact.fact_id,
+    )
+
+
+def test_hallucinated_operation_is_rejected(tmp_path: Path):
+    ir = _ir(tmp_path)
+    inventory = build_project_inventory(ir)
+    fact = _acquire_fact(inventory)
+    model = ProjectModel(
+        resource_candidates=(
+            CandidateSemanticMapping(
+                candidate_id="invented",
+                operation_id="does-not-exist",
+                acquire_symbol="os.Open",
+                resource_result_index=0,
+                cleanup_methods=("Close",),
+                confidence=0.9,
+                fact_ids=(fact.fact_id, _cleanup_fact(inventory).fact_id),
+            ),
+        )
+    )
+
+    validation = ProjectModelValidator().validate(ir, model, inventory)
+    assert validation.protocols == ()
+    assert validation.decisions[0].status == MappingStatus.REJECTED
+    assert "existing call" in validation.decisions[0].reason
+
+
+def test_invented_cleanup_method_is_rejected(tmp_path: Path):
+    ir = _ir(tmp_path)
+    inventory = build_project_inventory(ir)
+    fact = _acquire_fact(inventory)
+    model = ProjectModel(
+        resource_candidates=(
+            CandidateSemanticMapping(
+                candidate_id="invented-cleanup",
+                operation_id=str(fact.attributes["operation_id"]),
+                acquire_symbol="os.Open",
+                resource_result_index=0,
+                cleanup_methods=("DestroyEverything",),
+                confidence=0.9,
+                fact_ids=(fact.fact_id, _cleanup_fact(inventory).fact_id),
+            ),
+        )
+    )
+
+    validation = ProjectModelValidator().validate(ir, model, inventory)
+    assert validation.protocols == ()
+    assert validation.decisions[0].status == MappingStatus.REJECTED
+    assert "lack cited reachable registrations" in validation.decisions[0].reason
+
+
+def test_missing_fact_id_is_rejected_even_for_real_operation(tmp_path: Path):
+    ir = _ir(tmp_path)
+    inventory = build_project_inventory(ir)
+    fact = _acquire_fact(inventory)
+    model = ProjectModel(
+        resource_candidates=(
+            CandidateSemanticMapping(
+                candidate_id="uncited",
+                operation_id=str(fact.attributes["operation_id"]),
+                acquire_symbol="os.Open",
+                resource_result_index=0,
+                cleanup_methods=("Close",),
+                confidence=0.9,
+                fact_ids=("fact-invented",),
+            ),
+        )
+    )
+
+    validation = ProjectModelValidator().validate(ir, model, inventory)
+    assert validation.decisions[0].status == MappingStatus.REJECTED
+    assert "missing inventory facts" in validation.decisions[0].reason
+
+
+def test_reader_rejects_schema_expansion(tmp_path: Path):
+    ir = _ir(tmp_path)
+    reader = ProjectReaderAgent(
+        lambda _prompt: json.dumps(
+            {
+                "architecture_summary": "summary",
+                "components": [],
+                "resource_candidates": [],
+                "uncertainties": [],
+                "invented_facts": ["trust me"],
+            }
+        )
+    )
+
+    result = reader.read(ir)
+    assert result.model is None
+    assert "unknown project model fields" in result.error

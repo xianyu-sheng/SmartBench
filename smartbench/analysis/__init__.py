@@ -16,6 +16,14 @@ from smartbench.analysis.interprocedural import (
     SemanticLinker,
     SemanticLinkResult,
 )
+from smartbench.analysis.resource_lifecycle import (
+    ProtocolOrigin,
+    ResourceLifecycleAnalyzer,
+    ResourceLifecycleFinding,
+    ResourceLifecycleResult,
+    ResourceProtocol,
+    ResourceProtocolMiner,
+)
 from smartbench.analysis.spec import (
     STATE_RULE_SCHEMA_VERSION,
     StateRuleConfigError,
@@ -54,6 +62,12 @@ __all__ = [
     "SemanticLinker",
     "SemanticLinkResult",
     "InterproceduralGraph",
+    "ProtocolOrigin",
+    "ResourceLifecycleAnalyzer",
+    "ResourceLifecycleFinding",
+    "ResourceLifecycleResult",
+    "ResourceProtocol",
+    "ResourceProtocolMiner",
     "ICFGArc",
     "ICFGArcKind",
     "ICFGPath",
