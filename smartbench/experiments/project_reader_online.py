@@ -307,6 +307,8 @@ def _protocol_key(protocol: object) -> tuple[object, ...]:
     return (
         getattr(protocol, "acquire_symbol"),
         getattr(protocol, "resource_result_index"),
+        getattr(protocol, "acquire_match_mode"),
+        getattr(protocol, "resource_member_path"),
         tuple(sorted(getattr(protocol, "cleanup_methods"))),
     )
 

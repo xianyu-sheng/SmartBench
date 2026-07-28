@@ -47,6 +47,8 @@ def _inventory_protocol_reader(prompt: str, role: str = "") -> str:
             ]
             if not cleanups:
                 continue
+            receiver = str(cleanups[0]["attributes"].get("receiver", ""))
+            member_path = receiver[len(binding) :].lstrip(".")
             candidates.append(
                 {
                     "candidate_id": f"inventory-{len(candidates)}",
@@ -56,6 +58,8 @@ def _inventory_protocol_reader(prompt: str, role: str = "") -> str:
                     "cleanup_methods": sorted(
                         {fact["object"].rsplit(".", 1)[-1] for fact in cleanups}
                     ),
+                    "acquire_match_mode": "exact",
+                    "resource_member_path": member_path,
                     "confidence": 0.8,
                     "fact_ids": [
                         acquire["fact_id"],

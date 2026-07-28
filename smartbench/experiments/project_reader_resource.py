@@ -42,6 +42,8 @@ class ProjectReaderExperimentCase:
                     "acquire_symbol": item.acquire_symbol,
                     "resource_result_index": item.resource_result_index,
                     "cleanup_methods": list(item.cleanup_methods),
+                    "acquire_match_mode": item.acquire_match_mode.value,
+                    "resource_member_path": item.resource_member_path,
                     "origin": item.origin.value,
                 }
                 for item in self.protocols
@@ -160,7 +162,11 @@ def run_project_reader_resource_experiment(
                 for item in inventory.facts
                 if item.subject == acquire_fact.subject
                 and item.attributes.get("inventory_role") == "cleanup_registration"
-                and _receiver_root(str(item.attributes.get("receiver", ""))) == binding
+                and _receiver_member_path(
+                    str(item.attributes.get("receiver", "")),
+                    binding,
+                )
+                == protocol.resource_member_path
                 and str(item.object).rsplit(".", 1)[-1] in protocol.cleanup_methods
             )
             grounded_methods = {
@@ -183,6 +189,8 @@ def run_project_reader_resource_experiment(
                         acquire_fact.fact_id,
                         *(item.fact_id for item in cleanup_facts),
                     ),
+                    acquire_match_mode=protocol.acquire_match_mode,
+                    resource_member_path=protocol.resource_member_path,
                 )
             )
         model = ProjectModel(
@@ -245,11 +253,16 @@ def run_project_reader_resource_experiment(
     return report
 
 
-def _receiver_root(receiver: str) -> str:
+def _receiver_member_path(receiver: str, binding: str) -> str | None:
     receiver = receiver.strip()
     while receiver.startswith(("&", "*", "(")):
         receiver = receiver[1:].lstrip()
-    return receiver.split(".", 1)[0].split("(", 1)[0].strip()
+    if receiver == binding:
+        return ""
+    prefix = f"{binding}."
+    if receiver.startswith(prefix):
+        return receiver[len(prefix) :]
+    return None
 
 
 def main() -> int:

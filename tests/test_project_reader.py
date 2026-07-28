@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from smartbench.analysis import AcquireMatchMode
 from smartbench.core.adapters import GoAdapter
 from smartbench.engine.project_reader import (
     CandidateSemanticMapping,
@@ -179,3 +180,72 @@ def test_reader_rejects_schema_expansion(tmp_path: Path):
     result = reader.read(ir)
     assert result.model is None
     assert "unknown project model fields" in result.error
+
+
+def test_method_shape_mapping_requires_grounded_member_cleanup(tmp_path: Path):
+    source = """
+package sample
+
+func load(client *Client, req *Request) error {
+    response, err := client.Do(req)
+    if err != nil { return err }
+    defer response.Body.Close()
+    return decode(response.Body)
+}
+""".strip()
+    (tmp_path / "http.go").write_text(source, encoding="utf-8")
+    ir = GoAdapter().parse_semantic_project(tmp_path)
+    inventory = build_project_inventory(ir)
+    acquire = next(
+        fact
+        for fact in inventory.facts
+        if fact.object == "client.Do"
+        and fact.attributes.get("primary_result_call") is True
+    )
+    cleanup = next(
+        fact for fact in inventory.facts if fact.object == "response.Body.Close"
+    )
+    output = {
+        "architecture_summary": "HTTP response resource protocol.",
+        "components": ["client"],
+        "resource_candidates": [
+            {
+                "candidate_id": "http-body",
+                "operation_id": acquire.attributes["operation_id"],
+                "acquire_symbol": "client.Do",
+                "resource_result_index": 0,
+                "cleanup_methods": ["Close"],
+                "acquire_match_mode": "method_shape",
+                "resource_member_path": "Body",
+                "confidence": 0.8,
+                "fact_ids": [acquire.fact_id, cleanup.fact_id],
+            }
+        ],
+        "uncertainties": ["Receiver type remains unresolved."],
+    }
+
+    result = ProjectReaderAgent(lambda _prompt, role="": json.dumps(output)).read(ir)
+    assert result.model is not None
+    validation = ProjectModelValidator().validate(ir, result.model, result.inventory)
+    assert len(validation.protocols) == 1
+    assert validation.protocols[0].acquire_match_mode == AcquireMatchMode.METHOD_SHAPE
+    assert validation.protocols[0].resource_member_path == "Body"
+
+    wrong = ProjectModel(
+        resource_candidates=(
+            CandidateSemanticMapping(
+                candidate_id="wrong-member",
+                operation_id=str(acquire.attributes["operation_id"]),
+                acquire_symbol="client.Do",
+                resource_result_index=0,
+                cleanup_methods=("Close",),
+                confidence=0.8,
+                fact_ids=(acquire.fact_id, cleanup.fact_id),
+                acquire_match_mode=AcquireMatchMode.METHOD_SHAPE,
+                resource_member_path="Payload",
+            ),
+        )
+    )
+    rejected = ProjectModelValidator().validate(ir, wrong, inventory)
+    assert rejected.protocols == ()
+    assert rejected.decisions[0].status == MappingStatus.REJECTED

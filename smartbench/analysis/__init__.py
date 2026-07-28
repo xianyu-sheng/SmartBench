@@ -17,6 +17,7 @@ from smartbench.analysis.interprocedural import (
     SemanticLinkResult,
 )
 from smartbench.analysis.resource_lifecycle import (
+    AcquireMatchMode,
     ProtocolOrigin,
     ResourceLifecycleAnalyzer,
     ResourceLifecycleFinding,
@@ -62,6 +63,7 @@ __all__ = [
     "SemanticLinker",
     "SemanticLinkResult",
     "InterproceduralGraph",
+    "AcquireMatchMode",
     "ProtocolOrigin",
     "ResourceLifecycleAnalyzer",
     "ResourceLifecycleFinding",

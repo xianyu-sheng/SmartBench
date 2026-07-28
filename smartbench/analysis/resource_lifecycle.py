@@ -28,6 +28,13 @@ class ProtocolOrigin(str, Enum):
     PROJECT_READER = "project_reader"
 
 
+class AcquireMatchMode(str, Enum):
+    """How a validated acquire exemplar may match calls under analysis."""
+
+    EXACT = "exact"
+    METHOD_SHAPE = "method_shape"
+
+
 @dataclass(frozen=True)
 class ResourceProtocol:
     """A portable, project-scoped resource protocol hypothesis."""
@@ -35,6 +42,8 @@ class ResourceProtocol:
     acquire_symbol: str
     resource_result_index: int
     cleanup_methods: tuple[str, ...]
+    acquire_match_mode: AcquireMatchMode = AcquireMatchMode.EXACT
+    resource_member_path: str = ""
     origin: ProtocolOrigin = ProtocolOrigin.PROJECT_READER
     confidence: float = 0.5
     evidence_fact_ids: tuple[str, ...] = ()
@@ -46,6 +55,18 @@ class ResourceProtocol:
             raise ValueError("resource_result_index must be non-negative")
         if not self.cleanup_methods or any(not item.strip() for item in self.cleanup_methods):
             raise ValueError("cleanup_methods must contain non-empty method names")
+        if not isinstance(self.acquire_match_mode, AcquireMatchMode):
+            raise ValueError("acquire_match_mode must be an AcquireMatchMode")
+        if self.resource_member_path and not re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*",
+            self.resource_member_path,
+        ):
+            raise ValueError("resource_member_path must be a dotted identifier path")
+        if (
+            self.acquire_match_mode == AcquireMatchMode.METHOD_SHAPE
+            and not self.resource_member_path
+        ):
+            raise ValueError("method_shape matching requires a resource member path")
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("protocol confidence must be between 0 and 1")
 
@@ -55,6 +76,8 @@ class ResourceProtocol:
             (
                 self.acquire_symbol,
                 str(self.resource_result_index),
+                self.acquire_match_mode.value,
+                self.resource_member_path,
                 *sorted(self.cleanup_methods),
             )
         )
@@ -84,7 +107,10 @@ class ResourceLifecycleFinding:
                 "protocol_id": self.protocol.protocol_id,
                 "protocol_origin": self.protocol.origin.value,
                 "acquire_symbol": self.protocol.acquire_symbol,
+                "matched_acquire_symbol": self.acquire.target,
+                "acquire_match_mode": self.protocol.acquire_match_mode.value,
                 "resource_binding": self.resource_binding,
+                "resource_member_path": self.protocol.resource_member_path,
                 "cleanup_methods": list(self.protocol.cleanup_methods),
                 "acquire_operation": self.acquire.id,
                 "use_operation": self.first_unprotected_use.id,
@@ -111,10 +137,18 @@ class ResourceProtocolMiner:
     the same portable shape as future ProjectReader Agent output.
     """
 
-    def learn(self, ir: SemanticIR) -> list[ResourceProtocol]:
+    def learn(
+        self,
+        ir: SemanticIR,
+        *,
+        generalize_method_shapes: bool = False,
+    ) -> list[ResourceProtocol]:
         cfg = ControlFlowGraph.from_ir(ir)
         operations = {operation.id: operation for operation in ir.operations}
-        protocols: dict[tuple[str, int, tuple[str, ...]], ResourceProtocol] = {}
+        protocols: dict[
+            tuple[str, int, AcquireMatchMode, str, tuple[str, ...]],
+            ResourceProtocol,
+        ] = {}
         for call in sorted(ir.operations, key=_operation_order):
             if not _is_primary_result_call(call, operations):
                 continue
@@ -130,25 +164,39 @@ class ResourceProtocolMiner:
                     and cfg.reachable(call.id, operation.id)
                     and _receiver_root(operation) == binding
                 ]
-                methods = tuple(
-                    sorted(
-                        {
-                            method
-                            for operation in cleanup_operations
-                            if (method := _method_name(operation))
-                        }
+                member_paths = {
+                    path
+                    for operation in cleanup_operations
+                    if (path := _receiver_member_path(operation, binding)) is not None
+                }
+                for member_path in sorted(member_paths):
+                    methods = tuple(
+                        sorted(
+                            {
+                                method
+                                for operation in cleanup_operations
+                                if _receiver_member_path(operation, binding) == member_path
+                                and (method := _method_name(operation))
+                            }
+                        )
                     )
-                )
-                if not methods:
-                    continue
-                key = (call.target, index, methods)
-                protocols[key] = ResourceProtocol(
-                    acquire_symbol=call.target,
-                    resource_result_index=index,
-                    cleanup_methods=methods,
-                    origin=ProtocolOrigin.REFERENCE_USAGE,
-                    confidence=1.0,
-                )
+                    if not methods:
+                        continue
+                    match_mode = (
+                        AcquireMatchMode.METHOD_SHAPE
+                        if generalize_method_shapes and member_path
+                        else AcquireMatchMode.EXACT
+                    )
+                    key = (call.target, index, match_mode, member_path, methods)
+                    protocols[key] = ResourceProtocol(
+                        acquire_symbol=call.target,
+                        resource_result_index=index,
+                        cleanup_methods=methods,
+                        acquire_match_mode=match_mode,
+                        resource_member_path=member_path,
+                        origin=ProtocolOrigin.REFERENCE_USAGE,
+                        confidence=1.0 if match_mode == AcquireMatchMode.EXACT else 0.8,
+                    )
         return [protocols[key] for key in sorted(protocols)]
 
 
@@ -171,7 +219,7 @@ class ResourceLifecycleAnalyzer:
                 operation
                 for operation in ordered
                 if operation.kind == OperationKind.CALL
-                and operation.target == protocol.acquire_symbol
+                and _matches_acquire(operation, protocol)
                 and _is_primary_result_call(operation, operations)
             ]
             if not acquisitions:
@@ -202,7 +250,8 @@ class ResourceLifecycleAnalyzer:
                     for operation in ordered
                     if operation.scope_id == acquire.scope_id
                     and operation.kind == OperationKind.DEFER
-                    and _receiver_root(operation) == binding
+                    and _receiver_member_path(operation, binding)
+                    == protocol.resource_member_path
                     and _method_name(operation) in protocol.cleanup_methods
                     and cfg.reachable(acquire.id, operation.id)
                 )
@@ -227,7 +276,11 @@ class ResourceLifecycleAnalyzer:
                     and operation.id not in {acquire.id, _host_id(acquire)}
                     and not _is_embedded_call(operation)
                     and operation not in cleanups
-                    and _uses_binding(operation, binding)
+                    and _uses_resource(
+                        operation,
+                        binding,
+                        protocol.resource_member_path,
+                    )
                     and cfg.reachable(acquire.id, operation.id)
                 ]
                 if not uses:
@@ -296,34 +349,83 @@ def _usable_binding(binding: str) -> bool:
 
 
 def _receiver_root(operation: SemanticOperation) -> str:
+    receiver = _normalized_receiver(operation)
+    return receiver.split(".", 1)[0].split("(", 1)[0].strip()
+
+
+def _normalized_receiver(operation: SemanticOperation) -> str:
     receiver = str(operation.attributes.get("receiver", "")).strip()
     if not receiver and "." in operation.target:
         receiver = operation.target.rsplit(".", 1)[0]
     while receiver.startswith(("&", "*", "(")):
         receiver = receiver[1:].lstrip()
-    return receiver.split(".", 1)[0].split("(", 1)[0].strip()
+    return receiver
+
+
+def _receiver_member_path(
+    operation: SemanticOperation,
+    binding: str,
+) -> str | None:
+    receiver = _normalized_receiver(operation)
+    if receiver == binding:
+        return ""
+    prefix = f"{binding}."
+    if receiver.startswith(prefix):
+        member_path = receiver[len(prefix) :]
+        if re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*",
+            member_path,
+        ):
+            return member_path
+    return None
 
 
 def _method_name(operation: SemanticOperation) -> str:
     return operation.target.rsplit(".", 1)[-1].strip() if operation.target else ""
 
 
-def _uses_binding(operation: SemanticOperation, binding: str) -> bool:
-    if binding in operation.operands:
+def _uses_resource(
+    operation: SemanticOperation,
+    binding: str,
+    member_path: str,
+) -> bool:
+    resource = f"{binding}.{member_path}" if member_path else binding
+    if any(
+        operand == resource or operand.startswith(f"{resource}.")
+        for operand in operation.operands
+    ):
+        return True
+    if member_path and re.search(
+        rf"(?<![A-Za-z0-9_]){re.escape(resource)}(?![A-Za-z0-9_])",
+        operation.value,
+    ):
         return True
     arguments = operation.attributes.get("arguments", ())
     if isinstance(arguments, (list, tuple)):
         for argument in arguments:
             text = str(argument)
-            if text == binding or text.startswith(f"{binding}."):
+            if text == resource or text.startswith(f"{resource}."):
                 return True
     if operation.kind == OperationKind.RETURN:
         returned = [item.strip() for item in operation.value.split(",")]
         if binding in returned:
             # Returning the resource itself transfers ownership to the caller.
             return False
+        if member_path:
+            return resource in operation.value
         return binding in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", operation.value)
     return False
+
+
+def _matches_acquire(
+    operation: SemanticOperation,
+    protocol: ResourceProtocol,
+) -> bool:
+    if protocol.acquire_match_mode == AcquireMatchMode.EXACT:
+        return operation.target == protocol.acquire_symbol
+    if "." not in operation.target or "." not in protocol.acquire_symbol:
+        return False
+    return _method_name(operation) == protocol.acquire_symbol.rsplit(".", 1)[-1]
 
 
 def _transfers_ownership(operation: SemanticOperation, binding: str) -> bool:

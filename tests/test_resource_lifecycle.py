@@ -4,7 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from smartbench.analysis import ResourceLifecycleAnalyzer, ResourceProtocolMiner
+from smartbench.analysis import (
+    AcquireMatchMode,
+    ResourceLifecycleAnalyzer,
+    ResourceProtocolMiner,
+)
 from smartbench.core.adapters import GoAdapter
 from smartbench.graph.tree_parser import get_parser
 
@@ -111,3 +115,80 @@ func open(path string) (*File, error) {
     assert result.findings == []
     assert result.abstentions == 1
     assert "ownership of file is transferred" in result.unknown_reasons[0]
+
+
+def test_method_shape_generalizes_receiver_name_with_member_evidence(tmp_path: Path):
+    reference = """
+package sample
+
+func load(client *Client, req *Request) error {
+    response, err := client.Do(req)
+    if err != nil { return err }
+    defer response.Body.Close()
+    return decode(response.Body)
+}
+""".strip()
+    target = reference.replace("client.Do", "transport.Do").replace(
+        "    defer response.Body.Close()\n", ""
+    )
+    fixed = target.replace(
+        "    return decode(response.Body)",
+        "    defer response.Body.Close()\n    return decode(response.Body)",
+    )
+
+    reference_ir = _parse(tmp_path, reference)
+    exact = ResourceProtocolMiner().learn(reference_ir)
+    generalized = ResourceProtocolMiner().learn(
+        reference_ir,
+        generalize_method_shapes=True,
+    )
+
+    assert exact[0].acquire_match_mode == AcquireMatchMode.EXACT
+    assert generalized[0].acquire_match_mode == AcquireMatchMode.METHOD_SHAPE
+    assert generalized[0].resource_member_path == "Body"
+    assert ResourceLifecycleAnalyzer().analyze(_parse(tmp_path, target), exact).findings == []
+    assert len(
+        ResourceLifecycleAnalyzer().analyze(
+            _parse(tmp_path, target), generalized
+        ).findings
+    ) == 1
+    assert (
+        ResourceLifecycleAnalyzer().analyze(
+            _parse(tmp_path, fixed), generalized
+        ).findings
+        == []
+    )
+
+
+def test_method_shape_abstains_without_matching_resource_member(tmp_path: Path):
+    reference = """
+package sample
+
+func load(client *Client, req *Request) error {
+    response, err := client.Do(req)
+    if err != nil { return err }
+    defer response.Body.Close()
+    return decode(response.Body)
+}
+""".strip()
+    generalized = ResourceProtocolMiner().learn(
+        _parse(tmp_path, reference),
+        generalize_method_shapes=True,
+    )
+    unrelated = """
+package sample
+
+func calculate(worker *Worker, req *Request) error {
+    result, err := worker.Do(req)
+    if err != nil { return err }
+    return consume(result.Payload)
+}
+""".strip()
+
+    result = ResourceLifecycleAnalyzer().analyze(
+        _parse(tmp_path, unrelated), generalized
+    )
+
+    assert result.findings == []
+    assert result.abstentions == 1
+    assert "no reachable resource use" in result.unknown_reasons[0]

@@ -15,7 +15,11 @@ from enum import Enum
 from typing import Any, Callable, Mapping
 
 from smartbench.analysis.control_flow import ControlFlowGraph
-from smartbench.analysis.resource_lifecycle import ProtocolOrigin, ResourceProtocol
+from smartbench.analysis.resource_lifecycle import (
+    AcquireMatchMode,
+    ProtocolOrigin,
+    ResourceProtocol,
+)
 from smartbench.ir import (
     EvidencePack,
     FactKind,
@@ -33,7 +37,7 @@ _MODEL_FIELDS = {
     "resource_candidates",
     "uncertainties",
 }
-_CANDIDATE_FIELDS = {
+_CANDIDATE_REQUIRED_FIELDS = {
     "candidate_id",
     "operation_id",
     "acquire_symbol",
@@ -42,6 +46,11 @@ _CANDIDATE_FIELDS = {
     "confidence",
     "fact_ids",
 }
+_CANDIDATE_OPTIONAL_FIELDS = {
+    "acquire_match_mode",
+    "resource_member_path",
+}
+_CANDIDATE_FIELDS = _CANDIDATE_REQUIRED_FIELDS | _CANDIDATE_OPTIONAL_FIELDS
 
 
 @dataclass(frozen=True)
@@ -55,6 +64,8 @@ class CandidateSemanticMapping:
     cleanup_methods: tuple[str, ...]
     confidence: float
     fact_ids: tuple[str, ...]
+    acquire_match_mode: AcquireMatchMode = AcquireMatchMode.EXACT
+    resource_member_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -228,9 +239,11 @@ Return one JSON object with exactly these top-level fields:
     {{
       "candidate_id": "stable-local-id",
       "operation_id": "existing operation_id",
-      "acquire_symbol": "exact call symbol",
+      "acquire_symbol": "exact cited exemplar call symbol",
       "resource_result_index": 0,
       "cleanup_methods": ["Close"],
+      "acquire_match_mode": "exact or method_shape",
+      "resource_member_path": "Body or empty string",
       "confidence": 0.0,
       "fact_ids": ["existing fact-id"]
     }}
@@ -312,7 +325,8 @@ class ProjectModelValidator:
                 or cleanup.kind != OperationKind.DEFER
                 or cleanup.scope_id != operation.scope_id
                 or not cfg.reachable(operation.id, cleanup.id)
-                or _receiver_root(cleanup) != binding
+                or _receiver_member_path(cleanup, binding)
+                != candidate.resource_member_path
             ):
                 continue
             method = _method_name(cleanup)
@@ -336,6 +350,8 @@ class ProjectModelValidator:
                 acquire_symbol=candidate.acquire_symbol,
                 resource_result_index=candidate.resource_result_index,
                 cleanup_methods=candidate.cleanup_methods,
+                acquire_match_mode=candidate.acquire_match_mode,
+                resource_member_path=candidate.resource_member_path,
                 origin=origin,
                 confidence=candidate.confidence,
                 evidence_fact_ids=candidate.fact_ids,
@@ -375,7 +391,7 @@ def _parse_candidate(value: Any, index: int) -> CandidateSemanticMapping:
     if not isinstance(value, dict):
         raise ValueError(f"{path} must be an object")
     unknown = set(value) - _CANDIDATE_FIELDS
-    missing = _CANDIDATE_FIELDS - set(value)
+    missing = _CANDIDATE_REQUIRED_FIELDS - set(value)
     if unknown or missing:
         detail = []
         if unknown:
@@ -400,6 +416,24 @@ def _parse_candidate(value: Any, index: int) -> CandidateSemanticMapping:
     fact_ids = _string_tuple(value["fact_ids"], f"{path}.fact_ids", 20, 100)
     if not fact_ids:
         raise ValueError(f"{path}.fact_ids must not be empty")
+    match_mode_raw = value.get("acquire_match_mode", AcquireMatchMode.EXACT.value)
+    try:
+        match_mode = AcquireMatchMode(match_mode_raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{path}.acquire_match_mode must be exact or method_shape"
+        ) from exc
+    member_path_raw = value.get("resource_member_path", "")
+    if not isinstance(member_path_raw, str) or len(member_path_raw) > 200:
+        raise ValueError(f"{path}.resource_member_path must be a bounded string")
+    member_path = member_path_raw.strip()
+    if member_path and not re.fullmatch(
+        r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*",
+        member_path,
+    ):
+        raise ValueError(f"{path}.resource_member_path must be a dotted identifier")
+    if match_mode == AcquireMatchMode.METHOD_SHAPE and not member_path:
+        raise ValueError(f"{path}.method_shape requires resource_member_path")
     return CandidateSemanticMapping(
         candidate_id=_bounded_string(value["candidate_id"], f"{path}.candidate_id", 100),
         operation_id=_bounded_string(value["operation_id"], f"{path}.operation_id", 100),
@@ -410,6 +444,8 @@ def _parse_candidate(value: Any, index: int) -> CandidateSemanticMapping:
         cleanup_methods=cleanup_methods,
         confidence=confidence,
         fact_ids=fact_ids,
+        acquire_match_mode=match_mode,
+        resource_member_path=member_path,
     )
 
 
@@ -452,13 +488,26 @@ def _is_primary_result_call(
     )
 
 
-def _receiver_root(operation: SemanticOperation) -> str:
+def _receiver_member_path(
+    operation: SemanticOperation,
+    binding: str,
+) -> str | None:
     receiver = str(operation.attributes.get("receiver", "")).strip()
     if not receiver and "." in operation.target:
         receiver = operation.target.rsplit(".", 1)[0]
     while receiver.startswith(("&", "*", "(")):
         receiver = receiver[1:].lstrip()
-    return receiver.split(".", 1)[0].split("(", 1)[0].strip()
+    if receiver == binding:
+        return ""
+    prefix = f"{binding}."
+    if receiver.startswith(prefix):
+        member_path = receiver[len(prefix) :]
+        if re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*",
+            member_path,
+        ):
+            return member_path
+    return None
 
 
 def _method_name(operation: SemanticOperation) -> str:
