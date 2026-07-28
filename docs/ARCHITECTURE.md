@@ -76,6 +76,39 @@ collection. It returns an `EvidencePack` containing:
 The pack is the factual boundary for later model calls. It is not a free-form
 LLM summary.
 
+### Project interpretation boundary
+
+Project-specific conventions should not be hard-coded into language frontends
+or converted directly into findings. `ProjectReaderAgent` may propose a bounded
+`ProjectModel`, including resource-protocol candidates, over a deterministic
+project inventory. Its output remains an untrusted hypothesis and never writes
+facts into `SemanticIR`.
+
+The resource-lifecycle path is deliberately split into four trust levels:
+
+```text
+ProjectReader hypothesis
+    -> exact fact and operation citation gate
+    -> project-protocol validation
+    -> language-neutral CFG/dominance analysis
+    -> finding or explicit abstention
+```
+
+For a resource protocol to pass validation, the acquire call, result position,
+and every cleanup method must be backed by real inventory facts and operations.
+The cleanup registration must be reachable from the cited acquire call and act
+on its selected result binding. A structurally valid mapping is still described
+as project-scoped semantic evidence, not a universal language fact. Invented
+operation IDs, missing fact IDs, unsupported schema fields, and ungrounded
+cleanup methods are rejected before deterministic analysis.
+
+`ResourceLifecycleAnalyzer` consumes only the validated portable protocol and
+normalized operations. It checks whether cleanup registration dominates each
+reachable use after acquisition. Missing uses, unusable result bindings, absent
+symbols, and explicit ownership transfer to the caller produce abstentions
+rather than findings. The current proof policy covers normalized defer-style
+cleanup registration; other cleanup mechanisms remain unknown.
+
 ### Interprocedural and concurrency linking
 
 `smartbench.analysis.SemanticLinker` builds conservative operation-level call
@@ -175,6 +208,14 @@ not as a false violation.
 through the same engine and checks finding-count/rule-ID expectations. The
 `smartbench benchmark run --manifest ...` command emits machine-readable
 pass/fail results without mutating a repository or creating a worktree.
+
+The separate ProjectReader resource experiment learns project protocols from
+fixed, source-backed reference snapshots and applies one generic lifecycle
+analyzer to four historical Go before/after cases. This is a reproducible test
+of the hypothesis/validation/analyzer seam, not evidence that an online model
+autonomously discovers protocols. The experiment also evaluates an independent
+clean fixture and records abstentions. Both historical benchmark reports are
+CI artifacts.
 
 ## Acceptance criteria for new frontends
 

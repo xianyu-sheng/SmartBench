@@ -63,11 +63,19 @@ jobs:
           smartbench benchmark run \
             --manifest benchmarks/real/manifest.yaml \
             --output benchmark-report.json
-      - name: Upload benchmark report
+      - name: Run ProjectReader boundary experiment
+        run: |
+          python -m smartbench.experiments.project_reader_resource \
+            --manifest benchmarks/real/manifest.yaml \
+            --negative-path benchmarks/experiments/project_reader_resource/negative \
+            --output project-reader-experiment.json
+      - name: Upload benchmark reports
         uses: actions/upload-artifact@v4
         with:
           name: historical-benchmark-report
-          path: benchmark-report.json
+          path: |
+            benchmark-report.json
+            project-reader-experiment.json
 
   package:
     name: Build and install package
