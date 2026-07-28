@@ -148,3 +148,50 @@ def run(request, stack, response):
     before = StateMachineAnalyzer().analyze(before_ir, [invariant])
     assert len(before.violations) == 1
     assert before.violations[0].missing == "guard"
+
+
+def test_go_switch_and_if_initializer_preserve_cleanup_path(tmp_path: Path):
+    source = """
+package sample
+
+func load(format string) error {
+    switch format {
+    case "file":
+        file, err := os.Open(format)
+        if err != nil {
+            return err
+        }
+        defer file.Close()
+        if _, err = parseTemplate(file); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+""".strip()
+    path = tmp_path / "loader.go"
+    path.write_text(source, encoding="utf-8")
+    invariant = StateInvariant(
+        invariant_id="template-file-cleanup",
+        kind=InvariantKind.REQUIRE_GUARD_BEFORE_ACTION,
+        event=OperationSelector.of(OperationKind.CALL, contains_all=("os.Open",)),
+        guard=OperationSelector.of(
+            OperationKind.DEFER, contains_all=("file.Close",)
+        ),
+        action=OperationSelector.of(
+            OperationKind.ASSIGN, contains_all=("parseTemplate",)
+        ),
+        message="opened template file must register cleanup before parsing",
+    )
+
+    after = StateMachineAnalyzer().analyze(
+        GoAdapter().parse_semantic_project(tmp_path), [invariant]
+    )
+    assert after.violations == []
+
+    path.write_text(source.replace("        defer file.Close()\n", ""), encoding="utf-8")
+    before = StateMachineAnalyzer().analyze(
+        GoAdapter().parse_semantic_project(tmp_path), [invariant]
+    )
+    assert len(before.violations) == 1
+    assert before.violations[0].missing == "guard"

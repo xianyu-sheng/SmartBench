@@ -199,6 +199,8 @@ class _GoFileLowerer:
         node_type = node.type
         if node_type == "if_statement":
             return self._lower_branch(node, scope_id)
+        if node_type == "expression_switch_statement":
+            return self._lower_switch(node, scope_id)
         if node_type in _LOOP_TYPES:
             return self._lower_loop(node, scope_id)
         if node_type in _ASSIGN_TYPES:
@@ -273,6 +275,12 @@ class _GoFileLowerer:
         return _FlowFragment()
 
     def _lower_branch(self, node: Any, scope_id: str) -> _FlowFragment:
+        initializer = node.child_by_field_name("initializer")
+        initializer_fragment = (
+            self._lower_statement(initializer, scope_id)
+            if initializer is not None
+            else _FlowFragment()
+        )
         condition = node.child_by_field_name("condition")
         if condition is None:
             condition = next(
@@ -329,14 +337,124 @@ class _GoFileLowerer:
             false_fragment.fallthroughs.append(
                 _PendingEdge(branch.id, OperationEdgeKind.FALSE_BRANCH)
             )
+        if initializer_fragment.entry_id is not None:
+            for pending in initializer_fragment.fallthroughs:
+                self._edge(pending.source_id, branch.id, pending.kind)
+
         return _FlowFragment(
-            entry_id=branch.id,
+            entry_id=initializer_fragment.entry_id or branch.id,
             fallthroughs=[
                 *true_fragment.fallthroughs,
                 *false_fragment.fallthroughs,
             ],
-            breaks=[*true_fragment.breaks, *false_fragment.breaks],
-            continues=[*true_fragment.continues, *false_fragment.continues],
+            breaks=[
+                *initializer_fragment.breaks,
+                *true_fragment.breaks,
+                *false_fragment.breaks,
+            ],
+            continues=[
+                *initializer_fragment.continues,
+                *true_fragment.continues,
+                *false_fragment.continues,
+            ],
+        )
+
+    def _lower_switch(self, node: Any, scope_id: str) -> _FlowFragment:
+        """Lower an expression switch while keeping case bodies in the CFG."""
+        initializer = node.child_by_field_name("initializer")
+        initializer_fragment = (
+            self._lower_statement(initializer, scope_id)
+            if initializer is not None
+            else _FlowFragment()
+        )
+        value = node.child_by_field_name("value")
+        cases = [
+            child
+            for child in node.named_children
+            if child.type in {"expression_case", "default_case"}
+        ]
+        switch = self._operation(
+            OperationKind.BRANCH,
+            node,
+            scope_id,
+            value=self._text(value),
+            operands=tuple(self._identifiers(value)),
+            attributes={
+                "switch": True,
+                "cases": [
+                    self._text(
+                        next(
+                            (
+                                child
+                                for child in case.named_children
+                                if child.type != "statement_list"
+                            ),
+                            None,
+                        )
+                    )
+                    for case in cases
+                ],
+                "calls": self._calls(value),
+            },
+        )
+        self._register_call_hosts(value, switch.id)
+        if initializer_fragment.entry_id is not None:
+            for pending in initializer_fragment.fallthroughs:
+                self._edge(pending.source_id, switch.id, pending.kind)
+
+        lowered_cases: list[tuple[_FlowFragment, bool, OperationEdgeKind]] = []
+        has_default = False
+        for case in cases:
+            statement_list = next(
+                (
+                    child
+                    for child in case.named_children
+                    if child.type == "statement_list"
+                ),
+                None,
+            )
+            statements = list(statement_list.named_children) if statement_list else []
+            fragment = self._lower_sequence(statements, scope_id)
+            is_default = case.type == "default_case"
+            has_default = has_default or is_default
+            edge_kind = (
+                OperationEdgeKind.FALSE_BRANCH
+                if is_default
+                else OperationEdgeKind.TRUE_BRANCH
+            )
+            if fragment.entry_id is not None:
+                self._edge(switch.id, fragment.entry_id, edge_kind)
+            falls_through = bool(
+                statements and statements[-1].type == "fallthrough_statement"
+            )
+            lowered_cases.append((fragment, falls_through, edge_kind))
+
+        fallthroughs: list[_PendingEdge] = []
+        continues = list(initializer_fragment.continues)
+        for index, (fragment, falls_through, edge_kind) in enumerate(lowered_cases):
+            continues.extend(fragment.continues)
+            fallthroughs.extend(
+                _PendingEdge(operation_id) for operation_id in fragment.breaks
+            )
+            if falls_through and index + 1 < len(lowered_cases):
+                next_fragment = lowered_cases[index + 1][0]
+                if next_fragment.entry_id is not None:
+                    for pending in fragment.fallthroughs:
+                        self._edge(pending.source_id, next_fragment.entry_id, pending.kind)
+                    continue
+            if fragment.entry_id is None:
+                fallthroughs.append(_PendingEdge(switch.id, edge_kind))
+            else:
+                fallthroughs.extend(fragment.fallthroughs)
+        if not has_default:
+            fallthroughs.append(
+                _PendingEdge(switch.id, OperationEdgeKind.FALSE_BRANCH)
+            )
+
+        return _FlowFragment(
+            entry_id=initializer_fragment.entry_id or switch.id,
+            fallthroughs=fallthroughs,
+            continues=continues,
         )
 
     def _lower_loop(self, node: Any, scope_id: str) -> _FlowFragment:
