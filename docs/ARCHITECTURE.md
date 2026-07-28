@@ -217,6 +217,16 @@ autonomously discovers protocols. The experiment also evaluates an independent
 clean fixture and records abstentions. Both historical benchmark reports are
 CI artifacts.
 
+`smartbench.experiments.project_reader_online` is the corresponding manual
+online experiment. It replaces deterministic reference extraction with a real
+environment-configured provider but retains the same inventory, citation gate,
+protocol validator, analyzer, and acceptance corpus. Reports contain only
+provider/model names, parsed decision statistics, and deterministic outcomes;
+API keys, raw prompts, and raw model responses are not persisted. Missing
+provider configuration is an explicit `unavailable` result, never a successful
+abstention. Because external model behavior is nondeterministic and incurs
+cost, this online experiment is not a required CI check.
+
 ## Acceptance criteria for new frontends
 
 Before a language is marked semantically supported, its adapter must provide:
