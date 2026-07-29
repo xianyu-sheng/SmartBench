@@ -58,7 +58,8 @@ reference already recorded in the benchmark manifest.
 
 The online blind runner replaces the deterministic protocol miner with a real
 environment-configured ProjectReader while keeping the same pinned references,
-target exclusions, type/citation validator, before/after analyzer, and
+target exclusions, deterministic evidence resolver, type/fact validator,
+before/after analyzer, and
 independent negative:
 
 ```bash
@@ -79,10 +80,23 @@ parsed validation decisions, and deterministic witnesses, but never API keys,
 raw prompts, or raw responses. If no supported provider is configured, it
 returns `status: unavailable` instead of silently substituting a mock.
 
-When validation rejects every proposed candidate, a trial may perform a bounded
+The model supplies semantic selectors rather than opaque `fact-*` or `type-*`
+IDs. The resolver requires a unique structural match and reports agent-cited,
+resolved, unresolved, and ambiguous evidence separately. Older clients may
+still submit IDs, but those values are retained only as audit input and cannot
+override the resolver.
+
+When resolution or validation rejects every proposed candidate, a trial may perform a bounded
 evidence-feedback repair. The model receives only the same blind inventory, its
 previous structured output, and deterministic rejection reasons. Supported
 candidates are never created by the repair itself: the replacement document
-must pass the unchanged citation/type validator. Reports expose initial
+must pass the unchanged resolver and validator. Reports expose initial
 rejections, repair attempts, and recovered trials so repair cannot hide model
 instability.
+
+The 2026-07-29 DeepSeek A/B used three trials per admissible case with repair
+disabled. Resolver-only mode passed 6/6 trials, compared with the earlier 3/6
+no-repair citation baseline. All six accepted candidates reproduced the
+historical before finding, clean after state, and zero negative findings. This
+result covers two Go resource protocols only; it is not a general accuracy or
+recall number.

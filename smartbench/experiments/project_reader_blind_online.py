@@ -18,6 +18,9 @@ from smartbench.analysis import ResourceLifecycleAnalyzer, ResourceProtocolMiner
 from smartbench.benchmarks import load_benchmark_manifest
 from smartbench.core import AdapterRegistry, register_all_adapters
 from smartbench.engine.project_reader import (
+    DeterministicEvidenceResolver,
+    EvidenceResolutionStatus,
+    MappingDecision,
     MappingStatus,
     ProjectModelValidator,
     ProjectReaderAgent,
@@ -38,7 +41,7 @@ from smartbench.experiments.project_reader_online import (
 from smartbench.llm.client import call_llm
 from smartbench.llm.provider import load_api_keys_from_env
 
-ONLINE_BLIND_SCHEMA_VERSION = "smartbench.experiments/project-reader-blind-online/v1"
+ONLINE_BLIND_SCHEMA_VERSION = "smartbench.experiments/project-reader-blind-online/v2"
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,8 @@ class OnlineBlindTrial:
     repair_attempts: int
     recovered_by_repair: bool
     proposed_candidates: int
+    resolved_candidates: int
+    resolution_abstentions: int
     initial_rejected_candidates: int
     supported_protocols: int
     rejected_candidates: int
@@ -63,6 +68,7 @@ class OnlineBlindTrial:
     protocols: tuple[dict[str, object], ...]
     finding_witnesses: tuple[dict[str, object], ...]
     decisions: tuple[OnlineMappingDecision, ...]
+    evidence_resolution: tuple[dict[str, object], ...]
     passed: bool
 
     def to_dict(self) -> dict[str, object]:
@@ -73,6 +79,8 @@ class OnlineBlindTrial:
             "repair_attempts": self.repair_attempts,
             "recovered_by_repair": self.recovered_by_repair,
             "proposed_candidates": self.proposed_candidates,
+            "resolved_candidates": self.resolved_candidates,
+            "resolution_abstentions": self.resolution_abstentions,
             "initial_rejected_candidates": self.initial_rejected_candidates,
             "supported_protocols": self.supported_protocols,
             "rejected_candidates": self.rejected_candidates,
@@ -87,6 +95,7 @@ class OnlineBlindTrial:
             "protocols": list(self.protocols),
             "finding_witnesses": list(self.finding_witnesses),
             "decisions": [decision.to_dict() for decision in self.decisions],
+            "evidence_resolution": list(self.evidence_resolution),
             "passed": self.passed,
         }
 
@@ -173,20 +182,14 @@ class OnlineBlindReport:
             "errors": list(self.errors),
             "summary": {
                 "cases": case_count,
-                "reference_available": sum(
-                    case.reference_available for case in self.cases
-                ),
+                "reference_available": sum(case.reference_available for case in self.cases),
                 "trials_executed": len(all_trials),
                 "trials_passed": sum(trial.passed for trial in all_trials),
-                "proposed_candidates": sum(
-                    trial.proposed_candidates for trial in all_trials
-                ),
-                "supported_protocols": sum(
-                    trial.supported_protocols for trial in all_trials
-                ),
-                "rejected_candidates": sum(
-                    trial.rejected_candidates for trial in all_trials
-                ),
+                "proposed_candidates": sum(trial.proposed_candidates for trial in all_trials),
+                "supported_protocols": sum(trial.supported_protocols for trial in all_trials),
+                "resolved_candidates": sum(trial.resolved_candidates for trial in all_trials),
+                "resolution_abstentions": sum(trial.resolution_abstentions for trial in all_trials),
+                "rejected_candidates": sum(trial.rejected_candidates for trial in all_trials),
                 "initial_rejected_candidates": sum(
                     trial.initial_rejected_candidates for trial in all_trials
                 ),
@@ -194,12 +197,8 @@ class OnlineBlindReport:
                     trial.repair_attempts == 0 and trial.supported_protocols > 0
                     for trial in all_trials
                 ),
-                "repair_attempts": sum(
-                    trial.repair_attempts for trial in all_trials
-                ),
-                "recovered_trials": sum(
-                    trial.recovered_by_repair for trial in all_trials
-                ),
+                "repair_attempts": sum(trial.repair_attempts for trial in all_trials),
+                "recovered_trials": sum(trial.recovered_by_repair for trial in all_trials),
                 "stable_detected_cases": stable_detected,
                 "stable_diagnostic_coverage": round(coverage, 4),
             },
@@ -214,6 +213,7 @@ class OnlineBlindReport:
                 "Cases without an admissible target-excluded reference remain unsupported.",
                 "This measures blind protocol extraction and transfer, not arbitrary unknown-bug recall.",
                 "Only deterministically validated candidates reach before/after analysis.",
+                "Opaque evidence IDs are bound by a unique-match deterministic resolver, not copied by the model.",
                 f"Each trial permits at most {self.max_repairs} evidence-feedback repair attempts.",
                 "No finding authorizes an upstream issue or pull request.",
             ],
@@ -244,6 +244,7 @@ def run_online_blind_project_reader_experiment(
     analyzer = ResourceLifecycleAnalyzer()
     miner = ResourceProtocolMiner()
     validator = ProjectModelValidator()
+    resolver = DeterministicEvidenceResolver()
     reader = ProjectReaderAgent(
         llm_call_fn,
         max_inventory_facts=max_inventory_facts,
@@ -276,9 +277,7 @@ def run_online_blind_project_reader_experiment(
         before = snapshots.get("before")
         after = snapshots.get("after")
         if before is None or after is None:
-            report.errors.append(
-                f"{spec.benchmark_case_id}: before/after snapshots are required"
-            )
+            report.errors.append(f"{spec.benchmark_case_id}: before/after snapshots are required")
             continue
 
         excluded = _target_paths_excluded(spec)
@@ -288,15 +287,14 @@ def run_online_blind_project_reader_experiment(
             reference_ir = adapter.parse_semantic_project(spec.reference_path)
             before_ir = adapter.parse_semantic_project(before.path)
             after_ir = adapter.parse_semantic_project(after.path)
-            reference_protocols = tuple(
-                miner.learn(reference_ir, generalize_method_shapes=True)
-            )
+            reference_protocols = tuple(miner.learn(reference_ir, generalize_method_shapes=True))
             reference_keys = {_protocol_key(protocol) for protocol in reference_protocols}
             for trial_number in range(1, trial_count + 1):
                 trial = _run_trial(
                     trial_number,
                     reader,
                     validator,
+                    resolver,
                     analyzer,
                     reference_ir,
                     before_ir,
@@ -314,8 +312,7 @@ def run_online_blind_project_reader_experiment(
             and (
                 all(trial.passed for trial in case_trials)
                 if spec.reference_path is not None
-                else bool(spec.unsupported_reason)
-                and spec.expected_shape_before_findings == 0
+                else bool(spec.unsupported_reason) and spec.expected_shape_before_findings == 0
             )
         )
         report.cases.append(
@@ -335,18 +332,11 @@ def run_online_blind_project_reader_experiment(
     # Every accepted trial already runs the independent negative. Keep the
     # aggregate fields conservative without reconstructing discarded model output.
     negative_trials = [
-        trial
-        for case in report.cases
-        for trial in case.trials
-        if trial.negative_findings > 0
+        trial for case in report.cases for trial in case.trials if trial.negative_findings > 0
     ]
-    report.independent_negative_findings = sum(
-        trial.negative_findings for trial in negative_trials
-    )
+    report.independent_negative_findings = sum(trial.negative_findings for trial in negative_trials)
     report.independent_negative_abstentions = sum(
-        trial.negative_abstentions
-        for case in report.cases
-        for trial in case.trials
+        trial.negative_abstentions for case in report.cases for trial in case.trials
     )
     return report
 
@@ -355,6 +345,7 @@ def _run_trial(
     trial_number: int,
     reader: ProjectReaderAgent,
     validator: ProjectModelValidator,
+    resolver: DeterministicEvidenceResolver,
     analyzer: ResourceLifecycleAnalyzer,
     reference_ir,
     before_ir,
@@ -366,15 +357,16 @@ def _run_trial(
 ) -> OnlineBlindTrial:
     reader_result = reader.read(reference_ir)
     initial_proposed = (
-        len(reader_result.model.resource_candidates)
-        if reader_result.model is not None
-        else 0
+        len(reader_result.model.resource_candidates) if reader_result.model is not None else 0
     )
     protocols = ()
     decisions: tuple[OnlineMappingDecision, ...] = ()
     validation = None
+    resolution = None
     if reader_result.model is not None:
-        validation = validator.validate(
+        resolution, validation = _resolve_and_validate(
+            resolver,
+            validator,
             reference_ir,
             reader_result.model,
             reader_result.inventory,
@@ -407,7 +399,9 @@ def _run_trial(
             repair_error = repaired.error
             break
         current_model = repaired.model
-        validation = validator.validate(
+        resolution, validation = _resolve_and_validate(
+            resolver,
+            validator,
             reference_ir,
             current_model,
             reader_result.inventory,
@@ -422,16 +416,12 @@ def _run_trial(
             for decision in validation.decisions
         )
     proposed = (
-        len(current_model.resource_candidates)
-        if current_model is not None
-        else initial_proposed
+        len(current_model.resource_candidates) if current_model is not None else initial_proposed
     )
     supported_keys = {_protocol_key(protocol) for protocol in protocols}
     before_result = analyzer.analyze(before_ir, protocols)
     after_result = analyzer.analyze(after_ir, protocols)
-    negative_result = (
-        analyzer.analyze(negative_ir, protocols) if negative_ir is not None else None
-    )
+    negative_result = analyzer.analyze(negative_ir, protocols) if negative_ir is not None else None
     negative_findings = len(negative_result.findings) if negative_result else 0
     negative_abstentions = negative_result.abstentions if negative_result else 0
     before_count = len(before_result.findings)
@@ -449,6 +439,22 @@ def _run_trial(
         repair_attempts=repair_attempts,
         recovered_by_repair=bool(repair_attempts and not repair_error and protocols),
         proposed_candidates=proposed,
+        resolved_candidates=(
+            sum(
+                decision.status == EvidenceResolutionStatus.RESOLVED
+                for decision in resolution.decisions
+            )
+            if resolution is not None
+            else 0
+        ),
+        resolution_abstentions=(
+            sum(
+                decision.status != EvidenceResolutionStatus.RESOLVED
+                for decision in resolution.decisions
+            )
+            if resolution is not None
+            else 0
+        ),
         initial_rejected_candidates=initial_rejected,
         supported_protocols=len(protocols),
         rejected_candidates=sum(
@@ -463,12 +469,38 @@ def _run_trial(
         negative_findings=negative_findings,
         negative_abstentions=negative_abstentions,
         protocols=tuple(_protocol_dict(protocol) for protocol in protocols),
-        finding_witnesses=tuple(
-            _finding_witness(finding) for finding in before_result.findings
-        ),
+        finding_witnesses=tuple(_finding_witness(finding) for finding in before_result.findings),
         decisions=decisions,
+        evidence_resolution=(
+            tuple(decision.to_dict() for decision in resolution.decisions)
+            if resolution is not None
+            else ()
+        ),
         passed=passed,
     )
+
+
+def _resolve_and_validate(
+    resolver: DeterministicEvidenceResolver,
+    validator: ProjectModelValidator,
+    ir,
+    model,
+    inventory,
+):
+    """Keep resolver abstentions visible while preserving the original gate."""
+    resolution = resolver.resolve(ir, model, inventory)
+    validation = validator.validate(ir, resolution.model, inventory)
+    for decision in resolution.decisions:
+        if decision.status == EvidenceResolutionStatus.RESOLVED:
+            continue
+        validation.decisions.append(
+            MappingDecision(
+                candidate_id=decision.candidate_id,
+                status=MappingStatus.REJECTED,
+                reason=f"evidence resolution {decision.status.value}: {decision.reason}",
+            )
+        )
+    return resolution, validation
 
 
 def _protocol_key(protocol: object) -> tuple[object, ...]:

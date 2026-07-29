@@ -53,6 +53,9 @@ in the target repository; optional RAG indexing writes cache data under
 - Deterministic EvidencePacks with stable fact IDs, graph snapshot hashes, and
   source locations. Evidence-exclusive debate mode rejects suggestions that do
   not cite facts from the pack.
+- A deterministic ProjectReader evidence resolver binds Agent semantic
+  selectors to unique call, cleanup, and type evidence. Missing or ambiguous
+  matches abstain; model-copied opaque IDs cannot enter the validator.
 - Regex fallback for broader language coverage and conservative approximate call relationships; ambiguous duplicate definitions do not receive invented edges.
 - Three review roles: Proposer, Critique, and Judge. They can share one model or use separate models.
 - Deterministic checks for cited paths, line ranges, symbols, and selected call chains; fuzzy path corrections are marked partial.
@@ -171,7 +174,14 @@ smartbench benchmark run \
 smartbench benchmark run \
   --manifest benchmarks/real/fastapi_form_cleanup/manifest.yaml \
   --output fastapi-benchmark-report.json
+
+# Run the offline three-minute gate -> repair -> CFG witness demo
+python -m smartbench.experiments.evidence_loop_demo \
+  --output evidence-loop-demo.json
 ```
+
+Portfolio walkthroughs: [three-minute demo](docs/DEMO_3_MINUTES_CN.md) and
+[evidence-loop architecture article](docs/EVIDENCE_LOOP_ARTICLE_CN.md).
 
 Python and Go semantic frontends normalize control-flow operations into the
 same IR. Declarative state rules use the versioned

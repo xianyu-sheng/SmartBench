@@ -1,5 +1,27 @@
 version: smartbench.benchmarks/v1
 cases:
+  - id: requests-proxy-authorization-guard-cve-2023-32681
+    language: python
+    state_rules: [requests_proxy_authorization_guard/rules.yaml]
+    rules: [proxy-authorization-requires-tunnel-guard]
+    metadata:
+      repository: psf/requests
+      source_url: https://github.com/psf/requests
+      advisory_url: https://github.com/advisories/GHSA-j8r2-6x86-q33q
+      before_commit: 302225334678490ec66b3614a9dddb8a02c5f4fe
+      after_commit: 74ea7cf7a6a27a4eeb2ae24e162bcc942a6706d5
+      bug_category: security-state-guard
+      expected_behavior: Proxy credentials are not copied into HTTPS tunneled requests.
+      fixture_note: Scoped rebuild_proxies excerpt from requests/sessions.py at the pinned commits.
+    snapshots:
+      - label: before
+        path: requests_proxy_authorization_guard/before
+        min_findings: 1
+        max_findings: 1
+        expected_rule_ids: [proxy-authorization-requires-tunnel-guard]
+      - label: after
+        path: requests_proxy_authorization_guard/after
+        max_findings: 0
   - id: fastapi-formdata-cleanup-5465
     language: python
     state_rules: [fastapi_form_cleanup/rules.yaml]

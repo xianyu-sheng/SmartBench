@@ -43,18 +43,12 @@ def _grounded_reader(prompts: list[str]):
                     fact
                     for fact in facts
                     if fact["subject"] == acquire["subject"]
-                    and fact["attributes"].get("inventory_role")
-                    == "cleanup_registration"
-                    and _receiver_root(
-                        str(fact["attributes"].get("receiver", ""))
-                    )
-                    == binding
+                    and fact["attributes"].get("inventory_role") == "cleanup_registration"
+                    and _receiver_root(str(fact["attributes"].get("receiver", ""))) == binding
                 ]
                 if not cleanups:
                     continue
-                cleanup_receiver = str(
-                    cleanups[0]["attributes"].get("receiver", "")
-                )
+                cleanup_receiver = str(cleanups[0]["attributes"].get("receiver", ""))
                 member_path = cleanup_receiver[len(binding) :].lstrip(".")
                 receiver_type = str(attributes.get("receiver_type", ""))
                 canonical = attributes.get("canonical_receiver_symbols", [])
@@ -70,10 +64,6 @@ def _grounded_reader(prompts: list[str]):
                     ),
                     "resource_member_path": member_path,
                     "confidence": 0.9,
-                    "fact_ids": [
-                        acquire["fact_id"],
-                        *(fact["fact_id"] for fact in cleanups),
-                    ],
                 }
                 if member_path and receiver_type and len(canonical) == 1 and type_ids:
                     mode = "typed_method"
@@ -81,7 +71,6 @@ def _grounded_reader(prompts: list[str]):
                         {
                             "receiver_type": receiver_type,
                             "canonical_acquire": canonical[0],
-                            "type_evidence_ids": type_ids,
                         }
                     )
                 elif member_path:
@@ -123,6 +112,8 @@ def test_repeated_online_blind_trials_are_target_excluded_and_typed():
         "trials_passed": 4,
         "proposed_candidates": 4,
         "supported_protocols": 4,
+        "resolved_candidates": 4,
+        "resolution_abstentions": 0,
         "rejected_candidates": 0,
         "initial_rejected_candidates": 0,
         "initially_accepted_trials": 4,
@@ -142,8 +133,7 @@ def test_repeated_online_blind_trials_are_target_excluded_and_typed():
     )
     assert prometheus.stable_detected
     assert all(
-        trial.protocols[0]["acquire_match_mode"] == "typed_method"
-        for trial in prometheus.trials
+        trial.protocols[0]["acquire_match_mode"] == "typed_method" for trial in prometheus.trials
     )
     assert all(
         trial.finding_witnesses[0]["canonical_acquire"] == "net/http.Client.Do"
@@ -155,25 +145,23 @@ def test_repeated_online_blind_trials_are_target_excluded_and_typed():
     assert all(case.trials == () and case.passed for case in unsupported)
 
 
-def test_evidence_feedback_repairs_rejected_cleanup_citations():
+def test_resolver_replaces_invented_citations_without_model_repair():
     root = Path(__file__).resolve().parents[1]
     prompts: list[str] = []
     grounded = _grounded_reader(prompts)
-    calls = 0
 
-    def initially_incomplete(prompt: str, role: str = "") -> str:
-        nonlocal calls
-        calls += 1
+    def invented_citations(prompt: str, role: str = "") -> str:
         output = json.loads(grounded(prompt, role))
-        if calls % 2 == 1:
-            for candidate in output["resource_candidates"]:
-                candidate["fact_ids"] = candidate["fact_ids"][:1]
+        for candidate in output["resource_candidates"]:
+            candidate["fact_ids"] = ["fact-invented-by-model"]
+            if candidate["acquire_match_mode"] == "typed_method":
+                candidate["type_evidence_ids"] = ["type-invented-by-model"]
         return json.dumps(output)
 
     report = run_online_blind_project_reader_experiment(
         root / "benchmarks" / "real" / "manifest.yaml",
         root / "benchmarks" / "experiments" / "project_reader_blind" / "manifest.yaml",
-        initially_incomplete,
+        invented_citations,
         negative_path=(
             root / "benchmarks" / "experiments" / "project_reader_resource" / "negative"
         ),
@@ -182,14 +170,25 @@ def test_evidence_feedback_repairs_rejected_cleanup_citations():
     )
 
     assert report.passed
-    assert len(prompts) == 4
+    assert len(prompts) == 2
     trials = [trial for case in report.cases for trial in case.trials]
     assert len(trials) == 2
-    assert all(trial.initial_rejected_candidates == 1 for trial in trials)
-    assert all(trial.repair_attempts == 1 for trial in trials)
-    assert all(trial.recovered_by_repair for trial in trials)
+    assert all(trial.initial_rejected_candidates == 0 for trial in trials)
+    assert all(trial.repair_attempts == 0 for trial in trials)
+    assert all(not trial.recovered_by_repair for trial in trials)
+    assert all(trial.resolved_candidates == 1 for trial in trials)
+    assert all(
+        trial.evidence_resolution[0]["agent_cited_evidence"]["fact_ids"]
+        == ["fact-invented-by-model"]
+        for trial in trials
+    )
+    assert all(
+        trial.evidence_resolution[0]["deterministically_resolved_evidence"]["fact_ids"]
+        != ["fact-invented-by-model"]
+        for trial in trials
+    )
     assert all(trial.rejected_candidates == 0 and trial.passed for trial in trials)
-    assert report.to_dict()["summary"]["recovered_trials"] == 2
+    assert report.to_dict()["summary"]["recovered_trials"] == 0
 
 
 def test_online_blind_cli_reports_missing_provider_without_leaking_keys(
@@ -207,13 +206,7 @@ def test_online_blind_cli_reports_missing_provider_without_leaking_keys(
             "--benchmark-manifest",
             str(root / "benchmarks" / "real" / "manifest.yaml"),
             "--blind-manifest",
-            str(
-                root
-                / "benchmarks"
-                / "experiments"
-                / "project_reader_blind"
-                / "manifest.yaml"
-            ),
+            str(root / "benchmarks" / "experiments" / "project_reader_blind" / "manifest.yaml"),
             "--output",
             str(output),
         ],

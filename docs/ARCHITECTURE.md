@@ -97,19 +97,29 @@ The resource-lifecycle path is deliberately split into four trust levels:
 
 ```text
 ProjectReader hypothesis
-    -> exact fact and operation citation gate
+    -> deterministic unique-match evidence resolver
+    -> exact operation / type / fact validation gate
     -> project-protocol validation
     -> language-neutral CFG/dominance analysis
     -> finding or explicit abstention
 ```
 
-For a resource protocol to pass validation, the acquire call, result position,
-and every cleanup method must be backed by real inventory facts and operations.
+The model selects semantic fields such as the operation, result position,
+cleanup methods and member path; it does not need to copy opaque evidence IDs.
+`DeterministicEvidenceResolver` binds the primary call fact, each reachable
+cleanup-registration fact and portable type-evidence IDs. Zero matches produce
+an `unresolved` abstention and multiple matches produce an `ambiguous`
+abstention. Agent-cited IDs from older clients remain visible for audit but are
+never consumed as resolved evidence.
+
+For a resource protocol to pass the unchanged validator, the acquire call,
+result position, and every cleanup method must be backed by resolved real
+inventory facts and operations.
 The cleanup registration must be reachable from the cited acquire call and act
 on its selected result binding. A structurally valid mapping is still described
 as project-scoped semantic evidence, not a universal language fact. Invented
-operation IDs, missing fact IDs, unsupported schema fields, and ungrounded
-cleanup methods are rejected before deterministic analysis.
+operation IDs, unresolved or ambiguous evidence, unsupported schema fields,
+and ungrounded cleanup methods are rejected before deterministic analysis.
 
 `ResourceLifecycleAnalyzer` consumes only the validated portable protocol and
 normalized operations. It checks whether cleanup registration dominates each
@@ -241,7 +251,7 @@ CI artifacts.
 
 `smartbench.experiments.project_reader_online` is the corresponding manual
 online experiment. It replaces deterministic reference extraction with a real
-environment-configured provider but retains the same inventory, citation gate,
+environment-configured provider but retains the same inventory, evidence resolver,
 protocol validator, analyzer, and acceptance corpus. Reports contain only
 provider/model names, parsed decision statistics, and deterministic outcomes;
 API keys, raw prompts, and raw model responses are not persisted. Missing
@@ -264,9 +274,16 @@ The live blind runner optionally permits a bounded evidence-feedback repair
 when every initial candidate is rejected. It returns the same blind inventory,
 the untrusted previous structured model, and deterministic validation reasons
 to ProjectReader; no target snapshot or analyzer outcome is included. The full
-replacement model then passes through the unchanged validator. Initial
+replacement model then passes through the unchanged resolver and validator. Initial
 rejections, repair attempts, and recoveries remain visible in the report rather
 than being collapsed into the final result.
+
+In the 2026-07-29 DeepSeek blind A/B, resolver-only mode (`max_repair=0`)
+completed 6/6 trials across the two admissible reference-backed cases, with
+zero rejected candidates and zero independent-negative findings. The previous
+no-repair baseline completed 3/6 because opaque cleanup fact IDs were copied
+incompletely. This is evidence for the resolver boundary on this small corpus,
+not a general bug-detection accuracy claim.
 
 The blind transfer experiment removes each historical target file and fix from
 the reference inventory. Pinned, hashed files from unrelated project modules

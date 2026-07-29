@@ -1,13 +1,15 @@
 # Historical real-bug benchmark corpus
 
 This directory contains source-backed before/after cases from public project history.
-Every case records the upstream repository, pull request, exact commits, full changed
-source-file snapshots, expected finding IDs, and a deterministic state invariant.
+Every case records the upstream repository, public fix/advisory, exact commits,
+source-backed snapshots or a labeled syntax-complete excerpt, expected finding
+IDs, and a deterministic state invariant.
 
 Current corpus:
 
 | Project | Language | Upstream fix | Category |
 | --- | --- | --- | --- |
+| Requests | Python | [GHSA-j8r2-6x86-q33q](https://github.com/advisories/GHSA-j8r2-6x86-q33q) | security state guard |
 | FastAPI | Python | [#5465](https://github.com/fastapi/fastapi/pull/5465) | resource lifecycle |
 | Prometheus | Go | [#1070](https://github.com/prometheus/prometheus/pull/1070) | resource lifecycle |
 | Kubernetes | Go | [#29495](https://github.com/kubernetes/kubernetes/pull/29495) | resource lifecycle |
@@ -23,5 +25,7 @@ smartbench benchmark run \
 ```
 
 Passing means that every historical buggy snapshot produces exactly one expected
-finding and every fixed snapshot produces none. It demonstrates deterministic
-expression of these known defects; it does not yet establish general precision or recall.
+finding and every fixed snapshot produces none. Full-file fixtures are preferred;
+the Requests case uses a syntax-complete scoped function excerpt and labels that
+boundary in its manifest. The corpus demonstrates deterministic expression of
+these known defects; it does not yet establish general precision or recall.

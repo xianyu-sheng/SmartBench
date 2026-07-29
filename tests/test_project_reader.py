@@ -9,6 +9,8 @@ from smartbench.analysis import AcquireMatchMode
 from smartbench.core.adapters import GoAdapter
 from smartbench.engine.project_reader import (
     CandidateSemanticMapping,
+    DeterministicEvidenceResolver,
+    EvidenceResolutionStatus,
     MappingStatus,
     ProjectModel,
     ProjectModelValidator,
@@ -163,6 +165,66 @@ def test_missing_fact_id_is_rejected_even_for_real_operation(tmp_path: Path):
     assert "missing inventory facts" in validation.decisions[0].reason
 
 
+def test_resolver_owns_opaque_fact_ids_and_preserves_agent_audit(tmp_path: Path):
+    ir = _ir(tmp_path)
+    inventory = build_project_inventory(ir)
+    fact = _acquire_fact(inventory)
+    model = ProjectModel(
+        resource_candidates=(
+            CandidateSemanticMapping(
+                candidate_id="resolver-owned",
+                operation_id=str(fact.attributes["operation_id"]),
+                acquire_symbol="os.Open",
+                resource_result_index=0,
+                cleanup_methods=("Close",),
+                confidence=0.9,
+                fact_ids=("fact-invented-by-agent",),
+            ),
+        )
+    )
+
+    resolution = DeterministicEvidenceResolver().resolve(ir, model, inventory)
+
+    assert resolution.decisions[0].status == EvidenceResolutionStatus.RESOLVED
+    assert resolution.decisions[0].agent_fact_ids == ("fact-invented-by-agent",)
+    assert resolution.decisions[0].resolved_fact_ids == (
+        fact.fact_id,
+        _cleanup_fact(inventory).fact_id,
+    )
+    validation = ProjectModelValidator().validate(ir, resolution.model, inventory)
+    assert len(validation.protocols) == 1
+    assert validation.protocols[0].evidence_fact_ids == (
+        fact.fact_id,
+        _cleanup_fact(inventory).fact_id,
+    )
+
+
+def test_resolver_abstains_when_cleanup_evidence_is_ambiguous(tmp_path: Path):
+    source = SOURCE.replace("defer file.Close()", "defer file.Close()\n    defer file.Close()")
+    (tmp_path / "loader.go").write_text(source, encoding="utf-8")
+    ir = GoAdapter().parse_semantic_project(tmp_path)
+    inventory = build_project_inventory(ir)
+    fact = _acquire_fact(inventory)
+    model = ProjectModel(
+        resource_candidates=(
+            CandidateSemanticMapping(
+                candidate_id="ambiguous-cleanup",
+                operation_id=str(fact.attributes["operation_id"]),
+                acquire_symbol="os.Open",
+                resource_result_index=0,
+                cleanup_methods=("Close",),
+                confidence=0.9,
+            ),
+        )
+    )
+
+    resolution = DeterministicEvidenceResolver().resolve(ir, model, inventory)
+
+    assert resolution.model.resource_candidates == ()
+    assert resolution.decisions[0].status == EvidenceResolutionStatus.AMBIGUOUS
+    assert "2 structural matches" in resolution.decisions[0].reason
+
+
 def test_reader_rejects_schema_expansion(tmp_path: Path):
     ir = _ir(tmp_path)
     reader = ProjectReaderAgent(
@@ -199,12 +261,9 @@ func load(client *Client, req *Request) error {
     acquire = next(
         fact
         for fact in inventory.facts
-        if fact.object == "client.Do"
-        and fact.attributes.get("primary_result_call") is True
+        if fact.object == "client.Do" and fact.attributes.get("primary_result_call") is True
     )
-    cleanup = next(
-        fact for fact in inventory.facts if fact.object == "response.Body.Close"
-    )
+    cleanup = next(fact for fact in inventory.facts if fact.object == "response.Body.Close")
     output = {
         "architecture_summary": "HTTP response resource protocol.",
         "components": ["client"],
@@ -218,9 +277,7 @@ func load(client *Client, req *Request) error {
                 "acquire_match_mode": "typed_method",
                 "resource_member_path": "Body",
                 "receiver_type": acquire.attributes["receiver_type"],
-                "canonical_acquire": acquire.attributes[
-                    "canonical_receiver_symbols"
-                ][0],
+                "canonical_acquire": acquire.attributes["canonical_receiver_symbols"][0],
                 "type_evidence_ids": acquire.attributes["type_evidence_ids"],
                 "confidence": 0.8,
                 "fact_ids": [acquire.fact_id, cleanup.fact_id],
