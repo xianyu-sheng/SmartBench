@@ -182,7 +182,7 @@ def test_reader_rejects_schema_expansion(tmp_path: Path):
     assert "unknown project model fields" in result.error
 
 
-def test_method_shape_mapping_requires_grounded_member_cleanup(tmp_path: Path):
+def test_typed_method_mapping_requires_grounded_type_and_member_cleanup(tmp_path: Path):
     source = """
 package sample
 
@@ -215,8 +215,13 @@ func load(client *Client, req *Request) error {
                 "acquire_symbol": "client.Do",
                 "resource_result_index": 0,
                 "cleanup_methods": ["Close"],
-                "acquire_match_mode": "method_shape",
+                "acquire_match_mode": "typed_method",
                 "resource_member_path": "Body",
+                "receiver_type": acquire.attributes["receiver_type"],
+                "canonical_acquire": acquire.attributes[
+                    "canonical_receiver_symbols"
+                ][0],
+                "type_evidence_ids": acquire.attributes["type_evidence_ids"],
                 "confidence": 0.8,
                 "fact_ids": [acquire.fact_id, cleanup.fact_id],
             }
@@ -228,7 +233,10 @@ func load(client *Client, req *Request) error {
     assert result.model is not None
     validation = ProjectModelValidator().validate(ir, result.model, result.inventory)
     assert len(validation.protocols) == 1
-    assert validation.protocols[0].acquire_match_mode == AcquireMatchMode.METHOD_SHAPE
+    assert validation.protocols[0].acquire_match_mode == AcquireMatchMode.TYPED_METHOD
+    assert validation.protocols[0].receiver_type == "Client"
+    assert validation.protocols[0].canonical_acquire == "Client.Do"
+    assert validation.protocols[0].type_evidence_ids
     assert validation.protocols[0].resource_member_path == "Body"
 
     wrong = ProjectModel(
@@ -249,3 +257,25 @@ func load(client *Client, req *Request) error {
     rejected = ProjectModelValidator().validate(ir, wrong, inventory)
     assert rejected.protocols == ()
     assert rejected.decisions[0].status == MappingStatus.REJECTED
+
+    invented_type = ProjectModel(
+        resource_candidates=(
+            CandidateSemanticMapping(
+                candidate_id="invented-type",
+                operation_id=str(acquire.attributes["operation_id"]),
+                acquire_symbol="client.Do",
+                resource_result_index=0,
+                cleanup_methods=("Close",),
+                confidence=0.8,
+                fact_ids=(acquire.fact_id, cleanup.fact_id),
+                acquire_match_mode=AcquireMatchMode.TYPED_METHOD,
+                resource_member_path="Body",
+                receiver_type="OtherClient",
+                canonical_acquire="OtherClient.Do",
+                type_evidence_ids=tuple(acquire.attributes["type_evidence_ids"]),
+            ),
+        )
+    )
+    rejected_type = ProjectModelValidator().validate(ir, invented_type, inventory)
+    assert rejected_type.protocols == ()
+    assert "receiver type is not grounded" in rejected_type.decisions[0].reason

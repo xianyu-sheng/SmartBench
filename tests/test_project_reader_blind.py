@@ -30,6 +30,7 @@ def test_blind_cross_file_protocol_transfer_is_partial_and_auditable():
         "reference_available": 2,
         "exact_before_detected": 1,
         "shape_before_detected": 2,
+        "typed_before_detected": 1,
         "shape_after_clean": 2,
         "diagnostic_coverage": 0.5,
     }
@@ -41,6 +42,22 @@ def test_blind_cross_file_protocol_transfer_is_partial_and_auditable():
     assert len(detected) == 2
     assert all(case.shape_after_findings == 0 for case in detected)
     assert all(all(case.verification.values()) for case in detected)
+    prometheus = next(
+        case for case in detected if case.source_repository == "prometheus/prometheus"
+    )
+    assert prometheus.evidence_status == "supported"
+    assert prometheus.shape_protocols[0]["acquire_match_mode"] == "typed_method"
+    assert prometheus.shape_protocols[0]["receiver_type"] == "net/http.Client"
+    assert prometheus.shape_protocols[0]["canonical_acquire"] == "net/http.Client.Do"
+    assert prometheus.shape_protocols[0]["type_evidence_ids"]
+    witness = prometheus.finding_witnesses[0]
+    assert witness["receiver_type"] == "net/http.Client"
+    assert witness["canonical_acquire"] == "net/http.Client.Do"
+    assert witness["reference_type_evidence_ids"]
+    assert witness["matched_type_evidence_ids"]
+    assert set(witness["reference_type_evidence_ids"]).isdisjoint(
+        witness["matched_type_evidence_ids"]
+    )
 
     unsupported = [case for case in report.cases if not case.reference_available]
     assert len(unsupported) == 2

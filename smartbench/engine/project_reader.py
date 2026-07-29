@@ -27,6 +27,9 @@ from smartbench.ir import (
     SemanticFact,
     SemanticIR,
     SemanticOperation,
+    TypeEvidenceIndex,
+    TypeEvidenceRole,
+    type_names_compatible,
 )
 from smartbench.llm.client import parse_json_safe
 
@@ -49,6 +52,9 @@ _CANDIDATE_REQUIRED_FIELDS = {
 _CANDIDATE_OPTIONAL_FIELDS = {
     "acquire_match_mode",
     "resource_member_path",
+    "receiver_type",
+    "canonical_acquire",
+    "type_evidence_ids",
 }
 _CANDIDATE_FIELDS = _CANDIDATE_REQUIRED_FIELDS | _CANDIDATE_OPTIONAL_FIELDS
 
@@ -66,6 +72,9 @@ class CandidateSemanticMapping:
     fact_ids: tuple[str, ...]
     acquire_match_mode: AcquireMatchMode = AcquireMatchMode.EXACT
     resource_member_path: str = ""
+    receiver_type: str = ""
+    canonical_acquire: str = ""
+    type_evidence_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -116,10 +125,18 @@ def build_project_inventory(ir: SemanticIR, max_facts: int = 200) -> EvidencePac
     """Build a deterministic, bounded inventory suitable for an entry Agent."""
     limit = max(1, min(int(max_facts), 1000))
     operations = {operation.id: operation for operation in ir.operations}
+    type_index = TypeEvidenceIndex(ir.type_evidence)
     facts: list[SemanticFact] = []
     for operation in sorted(ir.operations, key=_operation_order):
         result_targets = _result_targets(operation)
         if operation.kind == OperationKind.CALL and result_targets:
+            receiver_evidence = type_index.for_operation(
+                operation.id, TypeEvidenceRole.RECEIVER
+            )
+            receiver_type = type_index.unique_type(
+                operation.id, TypeEvidenceRole.RECEIVER
+            )
+            canonical_symbols = type_index.canonical_symbols(operation.id)
             host = operations.get(str(operation.attributes.get("host_operation", "")))
             host_calls = host.attributes.get("calls", ()) if host is not None else ()
             primary = bool(
@@ -134,7 +151,16 @@ def build_project_inventory(ir: SemanticIR, max_facts: int = 200) -> EvidencePac
                     subject=operation.scope_id,
                     predicate=FactKind.CALLS,
                     object=operation.target,
-                    evidence=(operation.location,),
+                    evidence=_dedupe_evidence(
+                        (
+                            operation.location,
+                            *(
+                                ref
+                                for item in receiver_evidence
+                                for ref in item.evidence
+                            ),
+                        )
+                    ),
                     attributes={
                         "operation_id": operation.id,
                         "operation_kind": operation.kind.value,
@@ -142,6 +168,11 @@ def build_project_inventory(ir: SemanticIR, max_facts: int = 200) -> EvidencePac
                         "result_targets": list(result_targets),
                         "receiver": str(operation.attributes.get("receiver", "")),
                         "primary_result_call": primary,
+                        "receiver_type": receiver_type,
+                        "canonical_receiver_symbols": list(canonical_symbols),
+                        "type_evidence_ids": [
+                            item.evidence_id for item in receiver_evidence
+                        ],
                     },
                 )
             )
@@ -242,8 +273,11 @@ Return one JSON object with exactly these top-level fields:
       "acquire_symbol": "exact cited exemplar call symbol",
       "resource_result_index": 0,
       "cleanup_methods": ["Close"],
-      "acquire_match_mode": "exact or method_shape",
+      "acquire_match_mode": "exact, method_shape, or typed_method",
       "resource_member_path": "Body or empty string",
+      "receiver_type": "required for typed_method, otherwise empty",
+      "canonical_acquire": "required for typed_method, otherwise empty",
+      "type_evidence_ids": ["required existing type evidence ID for typed_method"],
       "confidence": 0.0,
       "fact_ids": ["existing fact-id"]
     }}
@@ -268,6 +302,7 @@ class ProjectModelValidator:
         operations = {operation.id: operation for operation in ir.operations}
         facts = {fact.fact_id: fact for fact in inventory.facts}
         cfg = ControlFlowGraph.from_ir(ir)
+        type_index = TypeEvidenceIndex(ir.type_evidence)
         validation = ProjectModelValidation()
         for candidate in model.resource_candidates:
             decision = self._validate_candidate(
@@ -275,6 +310,7 @@ class ProjectModelValidator:
                 operations,
                 facts,
                 cfg,
+                type_index,
                 origin,
             )
             validation.decisions.append(decision)
@@ -286,6 +322,7 @@ class ProjectModelValidator:
         operations: Mapping[str, SemanticOperation],
         facts: Mapping[str, SemanticFact],
         cfg: ControlFlowGraph,
+        type_index: TypeEvidenceIndex,
         origin: ProtocolOrigin,
     ) -> MappingDecision:
         cited = [facts.get(fact_id) for fact_id in candidate.fact_ids]
@@ -339,6 +376,44 @@ class ProjectModelValidator:
                 "candidate cleanup methods lack cited reachable registrations for the "
                 f"result binding: {', '.join(sorted(missing_cleanup_methods))}",
             )
+        receiver_type = type_index.unique_type(
+            operation.id, TypeEvidenceRole.RECEIVER
+        )
+        canonical_symbols = type_index.canonical_symbols(operation.id)
+        actual_type_ids = set(
+            type_index.evidence_ids(operation.id, TypeEvidenceRole.RECEIVER)
+        )
+        if candidate.acquire_match_mode != AcquireMatchMode.TYPED_METHOD and (
+            candidate.receiver_type
+            or candidate.canonical_acquire
+            or candidate.type_evidence_ids
+        ):
+            return _rejected(
+                candidate, "type evidence fields are only valid for typed_method"
+            )
+        if candidate.acquire_match_mode == AcquireMatchMode.METHOD_SHAPE and (
+            receiver_type and len(canonical_symbols) == 1 and actual_type_ids
+        ):
+            return _rejected(
+                candidate,
+                "candidate weakens available receiver type evidence; use typed_method",
+            )
+        if candidate.acquire_match_mode == AcquireMatchMode.TYPED_METHOD:
+            if not (
+                candidate.receiver_type
+                and candidate.canonical_acquire
+                and candidate.type_evidence_ids
+            ):
+                return _rejected(candidate, "typed_method lacks required type evidence")
+            if not set(candidate.type_evidence_ids).issubset(actual_type_ids):
+                return _rejected(candidate, "typed_method cites missing type evidence")
+            if not type_names_compatible(candidate.receiver_type, receiver_type):
+                return _rejected(candidate, "typed_method receiver type is not grounded")
+            if (
+                len(canonical_symbols) != 1
+                or canonical_symbols[0] != candidate.canonical_acquire
+            ):
+                return _rejected(candidate, "typed_method canonical symbol is not grounded")
         return MappingDecision(
             candidate_id=candidate.candidate_id,
             status=MappingStatus.SUPPORTED,
@@ -352,6 +427,9 @@ class ProjectModelValidator:
                 cleanup_methods=candidate.cleanup_methods,
                 acquire_match_mode=candidate.acquire_match_mode,
                 resource_member_path=candidate.resource_member_path,
+                receiver_type=candidate.receiver_type,
+                canonical_acquire=candidate.canonical_acquire,
+                type_evidence_ids=candidate.type_evidence_ids,
                 origin=origin,
                 confidence=candidate.confidence,
                 evidence_fact_ids=candidate.fact_ids,
@@ -421,7 +499,7 @@ def _parse_candidate(value: Any, index: int) -> CandidateSemanticMapping:
         match_mode = AcquireMatchMode(match_mode_raw)
     except (TypeError, ValueError) as exc:
         raise ValueError(
-            f"{path}.acquire_match_mode must be exact or method_shape"
+            f"{path}.acquire_match_mode must be exact, method_shape, or typed_method"
         ) from exc
     member_path_raw = value.get("resource_member_path", "")
     if not isinstance(member_path_raw, str) or len(member_path_raw) > 200:
@@ -432,8 +510,28 @@ def _parse_candidate(value: Any, index: int) -> CandidateSemanticMapping:
         member_path,
     ):
         raise ValueError(f"{path}.resource_member_path must be a dotted identifier")
-    if match_mode == AcquireMatchMode.METHOD_SHAPE and not member_path:
-        raise ValueError(f"{path}.method_shape requires resource_member_path")
+    if match_mode in {
+        AcquireMatchMode.METHOD_SHAPE,
+        AcquireMatchMode.TYPED_METHOD,
+    } and not member_path:
+        raise ValueError(f"{path}.generalized match requires resource_member_path")
+    receiver_type = _optional_bounded_string(
+        value.get("receiver_type", ""), f"{path}.receiver_type", 300
+    )
+    canonical_acquire = _optional_bounded_string(
+        value.get("canonical_acquire", ""), f"{path}.canonical_acquire", 500
+    )
+    type_evidence_ids = _optional_string_tuple(
+        value.get("type_evidence_ids", []), f"{path}.type_evidence_ids", 20, 100
+    )
+    if match_mode == AcquireMatchMode.TYPED_METHOD and not (
+        receiver_type and canonical_acquire and type_evidence_ids
+    ):
+        raise ValueError(f"{path}.typed_method requires type evidence fields")
+    if match_mode != AcquireMatchMode.TYPED_METHOD and (
+        receiver_type or canonical_acquire or type_evidence_ids
+    ):
+        raise ValueError(f"{path}.type evidence fields require typed_method")
     return CandidateSemanticMapping(
         candidate_id=_bounded_string(value["candidate_id"], f"{path}.candidate_id", 100),
         operation_id=_bounded_string(value["operation_id"], f"{path}.operation_id", 100),
@@ -446,6 +544,9 @@ def _parse_candidate(value: Any, index: int) -> CandidateSemanticMapping:
         fact_ids=fact_ids,
         acquire_match_mode=match_mode,
         resource_member_path=member_path,
+        receiver_type=receiver_type,
+        canonical_acquire=canonical_acquire,
+        type_evidence_ids=type_evidence_ids,
     )
 
 
@@ -457,10 +558,34 @@ def _bounded_string(value: Any, path: str, limit: int) -> str:
     return value.strip()
 
 
+def _optional_bounded_string(value: Any, path: str, limit: int) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{path} must be a string")
+    if len(value) > limit:
+        raise ValueError(f"{path} exceeds {limit} characters")
+    return value.strip()
+
+
 def _string_tuple(value: Any, path: str, count: int, length: int) -> tuple[str, ...]:
     if not isinstance(value, list) or len(value) > count:
         raise ValueError(f"{path} must be a list with at most {count} items")
     return tuple(_bounded_string(item, f"{path}[]", length) for item in value)
+
+
+def _optional_string_tuple(
+    value: Any, path: str, count: int, length: int
+) -> tuple[str, ...]:
+    if not isinstance(value, list) or len(value) > count:
+        raise ValueError(f"{path} must be a list with at most {count} items")
+    return tuple(_bounded_string(item, f"{path}[]", length) for item in value)
+
+
+def _dedupe_evidence(values):
+    unique = {}
+    for item in values:
+        key = (item.file_path, item.line_start, item.line_end, item.snippet)
+        unique.setdefault(key, item)
+    return tuple(unique.values())
 
 
 def _result_targets(operation: SemanticOperation) -> tuple[str, ...]:

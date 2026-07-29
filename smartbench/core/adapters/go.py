@@ -10,10 +10,17 @@ from typing import List, Optional
 from smartbench.core.adapters.base import LanguageAdapter
 from smartbench.detector.fingerprint import Language
 from smartbench.frontends.go import GoSemanticLowerer
+from smartbench.frontends.go_type_evidence import GoSurfaceTypeProvider
 from smartbench.graph.builder import CodeGraphBuilder
 from smartbench.graph.schema import CodeGraph
 from smartbench.graph.tree_parser import get_parser
-from smartbench.ir import Capability, CapabilitySet, SemanticIR, validate_semantic_ir
+from smartbench.ir import (
+    TYPE_EVIDENCE_SCHEMA_VERSION,
+    Capability,
+    CapabilitySet,
+    SemanticIR,
+    validate_semantic_ir,
+)
 
 
 class GoAdapter(LanguageAdapter):
@@ -114,6 +121,8 @@ class GoAdapter(LanguageAdapter):
         ir.operations.extend(lowered.operations)
         ir.operation_edges.extend(lowered.edges)
         ir.facts.extend(lowered.facts)
+        type_result = GoSurfaceTypeProvider().provide(ir)
+        ir.type_evidence.extend(type_result.evidence)
         contract_errors = validate_semantic_ir(lowered.operations)
         ir.meta["go_frontend"] = {
             "files_analyzed": lowered.files_analyzed,
@@ -125,5 +134,13 @@ class GoAdapter(LanguageAdapter):
             "version": "semantic-ir/contracts/v1",
             "valid": not contract_errors,
             "errors": list(contract_errors),
+        }
+        ir.meta["go_type_evidence"] = {
+            "schema_version": TYPE_EVIDENCE_SCHEMA_VERSION,
+            "provider": "go.surface",
+            "surface_only": True,
+            "files_analyzed": type_result.files_analyzed,
+            "count": len(type_result.evidence),
+            "errors": list(type_result.errors),
         }
         return ir

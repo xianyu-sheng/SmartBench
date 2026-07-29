@@ -32,6 +32,15 @@ from smartbench.ir.provenance import (
     classify_source_role,
 )
 from smartbench.ir.schema import AnalysisAssessment, SemanticIR, SourceUnit
+from smartbench.ir.type_evidence import (
+    TYPE_EVIDENCE_SCHEMA_VERSION,
+    TypeEvidence,
+    TypeEvidenceIndex,
+    TypeEvidenceRole,
+    TypeEvidenceSource,
+    normalize_type_name,
+    type_names_compatible,
+)
 
 __all__ = [
     "Capability",
@@ -60,4 +69,11 @@ __all__ = [
     "classify_repository_zone",
     "classify_source_role",
     "AnalysisAssessment",
+    "TYPE_EVIDENCE_SCHEMA_VERSION",
+    "TypeEvidence",
+    "TypeEvidenceIndex",
+    "TypeEvidenceRole",
+    "TypeEvidenceSource",
+    "normalize_type_name",
+    "type_names_compatible",
 ]

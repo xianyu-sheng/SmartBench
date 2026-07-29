@@ -32,7 +32,8 @@ in the target repository; optional RAG indexing writes cache data under
   into the same operation model; its async/exception/type semantics remain
   explicitly partial.
 - A versioned `SemanticIR` boundary with frontend contracts, capability
-  declarations, normalized operations, control-flow edges, and explicit
+  declarations, normalized operations, control-flow edges, provenance-bearing
+  language-neutral type evidence, and explicit
   `full`/`partial`/`unsupported`/`unknown` analysis status in every JSON
   report. `unknown` means a rule has not declared a semantic capability
   contract; it is never promoted to `full`.
@@ -44,6 +45,11 @@ in the target repository; optional RAG indexing writes cache data under
 - Bounded interprocedural control-flow and data-flow for Python/Go, including
   call/return paths, argument/parameter links, return propagation, and
   declarative cross-function state rules.
+- Conservative Go surface-type evidence for parameters, method receivers,
+  struct fields, local assignment propagation, and local results. Portable
+  analyzers require exact normalized type identity and abstain on missing or
+  conflicting evidence; the capability remains partial because this is not
+  `go/types`.
 - Deterministic EvidencePacks with stable fact IDs, graph snapshot hashes, and
   source locations. Evidence-exclusive debate mode rejects suggestions that do
   not cite facts from the pack.

@@ -42,6 +42,7 @@ must not import that language's parser.
 - a capability matrix;
 - versioned semantic facts;
 - normalized operations and control-flow edges;
+- language-neutral, provenance-bearing `TypeEvidence` assertions;
 - a schema version (`semantic-ir/v1`).
 
 Interprocedural operations additionally conform to
@@ -50,6 +51,14 @@ parameters expose positions and receiver status, assignments expose aligned
 bindings, calls expose argument/result bindings and a host operation, and
 returns expose value lists. Contract validation checks shape and alignment;
 empty types remain explicit unknowns rather than being treated as proof.
+
+`semantic-ir/type-evidence/v1` separates portable type assertions from each
+language's extraction mechanism. Evidence is attached to an operation and a
+semantic role (`binding`, `receiver`, or `result`) and records its provider,
+derivation source, canonical symbol, confidence, and exact source references.
+Consumers query this contract through `TypeEvidenceIndex`; they do not import a
+language parser. Type compatibility currently requires exact normalized
+identity. Suffix similarity is never treated as type proof.
 
 Rules declare minimum capability strength. The engine evaluates each relevant
 language as `full`, `partial`, `unsupported`, or `unknown`; the last value is
@@ -109,13 +118,16 @@ symbols, and explicit ownership transfer to the caller produce abstentions
 rather than findings. The current proof policy covers normalized defer-style
 cleanup registration; other cleanup mechanisms remain unknown.
 
-Validated resource protocols have two acquire match modes. `exact` requires the
-same normalized call symbol. `method_shape` may transfer an independently
-observed protocol across receiver spellings only when the method name, result
-position, resource member path, cleanup method, and target-side member use all
-agree. Shape transfer requires a non-empty member path and carries lower
-confidence because receiver type proof is not yet available; method name alone
-is never sufficient.
+Validated resource protocols have three acquire match modes. `exact` requires
+the same normalized call symbol. `typed_method` may transfer across receiver
+spellings only when the normalized receiver type and canonical method symbol
+are uniquely proven and identical on the reference and target calls, while the
+result position, resource member path, cleanup method, and target-side member
+use also agree. Both sides retain their source type-evidence IDs in the finding
+witness. `method_shape` is the explicit partial fallback when receiver type is
+unavailable. It cannot bypass stronger available type evidence, and method name
+alone is never sufficient. Missing, ambiguous, or incompatible receiver types
+produce abstentions.
 
 ### Interprocedural and concurrency linking
 
@@ -177,9 +189,11 @@ through its graph compatibility view.
 - Go is recognized by the structural frontend and lowers functions,
   typed parameters/receivers/results, assignments, calls, branches, loops,
   returns, goroutines, defer, channel send/receive and select into the common
-  operation model. Type, data-flow, state/event and concurrency capabilities
-  remain explicitly partial because SmartBench does not yet run `go/types`,
-  resolve aliases, or model runtime dispatch.
+  operation model. Its surface type provider emits declaration, struct-field,
+  local-propagation, receiver, and local-result evidence and canonicalizes
+  explicit import aliases. Type, data-flow, state/event and concurrency
+  capabilities remain explicitly partial because SmartBench does not run
+  `go/types`, resolve whole-program aliases, or model runtime dispatch.
 - The operation call graph is deliberately partial. Current SmartBench
   self-analysis resolves conservative call edges and reports unresolved and
   ambiguous counts in `ir.meta.semantic_linker`; these are coverage signals,
@@ -238,8 +252,10 @@ cost, this online experiment is not a required CI check.
 The blind transfer experiment removes each historical target file and fix from
 the reference inventory. Pinned, hashed files from unrelated project modules
 provide admissible positive evidence. On the current four-case Go resource
-corpus, exact symbol transfer detects one case and method-shape transfer detects
-two; both detected cases remain clean after their historical fix and the
+corpus, exact symbol transfer detects one case and generalized transfer detects
+two. The Prometheus transfer is now a `typed_method` match: both the unrelated
+current reference and historical target resolve to `net/http.Client.Do` through
+independent source-backed receiver chains. Both detected cases remain clean after their historical fix and the
 independent negative fixture produces no finding. Gin and Terraform remain
 unsupported because no same-project reference survives target exclusion. The
 reported 50% coverage is a deliberate partial result, not a clean-project or
@@ -254,3 +270,7 @@ Before a language is marked semantically supported, its adapter must provide:
 3. stable SemanticIR serialization for the same source snapshot;
 4. at least one pre-fix/post-fix known-bug benchmark;
 5. no changes to language-neutral analyzers for basic rule execution.
+
+Optional language-specific type providers must emit the shared TypeEvidence
+contract and retain unsupported or ambiguous types as unknown. They may improve
+portable analyzers without changing their language-neutral matching policy.

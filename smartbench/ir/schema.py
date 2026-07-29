@@ -12,6 +12,7 @@ from smartbench.ir.capabilities import Capability, CapabilityLevel, CapabilitySe
 from smartbench.ir.contracts import CONTRACT_SCHEMA_VERSION, validate_semantic_ir
 from smartbench.ir.evidence import SemanticFact
 from smartbench.ir.operations import OperationEdge, OperationEdgeKind, SemanticOperation
+from smartbench.ir.type_evidence import TypeEvidence
 from smartbench.path_safety import read_text_bounded, read_text_prefix, resolve_project_file
 from smartbench.provenance import (
     RepositoryZone,
@@ -84,6 +85,7 @@ class SemanticIR:
     facts: list[SemanticFact] = field(default_factory=list)
     operations: list[SemanticOperation] = field(default_factory=list)
     operation_edges: list[OperationEdge] = field(default_factory=list)
+    type_evidence: list[TypeEvidence] = field(default_factory=list)
     schema_version: str = "semantic-ir/v1"
 
     @classmethod
@@ -287,6 +289,12 @@ class SemanticIR:
             if _operation_edge_key(edge) not in known_edges:
                 operation_edges.append(edge)
                 known_edges.add(_operation_edge_key(edge))
+        type_evidence = list(self.type_evidence)
+        known_type_evidence = {item.evidence_id for item in type_evidence}
+        for item in other.type_evidence:
+            if item.evidence_id not in known_type_evidence:
+                type_evidence.append(item)
+                known_type_evidence.add(item.evidence_id)
         merged_graph.meta["semantic_ir_version"] = self.schema_version
         merged_graph.meta["languages"] = list(languages)
         contract_errors = validate_semantic_ir(operations)
@@ -304,6 +312,7 @@ class SemanticIR:
             facts=facts,
             operations=operations,
             operation_edges=operation_edges,
+            type_evidence=type_evidence,
             schema_version=self.schema_version,
         )
 
@@ -322,6 +331,7 @@ class SemanticIR:
             "facts": [fact.to_dict() for fact in self.facts] if include_facts else [],
             "operations": [operation.to_dict() for operation in self.operations],
             "operation_edges": [edge.to_dict() for edge in self.operation_edges],
+            "type_evidence": [item.to_dict() for item in self.type_evidence],
             "graph": self.graph.to_dict(),
         }
 

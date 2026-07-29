@@ -16,12 +16,24 @@ default branches. Their upstream commit and SHA-256 are recorded in
   code search found their exact acquire symbol only in the excluded target
   file. They remain unsupported rather than receiving invented evidence.
 
-The experiment evaluates two portable protocol modes:
+The experiment evaluates three portable protocol modes:
 
 1. `exact`: acquire symbols must be identical;
-2. `method_shape`: an independently observed method call may transfer across
+2. `typed_method`: an independently observed method call may transfer across
+   receiver spellings only when both calls have the same uniquely proven,
+   normalized receiver type and canonical method symbol, and their result
+   position, resource member path, cleanup method, and target-side member use
+   agree;
+3. `method_shape`: the explicitly partial fallback may transfer across
    receiver names only when result position, resource member path, cleanup
-   method, and target-side member use all agree.
+   method, and target-side member use all agree. It cannot override available
+   type evidence.
+
+The Prometheus reference call `i.httpClient.Do` and historical target call
+`httpClient.Do` independently resolve to `net/http.Client.Do`; the report
+retains the reference and target type-evidence IDs. Kubernetes remains an exact
+match. Gin and Terraform remain unsupported rather than receiving special-case
+rules.
 
 Run it with:
 

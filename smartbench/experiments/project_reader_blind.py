@@ -52,6 +52,8 @@ class BlindCaseResult:
     shape_after_findings: int
     shape_before_abstentions: int
     negative_findings: int
+    evidence_status: str
+    finding_witnesses: tuple[dict[str, object], ...]
     verification: dict[str, bool]
     passed: bool
 
@@ -70,6 +72,8 @@ class BlindCaseResult:
             "shape_after_findings": self.shape_after_findings,
             "shape_before_abstentions": self.shape_before_abstentions,
             "negative_findings": self.negative_findings,
+            "evidence_status": self.evidence_status,
+            "finding_witnesses": list(self.finding_witnesses),
             "verification": dict(self.verification),
             "passed": self.passed,
         }
@@ -120,6 +124,14 @@ class BlindExperimentReport:
                     case.exact_before_findings > 0 for case in self.cases
                 ),
                 "shape_before_detected": self.shape_detected_cases,
+                "typed_before_detected": sum(
+                    case.shape_before_findings > 0
+                    and any(
+                        protocol["acquire_match_mode"] == "typed_method"
+                        for protocol in case.shape_protocols
+                    )
+                    for case in self.cases
+                ),
                 "shape_after_clean": sum(
                     case.shape_before_findings > 0
                     and case.shape_after_findings == 0
@@ -131,7 +143,8 @@ class BlindExperimentReport:
                 "Reference files come from pinned current project revisions, not the historical bug revisions.",
                 "The target bug files and fixes are excluded from every reference inventory.",
                 "Unsupported cases remain abstentions; no model guess is upgraded to evidence.",
-                "Method-shape transfer lacks receiver type proof and therefore remains partial evidence.",
+                "Typed-method transfer requires exact normalized receiver identity and canonical symbol equality.",
+                "Untyped method-shape transfer remains partial evidence and cannot bypass available type proof.",
                 "No finding authorizes an upstream issue or pull request.",
             ],
         }
@@ -274,6 +287,26 @@ def run_blind_project_reader_experiment(
         )
         historical_reference = bool(benchmark_case.metadata.get("issue_url"))
         before_after = bool(shape_before.findings) and not shape_after.findings
+        modes = {protocol.acquire_match_mode.value for protocol in shape_protocols}
+        evidence_status = (
+            "supported"
+            if shape_before.findings and modes <= {"exact", "typed_method"}
+            else "partial"
+            if shape_before.findings
+            else "unsupported"
+        )
+        typed_receiver_identity = (
+            not shape_before.findings
+            or "typed_method" not in modes
+            or all(
+                finding.protocol.receiver_type
+                and finding.protocol.canonical_acquire
+                and finding.protocol.type_evidence_ids
+                and finding.matched_type_evidence_ids
+                for finding in shape_before.findings
+                if finding.protocol.acquire_match_mode.value == "typed_method"
+            )
+        )
         passed = (
             target_excluded
             and hashes_verified
@@ -303,10 +336,15 @@ def run_blind_project_reader_experiment(
                 shape_after_findings=len(shape_after.findings),
                 shape_before_abstentions=shape_before.abstentions,
                 negative_findings=negative_findings,
+                evidence_status=evidence_status,
+                finding_witnesses=tuple(
+                    _finding_witness(finding) for finding in shape_before.findings
+                ),
                 verification={
                     "before_after_regression": before_after,
                     "deterministic_path_witness": path_witness,
                     "historical_change_reference": historical_reference,
+                    "typed_receiver_identity": typed_receiver_identity,
                 },
                 passed=passed,
             )
@@ -360,6 +398,30 @@ def _protocol_dict(protocol: object) -> dict[str, object]:
         "resource_result_index": getattr(protocol, "resource_result_index"),
         "resource_member_path": getattr(protocol, "resource_member_path"),
         "cleanup_methods": list(getattr(protocol, "cleanup_methods")),
+        "receiver_type": getattr(protocol, "receiver_type"),
+        "canonical_acquire": getattr(protocol, "canonical_acquire"),
+        "type_evidence_ids": list(getattr(protocol, "type_evidence_ids")),
+    }
+
+
+def _finding_witness(finding: object) -> dict[str, object]:
+    fact = getattr(finding, "to_fact")()
+    attributes = fact.attributes
+    return {
+        "fact_id": fact.fact_id,
+        "proof": attributes.get("proof"),
+        "matched_acquire_symbol": attributes.get("matched_acquire_symbol"),
+        "receiver_type": attributes.get("receiver_type"),
+        "canonical_acquire": attributes.get("canonical_acquire"),
+        "acquire_operation": attributes.get("acquire_operation"),
+        "use_operation": attributes.get("use_operation"),
+        "reference_type_evidence_ids": attributes.get(
+            "reference_type_evidence_ids", []
+        ),
+        "matched_type_evidence_ids": attributes.get(
+            "matched_type_evidence_ids", []
+        ),
+        "evidence": [item.to_dict() for item in fact.evidence],
     }
 
 

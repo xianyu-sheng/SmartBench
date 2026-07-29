@@ -117,7 +117,7 @@ func open(path string) (*File, error) {
     assert "ownership of file is transferred" in result.unknown_reasons[0]
 
 
-def test_method_shape_generalizes_receiver_name_with_member_evidence(tmp_path: Path):
+def test_typed_method_generalizes_receiver_name_with_type_evidence(tmp_path: Path):
     reference = """
 package sample
 
@@ -128,8 +128,10 @@ func load(client *Client, req *Request) error {
     return decode(response.Body)
 }
 """.strip()
-    target = reference.replace("client.Do", "transport.Do").replace(
-        "    defer response.Body.Close()\n", ""
+    target = (
+        reference.replace("client *Client", "transport *Client")
+        .replace("client.Do", "transport.Do")
+        .replace("    defer response.Body.Close()\n", "")
     )
     fixed = target.replace(
         "    return decode(response.Body)",
@@ -144,7 +146,10 @@ func load(client *Client, req *Request) error {
     )
 
     assert exact[0].acquire_match_mode == AcquireMatchMode.EXACT
-    assert generalized[0].acquire_match_mode == AcquireMatchMode.METHOD_SHAPE
+    assert generalized[0].acquire_match_mode == AcquireMatchMode.TYPED_METHOD
+    assert generalized[0].receiver_type == "Client"
+    assert generalized[0].canonical_acquire == "Client.Do"
+    assert generalized[0].type_evidence_ids
     assert generalized[0].resource_member_path == "Body"
     assert ResourceLifecycleAnalyzer().analyze(_parse(tmp_path, target), exact).findings == []
     assert len(
@@ -191,4 +196,80 @@ func calculate(worker *Worker, req *Request) error {
 
     assert result.findings == []
     assert result.abstentions == 1
-    assert "no reachable resource use" in result.unknown_reasons[0]
+    assert "no call has compatible receiver type Client" in result.unknown_reasons[0]
+
+
+def test_typed_method_rejects_same_shape_on_different_receiver_type(tmp_path: Path):
+    reference = """
+package sample
+
+func load(client *Client, req *Request) error {
+    response, err := client.Do(req)
+    if err != nil { return err }
+    defer response.Body.Close()
+    return decode(response.Body)
+}
+""".strip()
+    protocol = ResourceProtocolMiner().learn(
+        _parse(tmp_path, reference),
+        generalize_method_shapes=True,
+    )
+    same_shape = """
+package sample
+
+func run(worker *Worker, req *Request) error {
+    response, err := worker.Do(req)
+    if err != nil { return err }
+    return decode(response.Body)
+}
+""".strip()
+
+    result = ResourceLifecycleAnalyzer().analyze(_parse(tmp_path, same_shape), protocol)
+
+    assert result.findings == []
+    assert result.abstentions == 1
+    assert "compatible receiver type Client" in result.unknown_reasons[0]
+
+
+def test_untyped_method_shape_remains_partial_and_cannot_bypass_target_type(
+    tmp_path: Path,
+):
+    reference = """
+package sample
+
+func load(req *Request) error {
+    client := externalClient()
+    response, err := client.Do(req)
+    if err != nil { return err }
+    defer response.Body.Close()
+    return decode(response.Body)
+}
+""".strip()
+    protocol = ResourceProtocolMiner().learn(
+        _parse(tmp_path, reference),
+        generalize_method_shapes=True,
+    )
+    assert protocol[0].acquire_match_mode == AcquireMatchMode.METHOD_SHAPE
+
+    untyped_target = reference.replace("externalClient", "otherClient").replace(
+        "    defer response.Body.Close()\n", ""
+    )
+    assert len(
+        ResourceLifecycleAnalyzer().analyze(
+            _parse(tmp_path, untyped_target), protocol
+        ).findings
+    ) == 1
+
+    typed_target = """
+package sample
+
+func load(client *Client, req *Request) error {
+    response, err := client.Do(req)
+    if err != nil { return err }
+    return decode(response.Body)
+}
+""".strip()
+    result = ResourceLifecycleAnalyzer().analyze(_parse(tmp_path, typed_target), protocol)
+    assert result.findings == []
+    assert result.abstentions == 1
+    assert "cannot bypass available receiver type evidence" in result.unknown_reasons[0]

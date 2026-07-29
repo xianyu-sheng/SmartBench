@@ -18,7 +18,16 @@ from enum import Enum
 from typing import Iterable
 
 from smartbench.analysis.control_flow import ControlFlowGraph
-from smartbench.ir import FactKind, OperationKind, SemanticFact, SemanticIR, SemanticOperation
+from smartbench.ir import (
+    FactKind,
+    OperationKind,
+    SemanticFact,
+    SemanticIR,
+    SemanticOperation,
+    TypeEvidenceIndex,
+    TypeEvidenceRole,
+    type_names_compatible,
+)
 
 
 class ProtocolOrigin(str, Enum):
@@ -33,6 +42,7 @@ class AcquireMatchMode(str, Enum):
 
     EXACT = "exact"
     METHOD_SHAPE = "method_shape"
+    TYPED_METHOD = "typed_method"
 
 
 @dataclass(frozen=True)
@@ -44,6 +54,9 @@ class ResourceProtocol:
     cleanup_methods: tuple[str, ...]
     acquire_match_mode: AcquireMatchMode = AcquireMatchMode.EXACT
     resource_member_path: str = ""
+    receiver_type: str = ""
+    canonical_acquire: str = ""
+    type_evidence_ids: tuple[str, ...] = ()
     origin: ProtocolOrigin = ProtocolOrigin.PROJECT_READER
     confidence: float = 0.5
     evidence_fact_ids: tuple[str, ...] = ()
@@ -62,11 +75,20 @@ class ResourceProtocol:
             self.resource_member_path,
         ):
             raise ValueError("resource_member_path must be a dotted identifier path")
-        if (
-            self.acquire_match_mode == AcquireMatchMode.METHOD_SHAPE
-            and not self.resource_member_path
-        ):
-            raise ValueError("method_shape matching requires a resource member path")
+        if self.acquire_match_mode in {
+            AcquireMatchMode.METHOD_SHAPE,
+            AcquireMatchMode.TYPED_METHOD,
+        } and not self.resource_member_path:
+            raise ValueError("generalized matching requires a resource member path")
+        if self.acquire_match_mode == AcquireMatchMode.TYPED_METHOD:
+            if not self.receiver_type or not self.canonical_acquire:
+                raise ValueError(
+                    "typed_method matching requires receiver type and canonical acquire"
+                )
+            if not self.type_evidence_ids:
+                raise ValueError("typed_method matching requires source type evidence")
+        elif self.receiver_type or self.canonical_acquire or self.type_evidence_ids:
+            raise ValueError("type evidence fields are reserved for typed_method matching")
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("protocol confidence must be between 0 and 1")
 
@@ -78,6 +100,9 @@ class ResourceProtocol:
                 str(self.resource_result_index),
                 self.acquire_match_mode.value,
                 self.resource_member_path,
+                self.receiver_type,
+                self.canonical_acquire,
+                *sorted(self.type_evidence_ids),
                 *sorted(self.cleanup_methods),
             )
         )
@@ -93,6 +118,7 @@ class ResourceLifecycleFinding:
     acquire: SemanticOperation
     first_unprotected_use: SemanticOperation
     cleanup_candidates: tuple[SemanticOperation, ...] = ()
+    matched_type_evidence_ids: tuple[str, ...] = ()
 
     def to_fact(self) -> SemanticFact:
         evidence = [self.acquire.location, self.first_unprotected_use.location]
@@ -112,6 +138,10 @@ class ResourceLifecycleFinding:
                 "resource_binding": self.resource_binding,
                 "resource_member_path": self.protocol.resource_member_path,
                 "cleanup_methods": list(self.protocol.cleanup_methods),
+                "receiver_type": self.protocol.receiver_type,
+                "canonical_acquire": self.protocol.canonical_acquire,
+                "reference_type_evidence_ids": list(self.protocol.type_evidence_ids),
+                "matched_type_evidence_ids": list(self.matched_type_evidence_ids),
                 "acquire_operation": self.acquire.id,
                 "use_operation": self.first_unprotected_use.id,
                 "cleanup_operations": [item.id for item in self.cleanup_candidates],
@@ -145,8 +175,17 @@ class ResourceProtocolMiner:
     ) -> list[ResourceProtocol]:
         cfg = ControlFlowGraph.from_ir(ir)
         operations = {operation.id: operation for operation in ir.operations}
+        type_index = TypeEvidenceIndex(ir.type_evidence)
         protocols: dict[
-            tuple[str, int, AcquireMatchMode, str, tuple[str, ...]],
+            tuple[
+                str,
+                int,
+                AcquireMatchMode,
+                str,
+                str,
+                str,
+                tuple[str, ...],
+            ],
             ResourceProtocol,
         ] = {}
         for call in sorted(ir.operations, key=_operation_order):
@@ -182,20 +221,61 @@ class ResourceProtocolMiner:
                     )
                     if not methods:
                         continue
-                    match_mode = (
-                        AcquireMatchMode.METHOD_SHAPE
-                        if generalize_method_shapes and member_path
-                        else AcquireMatchMode.EXACT
+                    receiver_type = ""
+                    canonical_acquire = ""
+                    type_evidence_ids: tuple[str, ...] = ()
+                    match_mode = AcquireMatchMode.EXACT
+                    if generalize_method_shapes and member_path:
+                        receiver_type = type_index.unique_type(
+                            call.id, TypeEvidenceRole.RECEIVER
+                        )
+                        canonical_symbols = type_index.canonical_symbols(call.id)
+                        type_evidence_ids = type_index.evidence_ids(
+                            call.id, TypeEvidenceRole.RECEIVER
+                        )
+                        if (
+                            receiver_type
+                            and len(canonical_symbols) == 1
+                            and type_evidence_ids
+                        ):
+                            match_mode = AcquireMatchMode.TYPED_METHOD
+                            canonical_acquire = canonical_symbols[0]
+                        else:
+                            match_mode = AcquireMatchMode.METHOD_SHAPE
+                    key = (
+                        call.target,
+                        index,
+                        match_mode,
+                        member_path,
+                        receiver_type,
+                        canonical_acquire,
+                        methods,
                     )
-                    key = (call.target, index, match_mode, member_path, methods)
+                    existing = protocols.get(key)
+                    if existing is not None:
+                        type_evidence_ids = tuple(
+                            sorted(
+                                {
+                                    *existing.type_evidence_ids,
+                                    *type_evidence_ids,
+                                }
+                            )
+                        )
                     protocols[key] = ResourceProtocol(
                         acquire_symbol=call.target,
                         resource_result_index=index,
                         cleanup_methods=methods,
                         acquire_match_mode=match_mode,
                         resource_member_path=member_path,
+                        receiver_type=receiver_type,
+                        canonical_acquire=canonical_acquire,
+                        type_evidence_ids=type_evidence_ids,
                         origin=ProtocolOrigin.REFERENCE_USAGE,
-                        confidence=1.0 if match_mode == AcquireMatchMode.EXACT else 0.8,
+                        confidence={
+                            AcquireMatchMode.EXACT: 1.0,
+                            AcquireMatchMode.TYPED_METHOD: 0.95,
+                            AcquireMatchMode.METHOD_SHAPE: 0.8,
+                        }[match_mode],
                     )
         return [protocols[key] for key in sorted(protocols)]
 
@@ -211,6 +291,7 @@ class ResourceLifecycleAnalyzer:
         protocol_list = list(protocols)
         result = ResourceLifecycleResult(protocols_evaluated=len(protocol_list))
         cfg = ControlFlowGraph.from_ir(ir)
+        type_index = TypeEvidenceIndex(ir.type_evidence)
         operations = {operation.id: operation for operation in ir.operations}
         ordered = sorted(ir.operations, key=_operation_order)
 
@@ -219,13 +300,13 @@ class ResourceLifecycleAnalyzer:
                 operation
                 for operation in ordered
                 if operation.kind == OperationKind.CALL
-                and _matches_acquire(operation, protocol)
+                and _matches_acquire(operation, protocol, type_index)
                 and _is_primary_result_call(operation, operations)
             ]
             if not acquisitions:
                 result.abstentions += 1
                 result.unknown_reasons.append(
-                    f"{protocol.protocol_id}: acquire symbol not present"
+                    _missing_acquire_reason(protocol)
                 )
                 continue
             for acquire in acquisitions:
@@ -311,6 +392,9 @@ class ResourceLifecycleAnalyzer:
                             acquire=acquire,
                             first_unprotected_use=first_unprotected,
                             cleanup_candidates=cleanups,
+                            matched_type_evidence_ids=type_index.evidence_ids(
+                                acquire.id, TypeEvidenceRole.RECEIVER
+                            ),
                         )
                     )
         return result
@@ -420,12 +504,37 @@ def _uses_resource(
 def _matches_acquire(
     operation: SemanticOperation,
     protocol: ResourceProtocol,
+    type_index: TypeEvidenceIndex,
 ) -> bool:
     if protocol.acquire_match_mode == AcquireMatchMode.EXACT:
         return operation.target == protocol.acquire_symbol
     if "." not in operation.target or "." not in protocol.acquire_symbol:
         return False
-    return _method_name(operation) == protocol.acquire_symbol.rsplit(".", 1)[-1]
+    if _method_name(operation) != protocol.acquire_symbol.rsplit(".", 1)[-1]:
+        return False
+    if protocol.acquire_match_mode == AcquireMatchMode.METHOD_SHAPE:
+        return not type_index.for_operation(operation.id, TypeEvidenceRole.RECEIVER)
+    receiver_type = type_index.unique_type(operation.id, TypeEvidenceRole.RECEIVER)
+    canonical_symbols = type_index.canonical_symbols(operation.id)
+    return (
+        type_names_compatible(protocol.receiver_type, receiver_type)
+        and len(canonical_symbols) == 1
+        and canonical_symbols[0] == protocol.canonical_acquire
+    )
+
+
+def _missing_acquire_reason(protocol: ResourceProtocol) -> str:
+    if protocol.acquire_match_mode == AcquireMatchMode.TYPED_METHOD:
+        return (
+            f"{protocol.protocol_id}: no call has compatible receiver type "
+            f"{protocol.receiver_type} and canonical symbol {protocol.canonical_acquire}"
+        )
+    if protocol.acquire_match_mode == AcquireMatchMode.METHOD_SHAPE:
+        return (
+            f"{protocol.protocol_id}: untyped method shape is absent or cannot "
+            "bypass available receiver type evidence"
+        )
+    return f"{protocol.protocol_id}: acquire symbol not present"
 
 
 def _transfers_ownership(operation: SemanticOperation, binding: str) -> bool:
