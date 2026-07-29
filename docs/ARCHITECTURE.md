@@ -260,6 +260,14 @@ result. Cases without an admissible reference do not invoke the model and
 remain explicit unsupported outcomes. Missing provider configuration is
 reported as unavailable, never replaced with a deterministic stand-in.
 
+The live blind runner optionally permits a bounded evidence-feedback repair
+when every initial candidate is rejected. It returns the same blind inventory,
+the untrusted previous structured model, and deterministic validation reasons
+to ProjectReader; no target snapshot or analyzer outcome is included. The full
+replacement model then passes through the unchanged validator. Initial
+rejections, repair attempts, and recoveries remain visible in the report rather
+than being collapsed into the final result.
+
 The blind transfer experiment removes each historical target file and fix from
 the reference inventory. Pinned, hashed files from unrelated project modules
 provide admissible positive evidence. On the current four-case Go resource

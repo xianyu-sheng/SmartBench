@@ -67,6 +67,7 @@ python -m smartbench.experiments.project_reader_blind_online \
   --blind-manifest benchmarks/experiments/project_reader_blind/manifest.yaml \
   --negative-path benchmarks/experiments/project_reader_resource/negative \
   --trials 3 \
+  --max-repairs 1 \
   --output project-reader-blind-online.json
 ```
 
@@ -77,3 +78,11 @@ no independent-negative finding. The report persists provider/model names,
 parsed validation decisions, and deterministic witnesses, but never API keys,
 raw prompts, or raw responses. If no supported provider is configured, it
 returns `status: unavailable` instead of silently substituting a mock.
+
+When validation rejects every proposed candidate, a trial may perform a bounded
+evidence-feedback repair. The model receives only the same blind inventory, its
+previous structured output, and deterministic rejection reasons. Supported
+candidates are never created by the repair itself: the replacement document
+must pass the unchanged citation/type validator. Reports expose initial
+rejections, repair attempts, and recovered trials so repair cannot hide model
+instability.

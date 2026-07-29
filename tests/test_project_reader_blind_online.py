@@ -124,6 +124,10 @@ def test_repeated_online_blind_trials_are_target_excluded_and_typed():
         "proposed_candidates": 4,
         "supported_protocols": 4,
         "rejected_candidates": 0,
+        "initial_rejected_candidates": 0,
+        "initially_accepted_trials": 4,
+        "repair_attempts": 0,
+        "recovered_trials": 0,
         "stable_detected_cases": 2,
         "stable_diagnostic_coverage": 0.5,
     }
@@ -149,6 +153,43 @@ def test_repeated_online_blind_trials_are_target_excluded_and_typed():
     unsupported = [case for case in report.cases if not case.reference_available]
     assert len(unsupported) == 2
     assert all(case.trials == () and case.passed for case in unsupported)
+
+
+def test_evidence_feedback_repairs_rejected_cleanup_citations():
+    root = Path(__file__).resolve().parents[1]
+    prompts: list[str] = []
+    grounded = _grounded_reader(prompts)
+    calls = 0
+
+    def initially_incomplete(prompt: str, role: str = "") -> str:
+        nonlocal calls
+        calls += 1
+        output = json.loads(grounded(prompt, role))
+        if calls % 2 == 1:
+            for candidate in output["resource_candidates"]:
+                candidate["fact_ids"] = candidate["fact_ids"][:1]
+        return json.dumps(output)
+
+    report = run_online_blind_project_reader_experiment(
+        root / "benchmarks" / "real" / "manifest.yaml",
+        root / "benchmarks" / "experiments" / "project_reader_blind" / "manifest.yaml",
+        initially_incomplete,
+        negative_path=(
+            root / "benchmarks" / "experiments" / "project_reader_resource" / "negative"
+        ),
+        trials=1,
+        max_repairs=1,
+    )
+
+    assert report.passed
+    assert len(prompts) == 4
+    trials = [trial for case in report.cases for trial in case.trials]
+    assert len(trials) == 2
+    assert all(trial.initial_rejected_candidates == 1 for trial in trials)
+    assert all(trial.repair_attempts == 1 for trial in trials)
+    assert all(trial.recovered_by_repair for trial in trials)
+    assert all(trial.rejected_candidates == 0 and trial.passed for trial in trials)
+    assert report.to_dict()["summary"]["recovered_trials"] == 2
 
 
 def test_online_blind_cli_reports_missing_provider_without_leaking_keys(

@@ -45,7 +45,11 @@ ONLINE_BLIND_SCHEMA_VERSION = "smartbench.experiments/project-reader-blind-onlin
 class OnlineBlindTrial:
     trial: int
     reader_error: str
+    repair_error: str
+    repair_attempts: int
+    recovered_by_repair: bool
     proposed_candidates: int
+    initial_rejected_candidates: int
     supported_protocols: int
     rejected_candidates: int
     reference_protocols: int
@@ -65,7 +69,11 @@ class OnlineBlindTrial:
         return {
             "trial": self.trial,
             "reader_error": self.reader_error,
+            "repair_error": self.repair_error,
+            "repair_attempts": self.repair_attempts,
+            "recovered_by_repair": self.recovered_by_repair,
             "proposed_candidates": self.proposed_candidates,
+            "initial_rejected_candidates": self.initial_rejected_candidates,
             "supported_protocols": self.supported_protocols,
             "rejected_candidates": self.rejected_candidates,
             "reference_protocols": self.reference_protocols,
@@ -121,6 +129,7 @@ class OnlineBlindReport:
     status: str = "completed"
     models: tuple[OnlineModelDescriptor, ...] = ()
     trials_requested: int = 1
+    max_repairs: int = 0
     cases: list[OnlineBlindCase] = field(default_factory=list)
     independent_negative_findings: int = 0
     independent_negative_abstentions: int = 0
@@ -155,6 +164,7 @@ class OnlineBlindReport:
             ),
             "models": [model.to_dict() for model in self.models],
             "trials_requested": self.trials_requested,
+            "max_repairs": self.max_repairs,
             "cases": [case.to_dict() for case in self.cases],
             "independent_negatives": {
                 "findings": self.independent_negative_findings,
@@ -177,6 +187,19 @@ class OnlineBlindReport:
                 "rejected_candidates": sum(
                     trial.rejected_candidates for trial in all_trials
                 ),
+                "initial_rejected_candidates": sum(
+                    trial.initial_rejected_candidates for trial in all_trials
+                ),
+                "initially_accepted_trials": sum(
+                    trial.repair_attempts == 0 and trial.supported_protocols > 0
+                    for trial in all_trials
+                ),
+                "repair_attempts": sum(
+                    trial.repair_attempts for trial in all_trials
+                ),
+                "recovered_trials": sum(
+                    trial.recovered_by_repair for trial in all_trials
+                ),
                 "stable_detected_cases": stable_detected,
                 "stable_diagnostic_coverage": round(coverage, 4),
             },
@@ -191,6 +214,7 @@ class OnlineBlindReport:
                 "Cases without an admissible target-excluded reference remain unsupported.",
                 "This measures blind protocol extraction and transfer, not arbitrary unknown-bug recall.",
                 "Only deterministically validated candidates reach before/after analysis.",
+                f"Each trial permits at most {self.max_repairs} evidence-feedback repair attempts.",
                 "No finding authorizes an upstream issue or pull request.",
             ],
         }
@@ -204,10 +228,12 @@ def run_online_blind_project_reader_experiment(
     models: tuple[OnlineModelDescriptor, ...] = (),
     negative_path: Path | None = None,
     trials: int = 3,
+    max_repairs: int = 1,
     max_inventory_facts: int = 1000,
 ) -> OnlineBlindReport:
     """Run repeated live-model trials without exposing target code to the model."""
     trial_count = max(1, min(int(trials), 10))
+    repair_limit = max(0, min(int(max_repairs), 3))
     benchmark_cases = {
         case.case_id: case
         for case in load_benchmark_manifest(benchmark_manifest.expanduser().resolve())
@@ -222,7 +248,11 @@ def run_online_blind_project_reader_experiment(
         llm_call_fn,
         max_inventory_facts=max_inventory_facts,
     )
-    report = OnlineBlindReport(models=models, trials_requested=trial_count)
+    report = OnlineBlindReport(
+        models=models,
+        trials_requested=trial_count,
+        max_repairs=repair_limit,
+    )
     negative_ir = None
     if negative_path is not None:
         adapter = registry.get_adapter_for_language("go")
@@ -274,6 +304,7 @@ def run_online_blind_project_reader_experiment(
                     negative_ir,
                     reference_keys,
                     spec,
+                    repair_limit,
                 )
                 case_trials.append(trial)
 
@@ -331,15 +362,17 @@ def _run_trial(
     negative_ir,
     reference_keys: set[tuple[object, ...]],
     spec: BlindCaseSpec,
+    max_repairs: int,
 ) -> OnlineBlindTrial:
     reader_result = reader.read(reference_ir)
-    proposed = (
+    initial_proposed = (
         len(reader_result.model.resource_candidates)
         if reader_result.model is not None
         else 0
     )
     protocols = ()
     decisions: tuple[OnlineMappingDecision, ...] = ()
+    validation = None
     if reader_result.model is not None:
         validation = validator.validate(
             reference_ir,
@@ -355,6 +388,44 @@ def _run_trial(
             )
             for decision in validation.decisions
         )
+    initial_rejected = sum(
+        decision.status == MappingStatus.REJECTED.value for decision in decisions
+    )
+    repair_attempts = 0
+    repair_error = ""
+    current_model = reader_result.model
+    while (
+        current_model is not None
+        and validation is not None
+        and not protocols
+        and initial_rejected
+        and repair_attempts < max_repairs
+    ):
+        repaired = reader.repair(reader_result.inventory, current_model, validation)
+        repair_attempts += 1
+        if repaired.model is None:
+            repair_error = repaired.error
+            break
+        current_model = repaired.model
+        validation = validator.validate(
+            reference_ir,
+            current_model,
+            reader_result.inventory,
+        )
+        protocols = validation.protocols
+        decisions = tuple(
+            OnlineMappingDecision(
+                candidate_id=decision.candidate_id,
+                status=decision.status.value,
+                reason=decision.reason,
+            )
+            for decision in validation.decisions
+        )
+    proposed = (
+        len(current_model.resource_candidates)
+        if current_model is not None
+        else initial_proposed
+    )
     supported_keys = {_protocol_key(protocol) for protocol in protocols}
     before_result = analyzer.analyze(before_ir, protocols)
     after_result = analyzer.analyze(after_ir, protocols)
@@ -374,7 +445,11 @@ def _run_trial(
     return OnlineBlindTrial(
         trial=trial_number,
         reader_error=reader_result.error,
+        repair_error=repair_error,
+        repair_attempts=repair_attempts,
+        recovered_by_repair=bool(repair_attempts and not repair_error and protocols),
         proposed_candidates=proposed,
+        initial_rejected_candidates=initial_rejected,
         supported_protocols=len(protocols),
         rejected_candidates=sum(
             decision.status == MappingStatus.REJECTED.value for decision in decisions
@@ -408,10 +483,15 @@ def _protocol_key(protocol: object) -> tuple[object, ...]:
     )
 
 
-def unavailable_online_blind_report(reason: str, trials: int) -> OnlineBlindReport:
+def unavailable_online_blind_report(
+    reason: str,
+    trials: int,
+    max_repairs: int = 1,
+) -> OnlineBlindReport:
     return OnlineBlindReport(
         status="unavailable",
         trials_requested=max(1, min(int(trials), 10)),
+        max_repairs=max(0, min(int(max_repairs), 3)),
         errors=[reason],
     )
 
@@ -434,6 +514,7 @@ def main() -> int:
     parser.add_argument("--negative-path", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--trials", type=int, default=3)
+    parser.add_argument("--max-repairs", type=int, default=1)
     parser.add_argument("--timeout-seconds", type=float, default=180.0)
     parser.add_argument("--max-retries", type=int, default=1)
     parser.add_argument("--max-inventory-facts", type=int, default=1000)
@@ -444,6 +525,7 @@ def main() -> int:
         report = unavailable_online_blind_report(
             "No supported LLM provider environment variable is configured.",
             args.trials,
+            args.max_repairs,
         )
         write_online_blind_report(report, args.output)
         return 2
@@ -464,6 +546,7 @@ def main() -> int:
         models=sanitized_model_descriptors(api_config),
         negative_path=args.negative_path,
         trials=args.trials,
+        max_repairs=args.max_repairs,
         max_inventory_facts=args.max_inventory_facts,
     )
     write_online_blind_report(report, args.output)
