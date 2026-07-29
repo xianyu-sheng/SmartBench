@@ -61,3 +61,7 @@ The model still reads a fixed reference inventory and is evaluated by applying
 its validated mappings to historical buggy snapshots. Consequently, a passing
 online report demonstrates protocol extraction through the Agent boundary, not
 autonomous discovery of unknown bugs.
+
+For the stricter target-excluded experiment, use
+`smartbench.experiments.project_reader_blind_online` with the blind manifest as
+documented in `../project_reader_blind/README.md`.

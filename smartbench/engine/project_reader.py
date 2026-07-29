@@ -258,6 +258,14 @@ cite a cleanup_registration fact for the selected result binding. If the
 inventory cannot support that link, record uncertainty instead of proposing the
 candidate.
 
+Matching policy is deterministic, not a stylistic choice:
+- use `exact` for package/function calls whose full acquire symbol must match;
+- when a member-resource candidate has one non-empty receiver_type, exactly one
+  value in canonical_receiver_symbols, and cited type_evidence_ids, use
+  `typed_method` and copy those values exactly;
+- use `method_shape` only when that receiver type proof is absent. Never weaken
+  available type evidence to method_shape.
+
 <untrusted_project_inventory>
 {serialized}
 </untrusted_project_inventory>

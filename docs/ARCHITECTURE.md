@@ -249,6 +249,17 @@ provider configuration is an explicit `unavailable` result, never a successful
 abstention. Because external model behavior is nondeterministic and incurs
 cost, this online experiment is not a required CI check.
 
+`smartbench.experiments.project_reader_blind_online` is the stricter live-model
+experiment. The model receives only pinned, hashed reference inventories from
+which every historical target path has been excluded. Before/after snapshots
+are parsed for deterministic evaluation but are never placed in the model
+prompt. Multiple trials expose extraction instability instead of averaging it
+away: a reference-backed case passes only when every requested trial reproduces
+the expected before finding, clean after state, and independent-negative
+result. Cases without an admissible reference do not invoke the model and
+remain explicit unsupported outcomes. Missing provider configuration is
+reported as unavailable, never replaced with a deterministic stand-in.
+
 The blind transfer experiment removes each historical target file and fix from
 the reference inventory. Pinned, hashed files from unrelated project modules
 provide admissible positive evidence. On the current four-case Go resource

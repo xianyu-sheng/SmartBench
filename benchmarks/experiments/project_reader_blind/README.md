@@ -53,3 +53,27 @@ No finding from this experiment authorizes an upstream Issue or pull request.
 Detected cases are existing historical regressions and are verified by a
 before/after contrast, a deterministic path witness, and the historical change
 reference already recorded in the benchmark manifest.
+
+## Repeated live-model trials
+
+The online blind runner replaces the deterministic protocol miner with a real
+environment-configured ProjectReader while keeping the same pinned references,
+target exclusions, type/citation validator, before/after analyzer, and
+independent negative:
+
+```bash
+python -m smartbench.experiments.project_reader_blind_online \
+  --benchmark-manifest benchmarks/real/manifest.yaml \
+  --blind-manifest benchmarks/experiments/project_reader_blind/manifest.yaml \
+  --negative-path benchmarks/experiments/project_reader_resource/negative \
+  --trials 3 \
+  --output project-reader-blind-online.json
+```
+
+Only the two cases with admissible references invoke the model. Repeated trials
+are reported separately; a reference-backed case passes only if every trial
+reproduces its expected pre-fix finding, remains clean after the fix, and emits
+no independent-negative finding. The report persists provider/model names,
+parsed validation decisions, and deterministic witnesses, but never API keys,
+raw prompts, or raw responses. If no supported provider is configured, it
+returns `status: unavailable` instead of silently substituting a mock.
