@@ -1,0 +1,21 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: opened-template-file-must-close-before-use
+    name: Opened template file must register cleanup before use
+    description: A file opened for template parsing must be closed on every subsequent return path.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: opened template file must register cleanup before template parsing
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [call]
+        contains_all: [os.Open, formatArgument]
+      guard:
+        kinds: [defer]
+        contains_all: [file.Close]
+      action:
+        kinds: [assign]
+        contains_all: [NewCustomColumnsPrinterFromTemplate]

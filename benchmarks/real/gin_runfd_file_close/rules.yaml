@@ -1,0 +1,21 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: runfd-file-must-close-before-listener
+    name: RunFd file must register cleanup before listener creation
+    description: A file created from an inherited descriptor must be closed after creating a listener.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: file descriptor wrapper must register cleanup before listener creation
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [call]
+        contains_all: [os.NewFile]
+      guard:
+        kinds: [defer]
+        contains_all: [f.Close]
+      action:
+        kinds: [assign]
+        contains_all: [net.FileListener]

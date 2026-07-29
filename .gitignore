@@ -1,0 +1,42 @@
+# Bytecode
+__pycache__/
+*.py[cod]
+*.cpython-*.pyc
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+uv.lock
+
+# Claude Code
+.claude/
+
+# SmartBench runtime cache
+.smartbench/
+test_chroma/
+
+# Data (runtime)
+data/cache/
+data/regression/
+data/flamegraphs/
+
+# Sensitive
+.env
+*.key
+.mypy_cache/

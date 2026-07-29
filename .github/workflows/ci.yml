@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install project
+        run: python -m pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check smartbench tests
+      - name: Compile
+        run: python -m compileall -q smartbench
+      - name: Test
+        run: pytest -q
+
+  graph:
+    name: Tree-sitter adapters
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install graph dependencies
+        run: python -m pip install -e ".[dev,graph]"
+      - name: Test parser adapters
+        run: pytest -q tests/test_tree_parser.py
+        env:
+          SMARTBENCH_REQUIRE_TREE_SITTER: "1"
+
+  benchmark:
+    name: Historical effect benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project
+        run: python -m pip install -e ".[dev,graph]"
+      - name: Run auditable before-after benchmark
+        run: |
+          smartbench benchmark run \
+            --manifest benchmarks/real/manifest.yaml \
+            --output benchmark-report.json
+      - name: Run ProjectReader boundary experiment
+        run: |
+          python -m smartbench.experiments.project_reader_resource \
+            --manifest benchmarks/real/manifest.yaml \
+            --negative-path benchmarks/experiments/project_reader_resource/negative \
+            --output project-reader-experiment.json
+      - name: Run blind ProjectReader transfer experiment
+        run: |
+          python -m smartbench.experiments.project_reader_blind \
+            --benchmark-manifest benchmarks/real/manifest.yaml \
+            --blind-manifest benchmarks/experiments/project_reader_blind/manifest.yaml \
+            --negative-path benchmarks/experiments/project_reader_resource/negative \
+            --output project-reader-blind.json
+      - name: Upload benchmark reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: historical-benchmark-report
+          path: |
+            benchmark-report.json
+            project-reader-experiment.json
+            project-reader-blind.json
+
+  package:
+    name: Build and install package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install build
+      - run: python -m build
+      - name: Install wheel in a clean environment
+        run: |
+          python -m venv /tmp/smartbench-wheel-smoke
+          /tmp/smartbench-wheel-smoke/bin/python -m pip install dist/*.whl
+      - name: Smoke test installed CLI outside the checkout
+        working-directory: /tmp
+        run: |
+          /tmp/smartbench-wheel-smoke/bin/smartbench --help
+          /tmp/smartbench-wheel-smoke/bin/smartbench check
+          /tmp/smartbench-wheel-smoke/bin/python -c "import importlib.metadata as m; assert m.version('smartbench')"

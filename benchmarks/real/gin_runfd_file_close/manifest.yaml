@@ -1,0 +1,24 @@
+version: smartbench.benchmarks/v1
+cases:
+  - id: gin-runfd-file-close-4422
+    language: go
+    state_rules: [rules.yaml]
+    rules: [runfd-file-must-close-before-listener]
+    metadata:
+      repository: gin-gonic/gin
+      source_url: https://github.com/gin-gonic/gin
+      issue_url: https://github.com/gin-gonic/gin/pull/4422
+      before_commit: acc55e049e33b401e810dbd8c0d6dcb6b3ba2b05
+      after_commit: c3d5a28ed6d3849da820195b6774d212bcc038a9
+      bug_category: resource-lifecycle
+      expected_behavior: RunFd closes the os.File wrapper created for the inherited descriptor.
+      fixture_note: Full gin.go snapshots at the two historical commits.
+    snapshots:
+      - label: before
+        path: before
+        min_findings: 1
+        max_findings: 1
+        expected_rule_ids: [runfd-file-must-close-before-listener]
+      - label: after
+        path: after
+        max_findings: 0

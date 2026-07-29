@@ -1,0 +1,37 @@
+version: smartbench.experiments/project-reader-blind/v1
+cases:
+  - benchmark_case_id: prometheus-http-response-body-close-1070
+    reference_path: contexts/prometheus
+    source_repository: prometheus/prometheus
+    source_commit: ab225f6ef5a833551ea0130be468f1d1b1968daa
+    source_files:
+      - path: discovery/stackit/server.go
+        sha256: d7d4dfb759fef66839cfb12345962831a39c3043f610f5537d7eaccb73259bf8
+    excluded_target_paths: [retrieval/target.go]
+    expected_exact_before_findings: 0
+    expected_shape_before_findings: 1
+
+  - benchmark_case_id: kubernetes-template-file-close-29495
+    reference_path: contexts/kubernetes
+    source_repository: kubernetes/kubernetes
+    source_commit: 5f91251764f106ba06c25a612d646ff612392e35
+    source_files:
+      - path: pkg/util/tail/tail.go
+        sha256: b67c7280c6c2225ca8af1d52ba55066f8a61d850303e2eeb54cfa58b912babb1
+    excluded_target_paths: [pkg/kubectl/resource_printer.go]
+    expected_exact_before_findings: 1
+    expected_shape_before_findings: 1
+
+  - benchmark_case_id: gin-runfd-file-close-4422
+    source_repository: gin-gonic/gin
+    excluded_target_paths: [gin.go]
+    unsupported_reason: os.NewFile occurs only in the excluded target file.
+    expected_exact_before_findings: 0
+    expected_shape_before_findings: 0
+
+  - benchmark_case_id: terraform-motd-response-close-38585
+    source_repository: hashicorp/terraform
+    excluded_target_paths: [internal/command/login.go]
+    unsupported_reason: httpclient.New().Do occurs only in the excluded target file.
+    expected_exact_before_findings: 0
+    expected_shape_before_findings: 0

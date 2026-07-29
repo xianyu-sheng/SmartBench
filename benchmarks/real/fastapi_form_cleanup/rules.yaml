@@ -1,0 +1,21 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: form-cleanup-before-response
+    name: Form cleanup must be registered before response
+    description: Parsed form data must be registered for cleanup before sending a response.
+    severity: error
+    confidence: 1.0
+    languages: [python]
+    message: form parsing must register cleanup before response
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [call]
+        contains_all: [request.form]
+      guard:
+        kinds: [call]
+        contains_all: [push_async_callback]
+      action:
+        kinds: [call]
+        contains_all: [response.headers.raw.extend]

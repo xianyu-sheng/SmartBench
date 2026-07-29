@@ -1,0 +1,22 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: cross-function-event-before-retry
+    name: Cross-function event before retry
+    description: A retry in a worker must be controlled by a completed-state guard.
+    severity: error
+    confidence: 1.0
+    languages: [python]
+    message: cross-function retry requires a completed-state guard
+    invariant:
+      scope: interprocedural
+      max_call_depth: 2
+      kind: require_guard_before_action
+      event:
+        kinds: [call]
+        contains_all: [event]
+      guard:
+        kinds: [branch]
+        contains_all: [completed]
+      action:
+        kinds: [call]
+        contains_all: [retry]

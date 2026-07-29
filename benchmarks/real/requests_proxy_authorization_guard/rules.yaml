@@ -1,0 +1,21 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: proxy-authorization-requires-tunnel-guard
+    name: Proxy authorization requires a TLS tunnel guard
+    description: Proxy credentials must not be appended to HTTPS tunneled requests.
+    severity: error
+    confidence: 1.0
+    languages: [python]
+    message: Proxy-Authorization assignment requires an HTTPS scheme guard
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [call]
+        contains_all: [get_auth_from_url]
+      guard:
+        kinds: [branch]
+        contains_all: [scheme, startswith, https]
+      action:
+        kinds: [assign]
+        contains_all: [Proxy-Authorization, _basic_auth_str]

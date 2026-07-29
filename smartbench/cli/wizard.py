@@ -1,0 +1,132 @@
+"""
+Interactive wizard — step-by-step SmartBench setup.
+
+Guides the user through project selection, API key configuration,
+project detection, and diagnosis execution.
+"""
+
+from typing import Optional
+
+import typer
+from rich.console import Console
+from rich.panel import Panel
+from rich.prompt import Prompt
+
+from smartbench.cli.display import display_fingerprint, display_project_understanding
+from smartbench.cli.phases import (
+    resolve_project_path,
+    run_analysis_session,
+    run_diagnosis_with_session,
+)
+from smartbench.llm.client import call_llm, parse_json_safe
+from smartbench.llm.provider import configure_api_keys
+from smartbench.path_safety import read_text_prefix, resolve_project_file
+from smartbench.prompts.factory import PromptFactory
+from smartbench.terminal import safe_terminal_text
+
+
+def run_interactive_wizard(
+    console: Console, enable_sandbox: bool = False
+) -> Optional[object]:
+    """Full interactive setup wizard — 4-step guided workflow.
+
+    Returns:
+        DebateResult if diagnosis completed, None otherwise.
+    """
+    console.print()
+    console.print(Panel.fit(
+        "[bold cyan]SmartBench[/bold cyan] — Universal Code Diagnosis\n"
+        "[dim]AI-powered analysis for any codebase, any language[/dim]",
+        border_style="cyan",
+    ))
+
+    # ── Step 1: Project source ────────────────────────────────────
+    console.print("\n[bold]Step 1/4[/bold] — Where is your code?")
+    console.print("  Enter a local path or a git repository URL.")
+    console.print(
+        "  [dim]Examples: /home/user/myproject  |  "
+        "https://github.com/user/repo[/dim]"
+    )
+    project_input = Prompt.ask("  Project path/URL").strip()
+
+    project_path = resolve_project_path(console, project_input)
+    if not project_path:
+        console.print(
+            f"[red]Cannot access: {safe_terminal_text(project_input)}[/red]"
+        )
+        raise typer.Exit(1)
+    console.print(
+        f"  [green]OK[/green] Project: {safe_terminal_text(project_path)}"
+    )
+
+    # ── Step 2: API keys ──────────────────────────────────────────
+    console.print("\n[bold]Step 2/4[/bold] — Configure LLM API keys")
+    console.print(
+        "  SmartBench needs at least one LLM API key to analyze your code."
+    )
+    api_config = configure_api_keys(console)
+    if not api_config:
+        console.print(
+            "[red]No API keys configured. "
+            "SmartBench requires an LLM to function.[/red]"
+        )
+        raise typer.Exit(1)
+
+    # ── Step 3: Project detection ─────────────────────────────────
+    console.print("\n[bold]Step 3/4[/bold] — Analyzing your project...")
+    session = run_analysis_session(console, project_path)
+    fingerprint = session.fingerprint
+    if fingerprint is None:
+        console.print("[red]Could not fingerprint the project.[/red]")
+        raise typer.Exit(1)
+    display_fingerprint(console, fingerprint)
+
+    # Phase 2: LLM reads README
+    readme_content = ""
+    if fingerprint.has_readme:
+        try:
+            readme_path = resolve_project_file(
+                project_path, fingerprint.readme_path
+            )
+            if readme_path is not None:
+                readme_content = (
+                    read_text_prefix(readme_path, 64 * 1024) or ""
+                )[:4000]
+        except Exception:
+            pass
+
+    if api_config and readme_content:
+        console.print(
+            "\n  [dim]Asking LLM to understand your project...[/dim]"
+        )
+        factory = PromptFactory(fingerprint)
+        prompt = factory.build_project_understanding_prompt(readme_content)
+        response = call_llm(api_config, prompt)
+        if response:
+            understanding = parse_json_safe(response)
+            if understanding:
+                display_project_understanding(console, understanding)
+
+    # ── Step 4: Clarify concern ───────────────────────────────────
+    console.print(
+        "\n[bold]Step 4/4[/bold] — What would you like to diagnose?"
+    )
+    console.print(
+        "  [dim]performance, crashes, memory leaks, code quality, "
+        "security, or 'analyze everything'[/dim]"
+    )
+    user_concern = Prompt.ask(
+        "  Concern", default="analyze the project for issues"
+    ).strip()
+
+    result = run_diagnosis_with_session(
+        console,
+        session,
+        api_config,
+        user_concern,
+        enable_sandbox=enable_sandbox,
+    )
+
+    console.print("\n[bold green]Done![/bold green]")
+    console.print("  Thanks for using SmartBench!\n")
+    return result

@@ -1,0 +1,24 @@
+version: smartbench.benchmarks/v1
+cases:
+  - id: fastapi-formdata-cleanup-5465
+    language: python
+    state_rules: [rules.yaml]
+    rules: [form-cleanup-before-response]
+    metadata:
+      repository: fastapi/fastapi
+      source_url: https://github.com/fastapi/fastapi
+      issue_url: https://github.com/fastapi/fastapi/pull/5465
+      before_commit: ed9425ef5049910251dd2302b9dd3095cefe1b1c
+      after_commit: ac9f56ea5ecc738eabd9282feae4679852155669
+      bug_category: resource-lifecycle
+      expected_behavior: FormData uploaded files are closed after request handling.
+      fixture_note: Full fastapi/routing.py snapshots at the two historical commits.
+    snapshots:
+      - label: before
+        path: before
+        min_findings: 1
+        max_findings: 1
+        expected_rule_ids: [form-cleanup-before-response]
+      - label: after
+        path: after
+        max_findings: 0

@@ -1,0 +1,24 @@
+version: smartbench.benchmarks/v1
+cases:
+  - id: kubernetes-template-file-close-29495
+    language: go
+    state_rules: [rules.yaml]
+    rules: [opened-template-file-must-close-before-use]
+    metadata:
+      repository: kubernetes/kubernetes
+      source_url: https://github.com/kubernetes/kubernetes
+      issue_url: https://github.com/kubernetes/kubernetes/pull/29495
+      before_commit: 0e8d51522586a5babaf96df3a185a5ed1d0967c5
+      after_commit: 236a22506083f5d18122a3a8d4ea42e7b1cdae98
+      bug_category: resource-lifecycle
+      expected_behavior: Custom-column template files are closed after parsing.
+      fixture_note: Full pkg/kubectl/resource_printer.go snapshots at the two historical commits.
+    snapshots:
+      - label: before
+        path: before
+        min_findings: 1
+        max_findings: 1
+        expected_rule_ids: [opened-template-file-must-close-before-use]
+      - label: after
+        path: after
+        max_findings: 0

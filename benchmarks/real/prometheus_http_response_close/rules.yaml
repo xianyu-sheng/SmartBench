@@ -1,0 +1,21 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: http-response-close-before-error-return
+    name: HTTP response body cleanup must precede status error return
+    description: A successful HTTP response must register body cleanup before returning a status error.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: HTTP response body cleanup must be registered before an error return
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [call]
+        contains_all: [httpClient.Do]
+      guard:
+        kinds: [defer]
+        contains_all: [Body.Close]
+      action:
+        kinds: [return]
+        contains_all: [server returned HTTP status]

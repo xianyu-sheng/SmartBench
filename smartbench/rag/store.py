@@ -1,0 +1,529 @@
+"""
+VectorStore — persistent vector storage with multiple backends.
+
+Backends:
+  1. SimpleVectorStore — deterministic numpy + JSON default
+  2. ChromaDB — optional when SMARTBENCH_CHROMADB is enabled
+
+Persisted to: <project_path>/.smartbench/vector_store/
+"""
+
+import json
+import logging
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+from smartbench.rag import Chunk
+
+logger = logging.getLogger(__name__)
+
+
+class SimpleVectorStore:
+    """
+    Minimal numpy + json vector store using only core dependencies.
+    Used as fallback when ChromaDB can't be initialized.
+    """
+
+    def __init__(self, project_path: str, fingerprint_hash: str):
+        self.project_path = Path(project_path)
+        self.fingerprint_hash = fingerprint_hash
+        self.store_path = self.project_path / ".smartbench" / "vector_store"
+        self.index_file = self.store_path / f"index_{fingerprint_hash[:8]}.npz"
+        self.meta_file = self.store_path / f"meta_{fingerprint_hash[:8]}.json"
+        self._vectors = None  # numpy array
+        self._metadata = []   # list of chunk metadata dicts
+
+    def index_chunks(self, chunk_embedding_pairs, dimension: int) -> int:
+        import numpy as np
+        self.store_path.mkdir(parents=True, exist_ok=True)
+        vectors = []
+        meta = []
+        for chunk, emb in chunk_embedding_pairs:
+            vectors.append(emb)
+            meta.append({
+                "id": chunk.id,
+                "file_path": chunk.file_path,
+                "start_line": chunk.start_line,
+                "end_line": chunk.end_line,
+                "language": chunk.language,
+                "node_type": chunk.node_type,
+                "node_name": chunk.node_name,
+                "content": chunk.content,
+            })
+        self._vectors = np.array(vectors, dtype=np.float32)
+        self._metadata = meta
+        np.savez_compressed(self.index_file, vectors=self._vectors)
+        with open(self.meta_file, 'w', encoding='utf-8') as f:
+            json.dump(meta, f, ensure_ascii=False)
+        return len(meta)
+
+    def search(self, query_embedding, n_results: int = 10) -> List[Dict]:
+        import numpy as np
+        if self._vectors is None:
+            self._load()
+        if self._vectors is None or len(self._vectors) == 0:
+            return []
+        q = np.array(query_embedding, dtype=np.float32)
+        if (
+            q.ndim != 1
+            or self._vectors.ndim != 2
+            or q.shape[0] != self._vectors.shape[1]
+        ):
+            logger.warning("Query embedding dimension does not match vector index")
+            return []
+        try:
+            requested = int(n_results)
+        except (TypeError, ValueError):
+            return []
+        if requested <= 0:
+            return []
+        q_norm = q / (np.linalg.norm(q) + 1e-10)
+        v_norms = self._vectors / (np.linalg.norm(self._vectors, axis=1, keepdims=True) + 1e-10)
+        similarities = np.dot(v_norms, q_norm)
+        top_k = min(requested, len(similarities))
+        indices = np.argsort(-similarities)[:top_k]
+        results = []
+        for idx in indices:
+            meta = self._metadata[int(idx)]
+            results.append({
+                "id": meta["id"],
+                "content": meta["content"],
+                "metadata": {k: v for k, v in meta.items() if k != "content"},
+                "distance": float(1.0 - similarities[idx]),
+                "score": float(max(0.0, similarities[idx])),
+            })
+        return results
+
+    def search_by_text(self, query, embedder, n_results=10):
+        q_emb = embedder.embed_query(query)
+        if not q_emb:
+            return []
+        return self.search(q_emb, n_results)
+
+    def count(self) -> int:
+        if self._vectors is not None:
+            return len(self._vectors)
+        if self.index_file.exists():
+            self._load()
+            return len(self._vectors) if self._vectors is not None else 0
+        return 0
+
+    def clear(self):
+        if self.index_file.exists():
+            self.index_file.unlink()
+        if self.meta_file.exists():
+            self.meta_file.unlink()
+        self._vectors = None
+        self._metadata = []
+
+    def exists(self) -> bool:
+        return self.index_file.exists() and self.meta_file.exists()
+
+    def _load(self):
+        import numpy as np
+        self._vectors = None
+        self._metadata = []
+        if not self.index_file.exists() or not self.meta_file.exists():
+            return
+        try:
+            with np.load(self.index_file) as data:
+                vectors = data["vectors"]
+            with open(self.meta_file, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+            if (
+                not isinstance(metadata, list)
+                or not all(isinstance(item, dict) for item in metadata)
+                or vectors.ndim != 2
+                or len(vectors) != len(metadata)
+            ):
+                raise ValueError("vector and metadata files are inconsistent")
+            self._vectors = vectors
+            self._metadata = metadata
+        except Exception as e:
+            logger.warning(f"Failed to load vector index: {e}")
+
+
+class VectorStore:
+    """
+    Vector store with automatic backend selection.
+
+    Tries ChromaDB first, falls back to SimpleVectorStore (numpy + json)
+    if ChromaDB has dependency issues (common on bleeding-edge Python).
+
+    Usage:
+        store = VectorStore("/path/to/project", "abc123")
+        store.index_chunks(chunk_embedding_pairs, dimension=384)
+        results = store.search_by_text("error handling", embedder)
+    """
+
+    def __init__(self, project_path: str, fingerprint_hash: str):
+        """
+        Args:
+            project_path: Root directory of the project
+            fingerprint_hash: Stable hash from ProjectFingerprint
+        """
+        self.project_path = Path(project_path)
+        self.fingerprint_hash = fingerprint_hash
+        self.store_path = self.project_path / ".smartbench" / "vector_store"
+        self.collection_name = f"code_{fingerprint_hash[:8]}"
+        self.state_file = self.store_path / f"state_{fingerprint_hash[:8]}.json"
+        self._client = None
+        self._collection = None
+        self._backend = None  # "chromadb" or "simple"
+        self._simple_store = None
+
+    # ── Public API ──────────────────────────────────────────────────────
+
+    def index_chunks(self,
+                     chunk_embedding_pairs: List[Tuple[Chunk, List[float]]],
+                     dimension: int) -> int:
+        """
+        Store chunks and their embeddings.
+        Uses upsert (insert or update) so re-indexing is idempotent.
+        """
+        if not chunk_embedding_pairs:
+            return 0
+
+        if self._backend is None:
+            self._init_backend()
+
+        if self._backend == "simple":
+            return self._simple_store.index_chunks(chunk_embedding_pairs, dimension)
+
+        return self._index_chunks_chroma(chunk_embedding_pairs, dimension)
+
+    def search(self, query_embedding: List[float],
+               n_results: int = 10) -> List[Dict]:
+        """Search by embedding vector."""
+        if self._backend is None:
+            self._init_backend()
+
+        if self._backend == "simple":
+            return self._simple_store.search(query_embedding, n_results)
+        return self._search_chroma(query_embedding, n_results)
+
+    def search_by_text(self, query: str, embedder,
+                       n_results: int = 10) -> List[Dict]:
+        """Convenience: embed query text then search."""
+        if self._backend is None:
+            self._init_backend()
+
+        if self._backend == "simple":
+            return self._simple_store.search_by_text(query, embedder, n_results)
+        return self._search_by_text_chroma(query, embedder, n_results)
+
+    def count(self) -> int:
+        """Get number of indexed chunks."""
+        if self._backend == "simple" and self._simple_store:
+            return self._simple_store.count()
+        if self._backend is None:
+            # Check SimpleVectorStore
+            svs = SimpleVectorStore(str(self.project_path), self.fingerprint_hash)
+            return svs.count()
+        try:
+            self._ensure_chroma_collection(1)
+            return self._collection.count() if self._collection else 0
+        except Exception:
+            return 0
+
+    def clear(self):
+        """Delete the collection (for re-indexing)."""
+        state = self.load_index_state() or {}
+        # Always clear SimpleVectorStore
+        SimpleVectorStore(str(self.project_path), self.fingerprint_hash).clear()
+        for suffix in ("json", "pkl"):
+            vocab_path = self.store_path / (
+                f"tfidf_vocab_{self.fingerprint_hash[:8]}.{suffix}"
+            )
+            if vocab_path.exists():
+                vocab_path.unlink()
+
+        # A persisted Chroma collection must also be removed even when this
+        # process has not initialized the client yet. Otherwise deleted source
+        # chunks survive a rebuild.
+        chroma_files_exist = (self.store_path / "chroma.sqlite3").exists()
+        if (
+            self._client is None
+            and (state.get("storage_backend") == "chromadb" or chroma_files_exist)
+        ):
+            try:
+                self._ensure_chroma_client()
+            except Exception:
+                pass
+        if self.state_file.exists():
+            self.state_file.unlink()
+        if self._client is not None:
+            try:
+                self._client.delete_collection(self.collection_name)
+            except Exception:
+                pass
+        self._collection = None
+        self._backend = None
+        self._simple_store = None
+
+    def exists(self) -> bool:
+        """Check that both vector data and completion metadata exist."""
+        state = self.load_index_state()
+        if not state:
+            return False
+
+        expected_backend = state.get("storage_backend")
+        if expected_backend == "simple":
+            self._backend = "simple"
+            self._simple_store = SimpleVectorStore(
+                str(self.project_path), self.fingerprint_hash
+            )
+            return self._simple_store.exists()
+        if expected_backend != "chromadb":
+            return False
+
+        self._init_backend()
+        if self._backend != "chromadb" or self._client is None:
+            return False
+        try:
+            self._collection = self._client.get_collection(
+                self.collection_name, embedding_function=None
+            )
+            return self._collection.count() > 0
+        except Exception:
+            return False
+
+    def save_index_state(self, state: Dict) -> None:
+        """Atomically persist source and embedding metadata after indexing."""
+        self.store_path.mkdir(parents=True, exist_ok=True)
+        temporary = self.state_file.with_suffix(".tmp")
+        with open(temporary, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, ensure_ascii=False, indent=2)
+        temporary.replace(self.state_file)
+
+    def load_index_state(self) -> Optional[Dict]:
+        """Load index completion metadata, returning None if it is invalid."""
+        try:
+            with open(self.state_file, "r", encoding="utf-8") as handle:
+                state = json.load(handle)
+            return state if isinstance(state, dict) else None
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    def save_tfidf_vocab(self, vectorizer) -> None:
+        """Persist a JSON-only TF-IDF vocabulary for later safe reload."""
+        try:
+            self.store_path.mkdir(parents=True, exist_ok=True)
+            vocab_path = self.store_path / (
+                f"tfidf_vocab_{self.fingerprint_hash[:8]}.json"
+            )
+            temporary = vocab_path.with_suffix(".tmp")
+            vocabulary = {
+                str(term): int(index)
+                for term, index in vectorizer.vocabulary_.items()
+            }
+            idf = (
+                [float(value) for value in vectorizer.idf_.tolist()]
+                if hasattr(vectorizer, "idf_")
+                else []
+            )
+            max_features = getattr(vectorizer, "max_features", 256)
+            payload = {
+                "vocabulary": vocabulary,
+                "idf": idf,
+                "max_features": (
+                    int(max_features) if max_features is not None else 256
+                ),
+            }
+            with open(temporary, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, ensure_ascii=False)
+            temporary.replace(vocab_path)
+            logger.info("Saved TF-IDF vocab to %s", vocab_path)
+        except Exception as e:
+            logger.warning("Failed to save TF-IDF vocab: %s", e)
+
+    def load_tfidf_vocab(self) -> Optional[Dict]:
+        """Load and validate persisted TF-IDF vocabulary JSON."""
+        vocab_path = self.store_path / (
+            f"tfidf_vocab_{self.fingerprint_hash[:8]}.json"
+        )
+        if not vocab_path.exists():
+            return None
+        try:
+            with open(vocab_path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+            vocabulary = data.get("vocabulary")
+            idf = data.get("idf")
+            max_features = data.get("max_features")
+            if not isinstance(vocabulary, dict) or not vocabulary:
+                raise ValueError("missing vocabulary")
+            if not all(
+                isinstance(term, str)
+                and isinstance(index, int)
+                and not isinstance(index, bool)
+                and index >= 0
+                for term, index in vocabulary.items()
+            ):
+                raise ValueError("invalid vocabulary entries")
+            if set(vocabulary.values()) != set(range(len(vocabulary))):
+                raise ValueError("vocabulary indices must be contiguous")
+            if not isinstance(idf, list) or not all(
+                isinstance(value, (int, float)) and not isinstance(value, bool)
+                for value in idf
+            ):
+                raise ValueError("invalid idf values")
+            if idf and len(idf) != len(vocabulary):
+                raise ValueError("idf length does not match vocabulary")
+            if (
+                not isinstance(max_features, int)
+                or isinstance(max_features, bool)
+                or max_features <= 0
+                or max_features > 1_000_000
+                or len(vocabulary) > max_features
+            ):
+                raise ValueError("invalid max_features")
+            return data
+        except Exception as e:
+            logger.warning("Failed to load TF-IDF vocab: %s", e)
+            return None
+
+    # ── Backend initialization ──────────────────────────────────────────
+
+    def _init_backend(self):
+        """
+        Initialize the storage backend.
+
+        Uses SimpleVectorStore (numpy+json) as the DEFAULT because it:
+          - Avoids a database service and optional vector-store dependencies
+          - Works reliably on all Python versions
+          - Is fast enough for projects up to ~10K chunks
+
+        ChromaDB is available as an optional upgrade via
+        prefer_chromadb=True (set at init or via env var).
+        """
+        # Existing indexes keep their recorded backend. A fresh index may opt
+        # into ChromaDB through the environment variable.
+        persisted_backend = (self.load_index_state() or {}).get(
+            "storage_backend"
+        )
+
+        # Use SimpleVectorStore by default (small and deterministic)
+        self._backend = "simple"
+        self._simple_store = SimpleVectorStore(
+            str(self.project_path), self.fingerprint_hash
+        )
+        logger.info("Using SimpleVectorStore (numpy+json) backend")
+
+        # Optionally try ChromaDB if env var is set
+        import os
+        prefer_chromadb = persisted_backend == "chromadb" or (
+            persisted_backend is None and bool(os.environ.get("SMARTBENCH_CHROMADB"))
+        )
+        if prefer_chromadb:
+            try:
+                self._ensure_chroma_client()
+                test_col = self._client.create_collection(
+                    name=f"_test_{self.fingerprint_hash[:4]}",
+                    embedding_function=None,
+                )
+                self._client.delete_collection(test_col.name)
+                self._backend = "chromadb"
+                self._simple_store = None
+                logger.info("Switched to ChromaDB backend")
+            except Exception as e:
+                logger.info(f"ChromaDB unavailable ({e}), keeping SimpleVectorStore")
+
+    # ── ChromaDB backend ────────────────────────────────────────────────
+
+    def _ensure_chroma_client(self):
+        """Lazy init ChromaDB persistent client."""
+        import chromadb
+        self.store_path.mkdir(parents=True, exist_ok=True)
+        self._client = chromadb.PersistentClient(path=str(self.store_path))
+
+    def _ensure_chroma_collection(self, dimension: int):
+        """Get or create the ChromaDB collection."""
+        if self._client is None:
+            self._ensure_chroma_client()
+        if self._collection is not None:
+            return
+        try:
+            self._collection = self._client.get_collection(
+                self.collection_name, embedding_function=None
+            )
+        except Exception:
+            self._collection = self._client.create_collection(
+                name=self.collection_name,
+                metadata={"hnsw:space": "cosine"},
+                embedding_function=None,
+            )
+
+    def _index_chunks_chroma(self, chunk_embedding_pairs, dimension: int) -> int:
+        # This API receives the complete project index, so replace any old
+        # collection rather than leaving chunks for files that were deleted.
+        if self._client is not None:
+            try:
+                self._client.delete_collection(self.collection_name)
+            except Exception:
+                pass
+        self._collection = None
+        self._ensure_chroma_collection(dimension)
+        ids = []
+        embeddings = []
+        metadatas = []
+        documents = []
+        for chunk, embedding in chunk_embedding_pairs:
+            ids.append(chunk.id)
+            embeddings.append(embedding)
+            metadatas.append({
+                "file_path": chunk.file_path,
+                "start_line": chunk.start_line,
+                "end_line": chunk.end_line,
+                "language": chunk.language,
+                "node_type": chunk.node_type,
+                "node_name": chunk.node_name,
+            })
+            documents.append(chunk.content)
+        try:
+            self._collection.upsert(
+                ids=ids, embeddings=embeddings,
+                metadatas=metadatas, documents=documents,
+            )
+            return len(ids)
+        except Exception as e:
+            logger.error(f"ChromaDB index failed: {e}")
+            return 0
+
+    def _search_chroma(self, query_embedding, n_results=10) -> List[Dict]:
+        self._ensure_chroma_collection(len(query_embedding))
+        try:
+            results = self._collection.query(
+                query_embeddings=[query_embedding], n_results=n_results,
+                include=["metadatas", "documents", "distances"],
+            )
+            return self._format_results(results)
+        except Exception as e:
+            logger.error(f"ChromaDB search failed: {e}")
+            return []
+
+    def _search_by_text_chroma(self, query, embedder, n_results=10) -> List[Dict]:
+        q_emb = embedder.embed_query(query)
+        if not q_emb:
+            return []
+        return self._search_chroma(q_emb, n_results)
+
+    @staticmethod
+    def _format_results(raw) -> List[Dict]:
+        """Format ChromaDB query results into uniform dicts."""
+        results = []
+        if not raw.get("ids") or not raw["ids"][0]:
+            return results
+        ids = raw["ids"][0]
+        documents = raw.get("documents", [[]])[0] if raw.get("documents") else []
+        metadatas = raw.get("metadatas", [[]])[0] if raw.get("metadatas") else []
+        distances = raw.get("distances", [[]])[0] if raw.get("distances") else []
+        for i in range(len(ids)):
+            distance = distances[i] if i < len(distances) else 1.0
+            results.append({
+                "id": ids[i],
+                "content": documents[i] if i < len(documents) else "",
+                "metadata": metadatas[i] if i < len(metadatas) else {},
+                "distance": distance,
+                "score": max(0.0, 1.0 - distance),
+            })
+        return results
