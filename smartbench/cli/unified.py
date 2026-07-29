@@ -15,6 +15,7 @@ from rich.tree import Tree
 from smartbench import __version__
 from smartbench.core import (
     AdapterRegistry,
+    AnalysisSession,
     RuleRegistry,
     UnifiedDiagnosticConfig,
     UnifiedDiagnosticEngine,
@@ -223,9 +224,14 @@ def run_unified_diagnosis(
         state_rule_paths=[Path(path).expanduser() for path in state_rule_paths or []],
     )
 
-    # Run diagnosis
+    # Run the same shared session consumed by interactive Agent review.
     console.print(f"🔍 Analyzing: {safe_terminal_text(project_path)}")
-    result = engine.diagnose(project_path, config)
+    session = AnalysisSession.analyze(
+        project_path,
+        config,
+        engine=engine,
+    )
+    result = session.result
 
     # Print results
     print_diagnosis_result(console, result, project_path)

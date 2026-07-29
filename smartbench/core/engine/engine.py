@@ -99,6 +99,8 @@ class UnifiedDiagnosticResult:
     errors: List[str] = field(default_factory=list)
     evidence_packs: Dict[str, EvidencePack] = field(default_factory=dict)
     analysis_status: Dict[str, Dict[str, object]] = field(default_factory=dict)
+    pipeline: Dict[str, object] = field(default_factory=dict)
+    project_reader: Dict[str, object] = field(default_factory=dict)
 
     def to_dict(self) -> Dict:
         return {
@@ -107,6 +109,8 @@ class UnifiedDiagnosticResult:
             "duration_ms": self.duration_ms,
             "errors": self.errors,
             "analysis_status": self.analysis_status,
+            "pipeline": self.pipeline,
+            "project_reader": self.project_reader,
             "fingerprint": self.fingerprint.to_dict() if self.fingerprint else None,
             "ir_schema_version": self.ir.schema_version if self.ir else None,
             "ir_languages": list(self.ir.languages) if self.ir else [],

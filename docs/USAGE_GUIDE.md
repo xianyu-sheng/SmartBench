@@ -11,14 +11,14 @@ git clone https://github.com/xianyu-sheng/SmartBench.git
 cd SmartBench
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install -e ".[graph]"
 smartbench --version
 ```
 
 可选依赖：
 
 ```bash
-# 开发、测试和五种 tree-sitter 语言适配器
+# 开发与测试
 python -m pip install -e ".[dev,graph]"
 
 # 本地向量检索
@@ -29,11 +29,11 @@ python -m pip install -e ".[rag]"
 
 ### `smartbench`
 
-启动四步交互式向导：选择本地目录或 Git URL、配置模型、扫描项目、输入诊断目标。向导输入的 API Key 仅保存在当前进程内存中。
+启动四步交互式向导：选择本地目录或 Git URL、配置模型、构建统一分析会话、输入诊断目标。`Concern (analyze the project for issues):` 表示正在等待输入；直接按 Enter 会采用括号内的默认值。向导输入的 API Key 仅保存在当前进程内存中。
 
 ### `smartbench quick`
 
-使用环境变量中的模型凭证，减少交互步骤：
+使用环境变量中的模型凭证，减少交互步骤。`quick` 与 `unified` 共享同一个 `AnalysisSession`，不会再从结构图重建一份浅层 IR：
 
 ```bash
 smartbench quick \
@@ -62,7 +62,7 @@ smartbench quick --project ./my-project --sandbox
 SmartBench 对本地诊断、Git 元数据读取和补丁验证子进程设置超时与输出上限，
 避免异常工具无限占用内存；这仍不等价于操作系统沙箱。
 
-未配置模型时，快速模式仍会显示仓库指纹和代码图统计，但不会执行 LLM 审查。
+未配置模型时，快速模式仍会返回完整 SemanticIR 与确定性规则报告，只跳过 ProjectReader 和多 Agent 审查。
 
 ### `smartbench check`
 
@@ -103,9 +103,13 @@ smartbench unified run \
   --output report.json
 ```
 
-Python 和 Go 当前还会降低到共同的语义操作模型，支持保守的跨函数调用/返回、数据流、
-有限 ICFG 和声明式状态规则。JavaScript/TypeScript、Java、Rust 等适配器目前主要提供
-结构图兼容能力；未解析的动态分派、类型信息或并发关系会保留为 unknown/partial。
+Python 和 Go 会降低到共同的语义操作模型，支持保守的跨函数调用/返回、数据流、有限
+ICFG 和声明式状态规则。JavaScript/TypeScript 也提供公共 statement/call/control-flow
+operation，但 async、exception、动态分派和类型检查仍为 partial。Java 与 Rust 当前主要
+提供结构图兼容能力；未解析语义会保留为 unknown/partial。
+
+`unified` 默认不调用 LLM。`quick` 会在同一会话上额外运行 ProjectReader 与 Agent 审查；
+ProjectReader 接受的 CFG finding 会写入 `analysis_report`，而不是另建一份不可比较的结果。
 
 声明式状态规则位于 `smartbench.state-rules/v1` schema 中，可以通过重复的
 `--state-rules` 选项加载。`scope: interprocedural` 规则使用有界跨函数路径；无法证明
@@ -117,12 +121,13 @@ Python 和 Go 当前还会降低到共同的语义操作模型，支持保守的
 
 ```bash
 python -m smartbench.cli.main benchmark run \
-  --manifest benchmarks/interprocedural/manifest.yaml \
+  --manifest benchmarks/real/manifest.yaml \
   --output benchmark-report.json
 ```
 
-它适合保存可复现的架构回归和真实 Bug 结果，不应被解读为跨语言通用准确率评测。当前仓库
-包含一个跨函数状态回归样例和一个 Reasonix 已知缺陷样例。
+它适合保存可复现的架构回归和真实 Bug 结果，不应被解读为跨语言通用准确率评测。当前
+`benchmarks/real/manifest.yaml` 包含 Requests、FastAPI、Prometheus、Kubernetes、Gin 和
+Terraform 六个公开 before/after 案例，共 12 个快照。
 
 ### `smartbench eval-rag`
 
@@ -156,7 +161,15 @@ smartbench eval-rag \
 
 ## 输出报告
 
-`--output <path>` 将 `DebateResult` 或诊断结果原子写入 JSON。输出路径的父目录必须已存在；序列化或写入失败时命令返回非零状态码。启用 `--sandbox` 后，每条建议的 `__sandbox_verification` 也会保存在报告中。报告可能包含代码片段和诊断命令输出，提交或分享前应检查其中是否存在敏感信息。
+`--output <path>` 将诊断结果原子写入 JSON。`unified` 输出完整 session 报告；`quick` 在
+`analysis_report` 中保存同一份确定性报告，并在外层保存 Agent 建议与 debate log。输出路径
+的父目录必须已存在；序列化或写入失败时命令返回非零状态码。启用 `--sandbox` 后，每条
+建议的 `__sandbox_verification` 也会保存在报告中。报告可能包含代码片段和诊断命令输出，
+提交或分享前应检查其中是否存在敏感信息。
+
+`analysis_report.project_reader.status` 可能为 `not_run`、`unsupported`、`unavailable`、
+`abstained`、`supported_no_finding` 或 `findings`。网络/API 失败使用 `unavailable`，不会被
+伪装成干净结果。
 
 ## 如何解读证据状态
 
@@ -165,7 +178,12 @@ smartbench eval-rag \
 - `hallucinated`：文件不存在、行号非法，或声明的调用关系与当前结构图冲突。
 - `unverifiable`：诊断没有提供足够具体的可核查证据。
 
-这些状态只描述“引用是否有证据”，不等价于缺陷已被证明。最终结论仍应通过测试、编译器、Linter、Profiler 或人工审查确认。
+这些状态只描述“引用是否有证据”，不等价于缺陷已被证明。`consensus_reached` 也只表示
+Judge 返回了 schema 合法的 JSON，不是独立模型的统计共识。最终结论仍应通过测试、
+编译器、Linter、Profiler 或人工审查确认。
+
+EvidencePack 中的 `facts` 才能被最终建议引用；`hypotheses` 保存 ProjectReader 解释和
+启发式规则候选，只用于决定后续调查方向，不能通过 fact-ID gate。
 
 ## 本地产物
 

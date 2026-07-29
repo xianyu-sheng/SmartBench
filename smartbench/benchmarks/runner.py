@@ -11,6 +11,7 @@ import yaml
 
 from smartbench.core import (
     AdapterRegistry,
+    AnalysisSession,
     RuleRegistry,
     UnifiedDiagnosticConfig,
     UnifiedDiagnosticEngine,
@@ -148,7 +149,11 @@ class BenchmarkRunner:
             min_confidence=0.0,
             build_evidence_packs=True,
         )
-        result = self.engine.diagnose(snapshot.path, config)
+        result = AnalysisSession.analyze(
+            snapshot.path,
+            config,
+            engine=self.engine,
+        ).result
         finding_ids = [finding.rule_id for finding in result.findings]
         actual_ids = set(finding_ids)
         meets_min = len(finding_ids) >= snapshot.min_findings

@@ -4,6 +4,8 @@
 
 这不是测试结果回放。视频使用 Ubuntu GNOME 原生录屏，从一个新终端开始，对 Requests 的完整公开历史仓库执行一次真实 SmartBench 分析。录制中没有旁白、音轨或可见 API Key。
 
+> 版本说明：视频录制于 `v0.7.0` 的 `90736fb`。当前 main 保留相同交互入口，但已用共享 `AnalysisSession` 替代 quick 的浅层 IR，并在 Agent 审查前增加 ProjectReader → resolver → validator → CFG 阶段。因此当前终端会比视频多显示统一会话和 ProjectReader 状态；视频用于展示操作流程，不是当前输出的逐帧快照。
+
 ## 时间线
 
 | 时间 | 画面内容 |

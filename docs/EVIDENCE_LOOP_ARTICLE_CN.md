@@ -6,11 +6,18 @@
 
 SmartBench 将两者拆成不同信任级别：ProjectReader 只能输出 `ProjectModel` 假设，不能写入 SemanticIR，也不能直接生成最终 Finding；语言前端、EvidencePack、resolver、validator 和 CFG analyzer 才拥有事实权。
 
+## 为什么必须先统一 AnalysisSession
+
+早期实现里，`unified` 运行完整 SemanticIR 与规则，`quick` 却从 CodeGraph 包装浅层 IR，ProjectReader 闭环又只存在于实验 runner。算法组件虽然都在，但没有共享同一次仓库分析；因此“Agent 提出假设、程序验证证据”只在局部成立。
+
+现在主要入口先建立一个 `AnalysisSession`：ScanPlan、语言前端、SemanticIR 和 SemanticLinker 只运行一次。`unified`、`quick`、benchmark 和 RAG evaluator 都消费这份会话；`quick` 再在其上启用 ProjectReader 与多 Agent。旧 `SemanticIR.from_graph` 只保留为库兼容和 fallback，不再是主要 CLI 的事实来源。
+
 ## 一条候选如何变成 Finding
 
 ```text
 Repository
-  → language frontend → SemanticIR
+  → ScanPlan → language frontend → SemanticIR → SemanticLinker
+  → AnalysisSession
   → bounded reference inventory
   → ProjectReader semantic hypothesis
   → deterministic evidence resolver
@@ -21,9 +28,13 @@ Repository
 
 Agent 选择 operation、result index、cleanup method、member path，以及可选的 receiver/canonical type 假设。它不再负责复制 `fact-*` 和 `type-*` ID。resolver 根据结构关系寻找 primary result-call、同 scope 且 acquire 后可达的 cleanup registration，以及独立的 TypeEvidence。
 
+ProjectReader 输出进入 EvidencePack 时仍被标为 `hypothesis-*`，不能通过 fact-ID gate。只有 resolver/validator/CFG analyzer 产生的 source-backed `fact-*` 才能支撑最终建议。启发式规则候选也使用 hypothesis 通道，避免“程序输出”被误写成“语义事实”。
+
 解析规则是保守的：恰好一个匹配才是 `resolved`，零个匹配是 `unresolved`，多个匹配是 `ambiguous`。后二者都 abstain，不会进入 validator。旧客户端提交的 ID 会进入 `agent_cited_evidence` 审计区，但 analyzer 只消费 `deterministically_resolved_evidence`。
 
 validator 仍然检查 symbol、binding、member path、CFG reachability、receiver type 和 canonical method。resolver 没有放松原 gate，只是把不适合交给语言模型的 opaque ID 搬回了确定性系统。
+
+真实在线合流测试还暴露了另一种机械失败：模型选中了正确的真实 CALL operation，却把源码接收者拼写规范化成类型符号。resolver 现在以已选中的真实 operation target 为权威，并在 `selector_normalizations` 同时记录 Agent 值和 resolved 值；cleanup、binding、reachability、type 与 CFG 校验均保持不变。
 
 ## 为什么还保留 bounded repair
 

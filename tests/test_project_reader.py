@@ -118,6 +118,30 @@ def test_hallucinated_operation_is_rejected(tmp_path: Path):
     assert "existing call" in validation.decisions[0].reason
 
 
+def test_resolver_normalizes_symbol_from_selected_real_operation(tmp_path: Path):
+    ir = _ir(tmp_path)
+    inventory = build_project_inventory(ir)
+    acquire = _acquire_fact(inventory)
+    model = ProjectModel(
+        resource_candidates=(
+            CandidateSemanticMapping(
+                candidate_id="normalized-symbol",
+                operation_id=str(acquire.attributes["operation_id"]),
+                acquire_symbol="File.Open",
+                resource_result_index=0,
+                cleanup_methods=("Close",),
+                confidence=0.8,
+            ),
+        )
+    )
+
+    resolution = DeterministicEvidenceResolver().resolve(ir, model, inventory)
+
+    assert resolution.decisions[0].status == EvidenceResolutionStatus.RESOLVED
+    assert resolution.model.resource_candidates[0].acquire_symbol == "os.Open"
+    assert "normalized" in resolution.decisions[0].reason
+
+
 def test_invented_cleanup_method_is_rejected(tmp_path: Path):
     ir = _ir(tmp_path)
     inventory = build_project_inventory(ir)
@@ -242,6 +266,47 @@ def test_reader_rejects_schema_expansion(tmp_path: Path):
     result = reader.read(ir)
     assert result.model is None
     assert "unknown project model fields" in result.error
+
+
+def test_reader_isolates_invalid_candidate_without_weakening_schema(tmp_path: Path):
+    ir = _ir(tmp_path)
+    inventory = build_project_inventory(ir)
+    acquire = _acquire_fact(inventory)
+    valid = {
+        "candidate_id": "valid-file",
+        "operation_id": acquire.attributes["operation_id"],
+        "acquire_symbol": "os.Open",
+        "resource_result_index": 0,
+        "cleanup_methods": ["Close"],
+        "confidence": 0.8,
+    }
+    invalid = {
+        **valid,
+        "candidate_id": "invalid-method",
+        "cleanup_methods": ["response.Body.Close()"],
+    }
+    reader = ProjectReaderAgent(
+        lambda _prompt, role="": json.dumps(
+            {
+                "architecture_summary": "file lifecycle",
+                "components": ["loader"],
+                "resource_candidates": [valid, invalid],
+                "uncertainties": [],
+            }
+        )
+    )
+
+    result = reader.read(ir)
+
+    assert result.error == ""
+    assert result.model is not None
+    assert [item.candidate_id for item in result.model.resource_candidates] == [
+        "valid-file"
+    ]
+    assert any(
+        "invalid-method" not in reason and "invalid method name" in reason
+        for reason in result.model.uncertainties
+    )
 
 
 def test_typed_method_mapping_requires_grounded_type_and_member_cleanup(tmp_path: Path):

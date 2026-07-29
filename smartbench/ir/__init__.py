@@ -17,7 +17,13 @@ from smartbench.ir.contracts import (
     validate_operation_contract,
     validate_semantic_ir,
 )
-from smartbench.ir.evidence import EvidencePack, EvidenceRef, FactKind, SemanticFact
+from smartbench.ir.evidence import (
+    EvidencePack,
+    EvidenceRef,
+    FactKind,
+    SemanticFact,
+    SemanticHypothesis,
+)
 from smartbench.ir.operations import (
     DataFlowKind,
     OperationEdge,
@@ -57,6 +63,7 @@ __all__ = [
     "EvidenceRef",
     "FactKind",
     "SemanticFact",
+    "SemanticHypothesis",
     "DataFlowKind",
     "OperationEdge",
     "OperationEdgeKind",

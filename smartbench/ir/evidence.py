@@ -101,6 +101,47 @@ class SemanticFact:
 
 
 @dataclass(frozen=True)
+class SemanticHypothesis:
+    """An explicitly untrusted interpretation kept outside the fact set."""
+
+    kind: str
+    statement: str
+    source: str = "agent"
+    confidence: float = 0.0
+    attributes: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.kind.strip():
+            raise ValueError("hypothesis kind must not be empty")
+        if not self.statement.strip():
+            raise ValueError("hypothesis statement must not be empty")
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError("hypothesis confidence must be between 0 and 1")
+
+    @property
+    def hypothesis_id(self) -> str:
+        encoded = json.dumps(
+            self._identity_dict(),
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        ).encode("utf-8")
+        return "hypothesis-" + hashlib.sha256(encoded).hexdigest()[:16]
+
+    def to_dict(self) -> dict[str, object]:
+        return {"hypothesis_id": self.hypothesis_id, **self._identity_dict()}
+
+    def _identity_dict(self) -> dict[str, object]:
+        return {
+            "kind": self.kind,
+            "statement": self.statement,
+            "source": self.source,
+            "confidence": self.confidence,
+            "attributes": dict(self.attributes),
+        }
+
+
+@dataclass(frozen=True)
 class EvidencePack:
     """Bounded context handed to the proposer/critic/judge agents.
 
@@ -110,6 +151,7 @@ class EvidencePack:
 
     query: str
     facts: tuple[SemanticFact, ...] = field(default_factory=tuple)
+    hypotheses: tuple[SemanticHypothesis, ...] = field(default_factory=tuple)
     evidence: tuple[EvidenceRef, ...] = field(default_factory=tuple)
     retrieval_trace: tuple[str, ...] = field(default_factory=tuple)
     graph_version: str = ""
@@ -118,6 +160,7 @@ class EvidencePack:
         return {
             "query": self.query,
             "facts": [fact.to_dict() for fact in self.facts],
+            "hypotheses": [item.to_dict() for item in self.hypotheses],
             "evidence": [ref.to_dict() for ref in self.evidence],
             "retrieval_trace": list(self.retrieval_trace),
             "graph_version": self.graph_version,
@@ -128,6 +171,7 @@ class EvidencePack:
         cls,
         query: str,
         facts: Sequence[SemanticFact],
+        hypotheses: Sequence[SemanticHypothesis] = (),
         retrieval_trace: Sequence[str] = (),
         graph_version: str = "",
     ) -> "EvidencePack":
@@ -142,6 +186,7 @@ class EvidencePack:
         return cls(
             query=query,
             facts=tuple(facts),
+            hypotheses=tuple(hypotheses),
             evidence=tuple(refs),
             retrieval_trace=tuple(retrieval_trace),
             graph_version=graph_version,

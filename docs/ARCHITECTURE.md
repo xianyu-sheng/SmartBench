@@ -1,20 +1,38 @@
 # SmartBench Architecture
 
-SmartBench is organized as a compiler-like analysis platform. Language
-frontends lower source projects into a versioned Semantic IR; deterministic
-analyzers and graph retrieval consume that IR; agents only interpret and
-challenge source-backed evidence.
+SmartBench is organized as a compiler-like analysis platform. The primary CLI
+entry points open one `AnalysisSession`: language frontends lower a bounded
+repository scan into versioned SemanticIR, the semantic linker runs once, and
+deterministic analyzers, retrieval, ProjectReader, and review Agents consume
+the same session state.
 
 ```text
 source project
-    -> language frontend
-    -> SemanticIR (v1)
-    -> structural code graph + capability matrix
-    -> declarative rules + CFG analyzers / graph retrieval
-    -> EvidencePack
-    -> evidence-exclusive proposer / critic / judge / verifier
-    -> Finding + SARIF / JSON report
+    -> shared ScanPlan -> language frontends -> SemanticIR (v1)
+    -> SemanticLinker -> AnalysisSession
+         |-> built-in / declarative rules
+         |-> deterministic GraphRAG
+         |-> ProjectReader hypothesis
+               -> resolver -> validator -> CFG lifecycle analyzer
+         `-> EvidencePack {facts, hypotheses, source references}
+               -> proposer -> source verifier -> critic -> judge
+    -> Finding + JSON / SARIF / benchmark report
 ```
+
+This is one analysis boundary with several consumers, not one algorithm. The
+commands differ only in which consumers they enable:
+
+| Entry | Session consumer |
+| --- | --- |
+| `unified run` | Full SemanticIR, linker, deterministic rules and reports |
+| `quick` / interactive wizard | The same result plus ProjectReader, retrieval and review Agents |
+| `benchmark run` | The same result over pinned snapshots and declared expectations |
+| `eval-rag` | Retrieval evaluation over the same session IR |
+| `diagnose` | Separate local tool/process probes; it is not a semantic-analysis path |
+
+`SemanticIR.from_graph` remains a compatibility wrapper for existing library
+callers and bounded fallback behavior. The primary CLI no longer rebuilds that
+shallow wrapper after already running a language frontend.
 
 ## Boundaries
 
@@ -78,12 +96,15 @@ collection. It returns an `EvidencePack` containing:
 
 - graph facts;
 - stable content-addressed fact IDs;
+- explicitly untrusted hypotheses kept outside the fact set;
 - source references and snippets;
 - retrieval trace;
 - graph snapshot hash.
 
-The pack is the factual boundary for later model calls. It is not a free-form
-LLM summary.
+Only the pack's `facts` collection is a factual boundary. `hypotheses` contains
+ProjectReader interpretations or heuristic diagnostic candidates with separate
+`hypothesis-*` IDs. Later Agents may use them to choose what to inspect, but
+the evidence gate never accepts a hypothesis ID as a fact ID.
 
 ### Project interpretation boundary
 
@@ -111,6 +132,18 @@ cleanup-registration fact and portable type-evidence IDs. Zero matches produce
 an `unresolved` abstention and multiple matches produce an `ambiguous`
 abstention. Agent-cited IDs from older clients remain visible for audit but are
 never consumed as resolved evidence.
+
+When the selected real CALL operation and the Agent's redundant symbol spelling
+differ, the resolver uses the real operation target and records both values in
+`selector_normalizations`. This removes a mechanical spelling failure without
+weakening cleanup, binding, reachability, type, or CFG validation.
+
+In `quick` and the interactive wizard this path runs over the current
+`AnalysisSession`. A supported project protocol may therefore be learned from
+a successful usage and checked against other matching calls in the same
+repository. If the inventory has no supported exemplar, the stage abstains.
+The stricter cross-snapshot and target-excluded variants remain experiment
+runners under `smartbench.experiments`.
 
 For a resource protocol to pass the unchanged validator, the acquire call,
 result position, and every cleanup method must be backed by resolved real
@@ -173,17 +206,32 @@ the same function; interprocedural channel alias analysis remains explicitly
 unsupported. Linked call, data-flow, and synchronization facts are included in
 deterministic graph versions and are retrievable by EvidencePack queries.
 
-### Multi-agent verification
+### Multi-agent review
 
-Production diagnosis uses `EvidencePolicy.EXCLUSIVE`: arbitrary repository
-context is removed from proposer/critic/judge prompts, and the same pack is
-used in every round. Proposed and final suggestions must cite valid `fact-*`
-IDs; unsupported or unknown IDs are rejected by a deterministic evidence gate.
-The optional policy remains available only for backwards-compatible library
-use. Existing disk and graph verifiers remain compatible with SemanticIR
-through its graph compatibility view.
+The `quick` and interactive review path uses `EvidencePolicy.EXCLUSIVE`:
+arbitrary repository context is removed from proposer/critic/judge prompts,
+and the same pack is used in every round. Proposed and final suggestions must
+cite valid `fact-*` IDs; missing or unknown IDs are removed by a deterministic
+membership gate. The source verifier checks locations and selected structural
+relations through the session's SemanticIR compatibility view.
+
+These checks have deliberately limited meanings. Fact-ID membership does not
+prove that a cited fact logically entails the Agent conclusion, and a
+`verified` location does not prove that a Bug exists. In the current JSON
+contract `consensus_reached` means the Judge produced schema-valid JSON; it is
+not a statistical multi-model agreement score.
 
 ## Current migration state
+
+- `AnalysisSession` is now the primary runtime boundary. `unified`, `quick`,
+  the interactive wizard, benchmark runner and RAG evaluator reuse it instead
+  of building separate shallow and semantic graphs.
+- `quick` runs ProjectReader over the complete session IR, keeps its output as
+  hypotheses, resolves and validates resource protocols, and merges accepted
+  CFG findings into the deterministic report before building the Agent pack.
+- ProjectReader parses candidates independently. One malformed candidate is
+  retained as an uncertainty and cannot discard other schema-valid candidates;
+  top-level schema expansion still rejects the complete document.
 
 - Python, Go, JavaScript, and TypeScript lower into the same normalized
   operation model. JavaScript and TypeScript share one frontend; their common

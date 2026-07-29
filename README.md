@@ -6,113 +6,18 @@
 [![Status: Public Beta](https://img.shields.io/badge/status-public_beta-orange.svg)](#project-status)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Evidence-grounded code diagnosis where LLMs propose hypotheses and deterministic analysis decides what is supportable.**
+SmartBench is an experimental code-diagnosis workbench that combines normalized static analysis with evidence-constrained LLM review.
 
-[中文说明](README_CN.md) · [▶ Watch the 2m39s live demo](https://xianyu-sheng.github.io/SmartBench/) · [Demo timeline](docs/DEMO_3_MINUTES_CN.md) · [Architecture article](docs/EVIDENCE_LOOP_ARTICLE_CN.md) · [Usage guide](docs/USAGE_GUIDE.md)
+[中文说明](README_CN.md) · [Live demo](https://xianyu-sheng.github.io/SmartBench/) · [Architecture](docs/ARCHITECTURE.md) · [Usage](docs/USAGE_GUIDE.md)
 
-[![Watch SmartBench analyze a real Requests repository](docs/assets/smartbench-demo-poster.png)](https://xianyu-sheng.github.io/SmartBench/)
+[![SmartBench terminal demo](docs/assets/smartbench-demo-poster.png)](https://xianyu-sheng.github.io/SmartBench/)
 
-**[▶ Open the browser player](https://xianyu-sheng.github.io/SmartBench/)** · [Download the H.264 MP4](https://raw.githubusercontent.com/xianyu-sheng/SmartBench/main/docs/assets/smartbench-demo.mp4)
-
-*This 2m39s silent Ubuntu GNOME recording starts from a new terminal, runs `smartbench`, imports the complete Requests repository at its public pre-fix commit, builds the graph/RAG index, and shows Proposer → Verifier → Critique → Judge. It is a live run, not a replayed report. No API key or audio track appears in the video.*
-
-SmartBench is a language-neutral diagnostic workbench for local repositories. It combines SemanticIR, CFG/ICFG and state analysis, deterministic graph retrieval, and evidence-constrained Agents. The normal diagnosis path is read-only: it does not patch the repository or contact an upstream project.
+The normal workflow is read-only. SmartBench does not edit the analyzed repository, open an Issue or pull request, or contact a maintainer unless a user performs those actions separately.
 
 > [!IMPORTANT]
-> SmartBench is a public Beta, not a production SAST replacement. A grounded reference proves where evidence came from; it does not automatically prove that every diagnosis is semantically correct. Unsupported semantics remain `unknown`, `partial`, or `abstain` instead of being reported as clean.
+> SmartBench is a public Beta, not a production SAST replacement. It can run controlled repository audits and reproduce a small corpus of known defects. It has not established general unknown-bug precision or recall.
 
-## Why SmartBench is different
-
-Most LLM code-review tools ask the model to both interpret a project and judge its own evidence. SmartBench separates those responsibilities:
-
-```text
-Repository
-  → language frontend → SemanticIR
-  → deterministic inventory / GraphRAG EvidencePack
-  → Agent semantic hypothesis
-  → unique-match evidence resolver
-  → unchanged validator
-  → CFG / ICFG / state analyzer
-  → Finding, or explicit abstention
-```
-
-The Agent may select an operation, result position, cleanup method, member path, or type hypothesis. It cannot create SemanticIR facts. Opaque `fact-*` and `type-*` IDs are bound by the deterministic resolver:
-
-- exactly one structural match → `resolved`;
-- no match → `unresolved` and abstain;
-- multiple matches → `ambiguous` and abstain;
-- older Agent-supplied IDs remain visible for audit but cannot override resolved evidence.
-
-If a semantic selector is rejected, bounded repair receives only the same blind inventory, the previous structured output, and deterministic rejection reasons. It never receives the historical target snapshot or the analyzer's before/after answer, and the replacement model must pass through the same resolver and validator.
-
-## Proof, not a pitch
-
-Current reproducible snapshot, verified on **2026-07-29**:
-
-| Evidence | Result | What it establishes |
-| --- | ---: | --- |
-| Test suite with graph extras | **586 passed** | Contracts, frontends, resolver, analyzers, reports, and CLI regressions |
-| Historical public corpus | **12/12 snapshots passed** | Six known buggy snapshots produce the declared finding; six fixed snapshots do not |
-| DeepSeek blind resolver A/B | **6/6 trials passed** | Two target-excluded, reference-backed Go protocols survived without repair |
-| Independent negative in that A/B | **0 findings** | The accepted protocols did not fire on the clean negative fixture |
-| Unsupported blind cases | **2/4 cases** | Gin and Terraform abstain because no admissible reference survives target exclusion |
-
-The `6/6` number is **not a general bug-detection accuracy score**. It covers three trials over each of two Go resource-protocol cases. The historical corpus demonstrates deterministic expression of known defects, not unknown-bug recall.
-
-## Run the offline evidence-loop demo
-
-No API key or network access is required:
-
-```bash
-python -m smartbench.experiments.evidence_loop_demo \
-  --output /tmp/smartbench-evidence-loop-demo.json
-```
-
-The scripted hypothesis Agent deliberately proposes the wrong cleanup method. The terminal summary then shows:
-
-```text
-initial hypothesis rejected
-  → one bounded repair
-  → evidence resolved
-  → validator supported
-  → cfg_dominance_between_acquire_and_use witness
-  → before=1 / after=0 / negative=0
-```
-
-This is an offline **mechanism demo**, not a simulated claim about LLM quality. Live-model trials are reported separately.
-
-Run the second-language, second-category security case:
-
-```bash
-smartbench benchmark run \
-  --manifest benchmarks/real/requests_proxy_authorization_guard/manifest.yaml \
-  --output /tmp/requests-security.json
-```
-
-It evaluates the Python fix for Requests `GHSA-j8r2-6x86-q33q` as a language-neutral `call → guard → assign` state invariant and produces `before=1 / after=0`.
-
-## What works today
-
-- **Semantic frontends:** Python and Go provide the deepest normalized operations and control-flow support; JavaScript and TypeScript share a partial SemanticIR frontend.
-- **Deterministic analysis:** CFG, bounded ICFG, conservative call/data linking, declarative state invariants, resource lifecycle analysis, and provenance-aware findings.
-- **Evidence boundary:** content-addressed EvidencePacks, source locations, graph snapshot hashes, unique-match evidence resolution, and explicit unknown/ambiguous states.
-- **Agent review:** ProjectReader hypothesis generation plus evidence-exclusive Proposer, Critique, and Judge roles. Malformed or unsupported output does not become consensus.
-- **Outputs:** JSON, SARIF, benchmark reports, analysis capability status, repository zone, source role, and semantic/heuristic derivation labels.
-- **Repository handling:** mixed-language detection, bounded discovery, Git URL worktrees, dependency pruning, path confinement, and read-only normal analysis.
-
-## Language coverage
-
-| Language | Current level | Honest boundary |
-| --- | --- | --- |
-| Python | Semantic, deepest | CFG/ICFG, calls, state rules, partial data/type semantics |
-| Go | Semantic, deepest | CFG/ICFG, state/resource analysis, surface TypeEvidence; no `go/types` |
-| JavaScript / TypeScript | Semantic, partial | Shared statements/calls/control flow; async, exceptions, and dynamic dispatch remain partial |
-| Rust | Structural | Tree-sitter symbols and graph context; no full semantic lowering |
-| Java, Kotlin, C/C++, Ruby, Swift, C#, Zig | Detection / heuristic | Project fingerprinting and fallback structure, not compiler-grade analysis |
-
-Adding a semantic language means implementing the frontend contract. Language-neutral analyzers must not import that language's parser. New frontends require stable source locations, explicit capabilities, deterministic IR serialization, and at least one before/after benchmark.
-
-## Installation
+## Quick start
 
 Requirements: Python 3.10 or newer and Git.
 
@@ -122,14 +27,9 @@ cd SmartBench
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[graph]"
-smartbench --help
 ```
 
-The `graph` extra installs the Python, Go, JavaScript, TypeScript, and Rust tree-sitter parsers.
-
-## Analyze a repository
-
-Run deterministic multi-language diagnosis:
+Run deterministic analysis without an LLM:
 
 ```bash
 smartbench unified run \
@@ -138,45 +38,104 @@ smartbench unified run \
   --sarif report.sarif
 ```
 
-Select languages or rules:
-
-```bash
-smartbench unified rules
-smartbench unified languages
-
-smartbench unified run \
-  --project /path/to/repository \
-  --language python \
-  --rule null_dereference \
-  --rule security_data_flow \
-  --output report.json
-```
-
-Run optional Agent review with an environment-configured provider:
+Run the interactive evidence/Agent path:
 
 ```bash
 export DEEPSEEK_API_KEY="your-key"
 smartbench quick \
   --project /path/to/repository \
-  --concern "find correctness, state, and concurrency risks" \
+  --concern "find correctness and resource-lifecycle risks" \
   --output agent-report.json
 ```
 
-Supported credential variables include `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GLM_API_KEY`, `DOUBAO_API_KEY`, `MOONSHOT_API_KEY`, and `DASHSCOPE_API_KEY`. Keys remain in process memory and are not written to reports.
+The `rag` extra is optional:
 
-## Reading the result honestly
+```bash
+python -m pip install -e ".[graph,rag]"
+```
+
+Without it, deterministic graph retrieval remains available but the local vector index is skipped.
+
+## Runtime architecture
+
+The main CLI entry points now share one `AnalysisSession`. Repository discovery, language lowering, SemanticIR construction, and semantic linking run once; deterministic rules, retrieval, ProjectReader, and the debate roles consume the same result.
+
+```text
+Repository
+  -> ScanPlan -> language frontends -> SemanticIR -> SemanticLinker
+  -> AnalysisSession
+       |-> deterministic rules and declarative state analyzers
+       |-> deterministic GraphRAG
+       |-> ProjectReader hypothesis
+             -> evidence resolver -> validator -> CFG lifecycle analyzer
+       `-> EvidencePack { facts, hypotheses, source references }
+             -> Proposer -> source verifier -> Critique -> Judge
+  -> JSON / SARIF / benchmark report
+```
+
+There are still different consumers, but they no longer rebuild incompatible IRs:
+
+| Command | Uses the shared session | LLM behavior |
+| --- | --- | --- |
+| `smartbench unified run` | Yes | None by default; deterministic rules only |
+| `smartbench quick` / interactive wizard | Yes | Optional ProjectReader plus evidence-constrained review |
+| `smartbench benchmark run` | Yes | None; pinned snapshots and declared expectations |
+| `smartbench eval-rag` | Yes | None; evaluates retrieval over the session IR |
+| `smartbench diagnose` | Not a semantic-analysis entry | Runs local compiler/process/tool probes |
+
+The older `CodeGraph -> SemanticIR.from_graph` wrapper remains for library compatibility and fallback use. The primary CLI no longer uses it as a substitute for full language lowering.
+
+## Evidence boundary
+
+An `EvidencePack` separates two types of input:
+
+- `facts`: source-backed graph or analyzer facts with stable `fact-*` IDs;
+- `hypotheses`: ProjectReader interpretations and heuristic-rule candidates with `hypothesis-*` IDs.
+
+Hypotheses are visible to later Agents so they can choose what to investigate, but they are not accepted by the evidence gate as facts. A concrete final suggestion must cite valid fact IDs. Missing, ambiguous, or conflicting evidence remains `unknown` or `abstained`.
+
+ProjectReader does not write to SemanticIR. For the currently implemented resource-lifecycle path it selects a real call and proposes a project-scoped cleanup protocol. The deterministic stages then:
+
+1. bind the selected operation, cleanup facts, and type evidence;
+2. reject zero or multiple structural matches;
+3. validate result bindings, member paths, reachability, and type selectors;
+4. run a language-neutral CFG dominance check;
+5. emit a finding or an explicit abstention.
+
+One bounded repair is allowed only after deterministic rejection. It receives the same inventory and rejection reasons, not the analyzer outcome.
+
+## Language support
+
+| Language | Current level | Boundary |
+| --- | --- | --- |
+| Python | Semantic, deepest | CFG/ICFG, calls, state rules, partial type and data semantics |
+| Go | Semantic, deepest | CFG/ICFG, state/resource analysis and surface type evidence; no `go/types` |
+| JavaScript / TypeScript | Semantic, partial | Common statements, calls and control flow; async, exceptions and dynamic dispatch remain partial |
+| Rust | Structural | Tree-sitter symbols and graph context; no complete semantic lowering |
+| Java, Kotlin, C/C++, Ruby, Swift, C#, Zig | Detection / heuristic | Fingerprinting and fallback structure, not compiler-grade analysis |
+
+Language-neutral analyzers do not import a language parser. A new semantic frontend must provide stable locations, explicit capabilities, deterministic IR serialization, and at least one before/after benchmark.
+
+## Reading reports
+
+`unified` reports include findings, capability assessments, source roles, repository zones, SemanticIR statistics, errors, and bounded EvidencePacks. `quick` embeds that deterministic result under `analysis_report` next to the Agent review.
 
 | Status | Meaning |
 | --- | --- |
-| `full` | The requested rule requirements are fully available for the relevant language |
-| `partial` | A bounded approximation ran; missing semantics are recorded |
-| `unsupported` | Required capabilities are unavailable; this is not a clean result |
+| `full` | The relevant frontend meets every declared requirement for that rule |
+| `partial` | A documented approximation ran |
+| `unsupported` | Required semantics are unavailable; this is not a clean result |
 | `unknown` | The rule did not declare enough semantic requirements to claim coverage |
-| `abstain` | The analyzer found missing, conflicting, ambiguous, or ownership-transfer evidence |
+| `abstained` | Evidence was absent, ambiguous, conflicting, or ownership transfer was possible |
 
-Findings also record source role (`production`, `test`, `fixture`, `generated`, and others), repository zone (`first_party`, `legacy`, `third_party`, `vendored`, or `generated`), and derivation method (`semantic` or `heuristic`).
+Two additional caveats matter:
 
-## Historical benchmark corpus
+- verifier labels such as `verified` and `hallucinated` describe source-location and structural-reference checks; they do not prove that a bug conclusion is correct;
+- `consensus_reached` currently means that the Judge returned schema-valid JSON. It is not a statistical agreement score between independent models.
+
+## Reproducible evaluation
+
+The repository contains six public before/after cases (12 snapshots):
 
 | Project | Language | Public fix | Category |
 | --- | --- | --- | --- |
@@ -187,51 +146,41 @@ Findings also record source role (`production`, `test`, `fixture`, `generated`, 
 | Gin | Go | [#4422](https://github.com/gin-gonic/gin/pull/4422) | Resource lifecycle |
 | Terraform | Go | [#38585](https://github.com/hashicorp/terraform/pull/38585) | Resource lifecycle |
 
-Run all pinned before/after snapshots:
-
 ```bash
 smartbench benchmark run \
   --manifest benchmarks/real/manifest.yaml \
   --output benchmark-report.json
 ```
 
-Each manifest records its upstream repository, commits, expected behavior, rule ID, and fixture boundary. See [the corpus documentation](benchmarks/real/README.md).
+The current expected result is 12/12 snapshot checks: each declared buggy snapshot produces the expected rule and each fixed snapshot produces none. This shows that SmartBench can express these known defects. It does not measure unknown-bug recall.
 
-## Live blind ProjectReader experiment
+The separate blind ProjectReader experiment excludes historical target files from the model inventory. A recorded DeepSeek A/B completed 6/6 trials over two admissible Go protocols after deterministic ID resolution; two other cases remained unsupported because no admissible reference survived exclusion. See [the experiment notes](benchmarks/experiments/project_reader_blind/README.md) for the exact boundary.
 
-This manual experiment incurs provider cost and is intentionally excluded from CI:
+## Known limitations
 
-```bash
-python -m smartbench.experiments.project_reader_blind_online \
-  --benchmark-manifest benchmarks/real/manifest.yaml \
-  --blind-manifest benchmarks/experiments/project_reader_blind/manifest.yaml \
-  --negative-path benchmarks/experiments/project_reader_resource/negative \
-  --trials 3 \
-  --max-repairs 0 \
-  --output project-reader-blind-online.json
-```
+- Most built-in rules are still source heuristics; declarative state rules and the resource-lifecycle analyzer provide the strongest semantic examples.
+- Exception flow, async scheduling, dynamic dispatch, alias analysis, goroutine happens-before, and interprocedural channel aliases are incomplete.
+- The ProjectReader lifecycle analyzer currently proves normalized defer-style cleanup only.
+- The benchmark corpus is small and dominated by resource-lifecycle cases.
+- Repository content sent through `quick` is visible to the configured remote model provider.
+- A clean report can mean “no supported finding,” not “the repository has no bugs.”
 
-The model sees pinned, hashed reference inventories with historical target paths excluded. Reports retain provider/model names, resolution decisions, before/after witnesses, abstentions, and negative results, but never API keys, raw prompts, or raw responses.
+## Safety
 
-## Safety boundary
+- Source paths are confined to the repository root; external symlinks and `../` escapes are ignored.
+- External commands run without a shell and have time/output bounds.
+- Optional `quick --sandbox` applies proposed patches only to a temporary copy, but repository tests still run with the current user's OS permissions.
+- Do not send repositories containing secrets or restricted source code to a remote provider unless that exposure is acceptable.
+- Do not file a SmartBench finding upstream without repeated verification and a human decision.
 
-- Normal diagnosis does not edit the analyzed repository, open Issues, create pull requests, or contact maintainers.
-- Repository content and metadata are treated as untrusted prompt data, but prompt marking is not a formal sandbox.
-- Symlink and `../` escapes are ignored; external commands are invoked without a shell and have time/output bounds.
-- Optional local diagnostics may run installed compilers or analyzers. Analyze only repositories you trust.
-- `quick --sandbox` applies candidate patches only to a temporary copy, but repository tests still run with the current user's OS permissions.
-- Never expose a repository containing secrets to a remote model provider unless that exposure is acceptable.
-
-## Documentation
+## Documentation and development
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Usage guide](docs/USAGE_GUIDE.md)
-- [Live demo timeline (Chinese)](docs/DEMO_3_MINUTES_CN.md)
-- [Evidence-loop architecture article](docs/EVIDENCE_LOOP_ARTICLE_CN.md)
-- [Blind transfer experiment](benchmarks/experiments/project_reader_blind/README.md)
+- [Demo timeline](docs/DEMO_3_MINUTES_CN.md)
+- [Evidence-loop note](docs/EVIDENCE_LOOP_ARTICLE_CN.md)
 - [Historical benchmark corpus](benchmarks/real/README.md)
-
-## Development
+- [Blind ProjectReader experiment](benchmarks/experiments/project_reader_blind/README.md)
 
 ```bash
 python -m pip install -e ".[dev,graph]"
@@ -241,19 +190,16 @@ python -m compileall -q smartbench
 python -m build
 ```
 
-CI runs lint, compilation, and tests on Python 3.10–3.12, exercises all parser adapters, runs historical and ProjectReader benchmarks, builds wheel/sdist artifacts, and smoke-tests the installed CLI outside the checkout.
+CI runs Python 3.10-3.12 tests, parser-adapter checks, the 12-snapshot benchmark, ProjectReader boundary experiments, and a clean-wheel CLI smoke test.
 
 ## Project status
 
-SmartBench is ready for controlled real-repository audits, portfolio demonstrations, and architecture research. It is not yet a general unknown-bug detector or production SAST system. The next milestones are:
+SmartBench is suitable for controlled repository experiments, architecture research, and portfolio demonstrations. The next useful work is effect measurement, not more surface features:
 
-1. audit 5–8 independent repositories and publish verified, candidate, and abstained outcomes;
-2. expand the blind corpus to 10–20 external before/after cases and natural negatives;
-3. add a second Agent-discovered protocol category and another semantic language case;
-4. measure precision, recall, abstention rate, trial stability, latency, and provider cost;
-5. deepen exception, async, type, alias, and concurrency semantics without weakening the IR boundary.
-
-No SmartBench finding should be filed upstream without repeated verification and an explicit human decision.
+1. expand the corpus to 10-20 external before/after cases and natural negatives;
+2. add another Agent-derived protocol category and another semantic language case;
+3. report precision, recall, abstention rate, trial stability, latency, and provider cost;
+4. deepen exception, async, type, alias, and concurrency semantics without weakening the IR boundary.
 
 ## License
 

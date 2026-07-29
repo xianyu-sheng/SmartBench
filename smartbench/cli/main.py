@@ -21,10 +21,10 @@ from rich.table import Table
 from smartbench import __version__
 from smartbench.benchmarks import BenchmarkConfigError, BenchmarkRunner, load_benchmark_manifest
 from smartbench.cli.phases import (
+    build_session_retrieval,
     resolve_project_path,
+    run_analysis_session,
     run_diagnose_mode,
-    run_phase1_detection,
-    run_phase4_graph,
     run_quick_mode,
 )
 from smartbench.cli.unified import (
@@ -212,11 +212,10 @@ def evaluate_rag(
         console.print(f"[red]Cannot access: {safe_terminal_text(project)}[/red]")
         raise typer.Exit(1)
     try:
-        fingerprint = run_phase1_detection(console, project_path)
-        graph, hybrid = run_phase4_graph(
+        session = run_analysis_session(console, project_path)
+        graph, hybrid = build_session_retrieval(
             console,
-            project_path,
-            fingerprint,
+            session,
             build_rag=not graph_only,
         )
         if graph is None:
@@ -365,7 +364,10 @@ def _maybe_save_output(result, output_path: Optional[str]) -> None:
 
     temporary_path = None
     try:
-        data = asdict(result) if is_dataclass(result) else result
+        if hasattr(result, "to_dict") and callable(result.to_dict):
+            data = result.to_dict()
+        else:
+            data = asdict(result) if is_dataclass(result) else result
         payload = _json.dumps(data, ensure_ascii=False, indent=2)
         destination = Path(output_path).expanduser()
         parent = destination.parent

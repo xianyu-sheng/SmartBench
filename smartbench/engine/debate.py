@@ -30,6 +30,7 @@ class DebateResult:
     iterations: int = 0
     total_tokens_used: int = 0
     duration_ms: int = 0
+    analysis_report: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -336,10 +337,12 @@ class DebateEngine:
         return (
             f"{analysis_context}\n\n"
             "[DETERMINISTIC EVIDENCE PACK]\n"
-            "The following facts were retrieved from a versioned code graph. "
-            "Use them as the factual boundary for this debate. Every concrete "
-            "claim must cite a fact or source evidence entry; if the pack does "
-            "not establish a claim, mark it as unknown and request more evidence.\n"
+            "Only entries in `facts` are factual claims retrieved or derived "
+            "from the versioned semantic graph. Entries in `hypotheses` are "
+            "explicitly untrusted interpretations from Agents or heuristic "
+            "rules; use them only to choose what to investigate. Every concrete "
+            "final claim must cite a valid fact ID. If facts do not establish a "
+            "claim, mark it as unknown and request more evidence.\n"
             f"{payload}\n"
             "[END DETERMINISTIC EVIDENCE PACK]"
         )

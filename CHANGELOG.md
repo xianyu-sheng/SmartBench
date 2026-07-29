@@ -7,43 +7,44 @@ semantic versioning while it remains in beta.
 
 ### Added
 
-- Capability-strength contracts (`full`/`partial`/`unsupported`) for rules,
-  with per-rule analysis status and limitation metadata in JSON results.
-- Deterministic `SourceRole` provenance on `SemanticIR` source units, including
-  a production-scoped policy for security data-flow findings.
-- A shared JavaScript/TypeScript SemanticIR frontend for functions, parameters,
-  assignments, branches, loops, returns, calls, and surface type annotations.
-- Provenance-aware, repository-wide bounded file selection so one early
-  language or generated-schema directory cannot starve later monorepo packages.
-- Versioned `SemanticIR` contracts for normalized functions, parameters,
-  bindings, calls, returns, and explicit capability/unknown reporting.
-- Conservative Python/Go interprocedural linking for calls, arguments,
-  returns, and same-function Go channel synchronization.
-- A bounded, stack-consistent interprocedural control-flow graph (ICFG) and
-  source-backed cross-function state paths.
-- Declarative `scope: interprocedural` state rules with an explicit guard-proof
-  policy that abstains when caller-side control cannot be proven.
-- Deterministic graph facts and evidence metadata for linked calls, data-flow,
-  synchronization, and state paths.
-- Reproducible cross-function and Reasonix pre-fix/post-fix benchmark fixtures.
+- `AnalysisSession`, a shared runtime boundary for repository discovery,
+  complete SemanticIR lowering, semantic linking, rules, retrieval, and Agents.
+- A ProjectReader stage in `quick` and the interactive wizard: untrusted
+  project protocols pass through deterministic resolution, validation, and a
+  language-neutral CFG lifecycle analyzer before becoming findings.
+- Explicit `SemanticHypothesis` entries in EvidencePack. ProjectReader output
+  and heuristic diagnostic candidates no longer share the `fact-*` namespace.
+- Candidate-level ProjectReader schema isolation and auditable selector
+  normalization for redundant symbol spellings.
+- Capability-strength contracts, source roles, repository zones, shared
+  JavaScript/TypeScript lowering, conservative semantic linking, bounded ICFG,
+  declarative interprocedural state rules, and TypeEvidence contracts.
+- Six source-backed public before/after cases covering 12 snapshots across
+  Python and Go.
+
+### Changed
+
+- `unified`, `quick`, the interactive wizard, benchmark runner, and RAG
+  evaluator now consume the shared session instead of rebuilding different IR
+  depths. `SemanticIR.from_graph` remains a compatibility/fallback API.
+- `quick` JSON embeds the deterministic session report under
+  `analysis_report`; no-provider quick runs return the deterministic report
+  instead of graph statistics only.
+- Documentation now distinguishes fact membership, source verification, Judge
+  JSON completion, and actual semantic correctness.
 
 ### Validation
 
-- 547 tests passing with graph extras; 509 passing and 38 skipped without
-  optional parsers on 2026-07-27.
-- The cross-function benchmark reports before=1 and after=0; the Reasonix
-  fixture detects the known pre-fix issue and not the fixed snapshot.
-- Replayed the same ten public AI coding-agent repositories: all runs completed
-  without parser errors; the new contract reduced only non-production data-flow
-  findings (3 in Aider and 1 in SWE-agent) and did not suppress a confirmed
-  production finding.
-- Replayed those ten repositories after JS/TS lowering: total normalized
-  operations increased from 109,342 to 220,476, all runs remained error-free,
-  and every TypeScript-bearing repository now emits semantic operations.
+- The full graph-enabled test suite and Ruff checks pass locally.
+- The historical benchmark passes all 12 declared snapshots: six buggy and six
+  fixed.
+- A real-provider integration smoke accepted one source-backed project protocol,
+  rejected an ungrounded candidate, and produced one CFG witness on a bounded
+  safe/unsafe fixture. This is a pipeline check, not an accuracy measurement.
 
-These additions are deliberately conservative. Dynamic dispatch, complete type
-checking, exception/async semantics, goroutine happens-before, channel aliases,
-and broad multi-language semantic lowering remain future iterations.
+Dynamic dispatch, complete type checking, exception/async semantics, goroutine
+happens-before, channel aliases, and broad multi-language semantic lowering
+remain future work.
 
 ## [0.7.0] - 2026-07-23
 

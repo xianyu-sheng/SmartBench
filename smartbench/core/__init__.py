@@ -51,6 +51,7 @@ from smartbench.core.sarif import (
     save_sarif_log,
     to_sarif_log,
 )
+from smartbench.core.session import AnalysisSession, ProjectReaderStage
 
 __all__ = [
     # Rules
@@ -79,6 +80,8 @@ __all__ = [
     "UnifiedDiagnosticConfig",
     "UnifiedDiagnosticEngine",
     "UnifiedDiagnosticResult",
+    "AnalysisSession",
+    "ProjectReaderStage",
     # Adapters
     "AdapterRegistry",
     "FrontendRegistry",

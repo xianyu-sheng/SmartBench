@@ -121,6 +121,7 @@ class EvidenceResolutionDecision:
     agent_type_evidence_ids: tuple[str, ...] = ()
     resolved_type_evidence_ids: tuple[str, ...] = ()
     candidate: CandidateSemanticMapping | None = None
+    selector_normalizations: Mapping[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -135,6 +136,7 @@ class EvidenceResolutionDecision:
                 "fact_ids": list(self.resolved_fact_ids),
                 "type_evidence_ids": list(self.resolved_type_evidence_ids),
             },
+            "selector_normalizations": dict(self.selector_normalizations),
         }
 
 
@@ -458,12 +460,7 @@ class DeterministicEvidenceResolver:
                 EvidenceResolutionStatus.UNRESOLVED,
                 "operation_id does not identify an existing call",
             )
-        if operation.target != candidate.acquire_symbol:
-            return _resolution_abstention(
-                candidate,
-                EvidenceResolutionStatus.UNRESOLVED,
-                "acquire_symbol does not match operation_id",
-            )
+        acquire_symbol_normalized = operation.target != candidate.acquire_symbol
         if not _is_primary_result_call(operation, operations):
             return _resolution_abstention(
                 candidate,
@@ -551,7 +548,7 @@ class DeterministicEvidenceResolver:
         resolved_candidate = CandidateSemanticMapping(
             candidate_id=candidate.candidate_id,
             operation_id=candidate.operation_id,
-            acquire_symbol=candidate.acquire_symbol,
+            acquire_symbol=operation.target,
             resource_result_index=candidate.resource_result_index,
             cleanup_methods=candidate.cleanup_methods,
             confidence=candidate.confidence,
@@ -568,12 +565,27 @@ class DeterministicEvidenceResolver:
             reason=(
                 "primary result call, reachable cleanup registrations and type "
                 "evidence were uniquely resolved"
+                + (
+                    "; acquire_symbol was normalized from the selected real operation"
+                    if acquire_symbol_normalized
+                    else ""
+                )
             ),
             agent_fact_ids=candidate.fact_ids,
             resolved_fact_ids=resolved_fact_ids,
             agent_type_evidence_ids=candidate.type_evidence_ids,
             resolved_type_evidence_ids=resolved_type_ids,
             candidate=resolved_candidate,
+            selector_normalizations=(
+                {
+                    "acquire_symbol": {
+                        "agent_value": candidate.acquire_symbol,
+                        "resolved_value": operation.target,
+                    }
+                }
+                if acquire_symbol_normalized
+                else {}
+            ),
         )
 
 
@@ -723,17 +735,35 @@ def _parse_project_model(value: Any) -> ProjectModel:
     candidates_raw = value.get("resource_candidates", [])
     if not isinstance(candidates_raw, list) or len(candidates_raw) > 30:
         raise ValueError("resource_candidates must be a list with at most 30 items")
-    candidates = tuple(_parse_candidate(item, index) for index, item in enumerate(candidates_raw))
-    ids = [candidate.candidate_id for candidate in candidates]
-    if len(set(ids)) != len(ids):
-        raise ValueError("candidate IDs must be unique")
+    candidates: list[CandidateSemanticMapping] = []
+    candidate_errors: list[str] = []
+    candidate_ids: set[str] = set()
+    for index, item in enumerate(candidates_raw):
+        try:
+            candidate = _parse_candidate(item, index)
+        except ValueError as exc:
+            candidate_errors.append(f"candidate rejected: {exc}")
+            continue
+        if candidate.candidate_id in candidate_ids:
+            candidate_errors.append(
+                f"candidate rejected: duplicate candidate ID {candidate.candidate_id!r}"
+            )
+            continue
+        candidate_ids.add(candidate.candidate_id)
+        candidates.append(candidate)
+    declared_uncertainties = _string_tuple(
+        value.get("uncertainties", []),
+        "uncertainties",
+        50,
+        500,
+    )
     return ProjectModel(
         architecture_summary=_bounded_string(
             value.get("architecture_summary", ""), "architecture_summary", 2000
         ),
         components=_string_tuple(value.get("components", []), "components", 50, 200),
-        resource_candidates=candidates,
-        uncertainties=_string_tuple(value.get("uncertainties", []), "uncertainties", 50, 500),
+        resource_candidates=tuple(candidates),
+        uncertainties=(*declared_uncertainties, *candidate_errors),
     )
 
 

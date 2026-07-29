@@ -15,10 +15,8 @@ from rich.prompt import Prompt
 from smartbench.cli.display import display_fingerprint, display_project_understanding
 from smartbench.cli.phases import (
     resolve_project_path,
-    run_diagnosis_with_graph,
-    run_fallback_analysis,
-    run_phase1_detection,
-    run_phase4_graph,
+    run_analysis_session,
+    run_diagnosis_with_session,
 )
 from smartbench.llm.client import call_llm, parse_json_safe
 from smartbench.llm.provider import configure_api_keys
@@ -76,7 +74,11 @@ def run_interactive_wizard(
 
     # ── Step 3: Project detection ─────────────────────────────────
     console.print("\n[bold]Step 3/4[/bold] — Analyzing your project...")
-    fingerprint = run_phase1_detection(console, project_path)
+    session = run_analysis_session(console, project_path)
+    fingerprint = session.fingerprint
+    if fingerprint is None:
+        console.print("[red]Could not fingerprint the project.[/red]")
+        raise typer.Exit(1)
     display_fingerprint(console, fingerprint)
 
     # Phase 2: LLM reads README
@@ -117,29 +119,13 @@ def run_interactive_wizard(
         "  Concern", default="analyze the project for issues"
     ).strip()
 
-    # ── Build code graph ──────────────────────────────────────────
-    console.print("\n[bold]Building code graph...[/bold]")
-    graph, hybrid_retriever = run_phase4_graph(
-        console, project_path, fingerprint
+    result = run_diagnosis_with_session(
+        console,
+        session,
+        api_config,
+        user_concern,
+        enable_sandbox=enable_sandbox,
     )
-
-    if graph and len(graph.nodes) > 0:
-        console.print(
-            f"  [green]OK[/green] {safe_terminal_text(graph.summary())}"
-        )
-        result = run_diagnosis_with_graph(
-            console, project_path, fingerprint, graph, api_config,
-            user_concern, hybrid_retriever=hybrid_retriever,
-            enable_sandbox=enable_sandbox,
-        )
-    else:
-        console.print(
-            "  [yellow]Could not build code graph "
-            "(no source files found?)[/yellow]"
-        )
-        result = run_fallback_analysis(
-            console, project_path, fingerprint, api_config, user_concern,
-        )
 
     console.print("\n[bold green]Done![/bold green]")
     console.print("  Thanks for using SmartBench!\n")

@@ -30,6 +30,7 @@ from smartbench.cli.display import (
     display_graph_stats,
     show_debate_round,
 )
+from smartbench.core import AnalysisSession, UnifiedDiagnosticConfig
 from smartbench.detector.fingerprint import ProjectFingerprint
 from smartbench.detector.scanner import ProjectScanner
 from smartbench.diagnostics.registry import (
@@ -132,6 +133,40 @@ def run_phase1_detection(
         fp = scanner.scan()
         progress.remove_task(task)
     return fp
+
+
+def run_analysis_session(
+    console: Console,
+    project_path: str,
+    *,
+    build_evidence_packs: bool = False,
+) -> AnalysisSession:
+    """Build the shared full SemanticIR and deterministic result once."""
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        task = progress.add_task(
+            "构建统一分析会话（扫描 → SemanticIR → Linker → 规则）...",
+            total=None,
+        )
+        session = AnalysisSession.analyze(
+            project_path,
+            UnifiedDiagnosticConfig(
+                build_evidence_packs=build_evidence_packs,
+            ),
+        )
+        progress.remove_task(task)
+    if session.ir is not None:
+        console.print(
+            "  [green]OK[/green] AnalysisSession: "
+            f"{len(session.ir.source_units)} files, "
+            f"{len(session.ir.operations)} operations, "
+            f"{len(session.ir.operation_edges)} semantic edges, "
+            f"{len(session.result.findings)} deterministic findings"
+        )
+    return session
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -248,6 +283,28 @@ def _build_rag_index(
     return None
 
 
+def build_session_retrieval(
+    console: Console,
+    session: AnalysisSession,
+    *,
+    build_rag: bool = True,
+) -> Tuple[Optional[SemanticIR], Optional[object]]:
+    """Expose structural/vector retrieval over the session's complete IR."""
+    semantic_ir = session.ir
+    fingerprint = session.fingerprint
+    if semantic_ir is None or fingerprint is None:
+        return None, None
+    hybrid = None
+    if build_rag:
+        hybrid = _build_rag_index(
+            console,
+            str(session.project_path),
+            fingerprint,
+            semantic_ir,
+        )
+    return semantic_ir, hybrid
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Phase 5: Diagnosis with Graph + Debate
 # ═══════════════════════════════════════════════════════════════════════
@@ -262,6 +319,7 @@ def run_diagnosis_with_graph(
     hybrid_retriever: object = None,
     enable_verify: bool = True,
     enable_sandbox: bool = False,
+    analysis_session: Optional[AnalysisSession] = None,
 ) -> Optional[object]:
     """Run the full graph-enhanced diagnosis pipeline with RAG + verification.
 
@@ -276,6 +334,36 @@ def run_diagnosis_with_graph(
         return None
 
     factory = PromptFactory(fingerprint)
+
+    def llm_fn(
+        prompt: str, role: str = "", timeout_seconds: float = 120
+    ) -> str:
+        return call_llm(
+            api_config,
+            prompt,
+            role=role,
+            timeout_seconds=timeout_seconds,
+        ) or ""
+
+    if analysis_session is not None:
+        console.print("\n[bold]ProjectReader 读取项目语义...[/bold]")
+        project_stage = analysis_session.run_project_reader(
+            llm_fn,
+            max_repairs=1,
+        )
+        supported = (
+            len(project_stage.validation.protocols)
+            if project_stage.validation is not None
+            else 0
+        )
+        console.print(
+            "  [dim]"
+            f"status={project_stage.status}, "
+            f"protocols={supported}, "
+            f"findings={len(project_stage.findings)}, "
+            f"repairs={project_stage.repair_attempts}"
+            "[/dim]"
+        )
 
     # Phase 3: Strategy selection
     strategies = [
@@ -351,12 +439,24 @@ def run_diagnosis_with_graph(
     # deterministic evidence pack to both the prompt and the debate engine.
     # The legacy graph context remains for compatibility with existing prompt
     # templates; the pack is the auditable factual boundary.
-    semantic_ir = SemanticIR.from_graph(
-        graph,
-        project_path=str(Path(project_path).resolve()),
-    )
+    if analysis_session is not None and analysis_session.ir is not None:
+        semantic_ir = analysis_session.ir
+        evidence_pack = analysis_session.build_evidence_pack(
+            concern,
+            hops=2,
+            max_nodes=16,
+        )
+    else:
+        semantic_ir = SemanticIR.from_graph(
+            graph,
+            project_path=str(Path(project_path).resolve()),
+        )
+        evidence_pack = DeterministicGraphRAG(semantic_ir).retrieve(
+            concern,
+            hops=2,
+            max_nodes=12,
+        )
     evidence_rag = DeterministicGraphRAG(semantic_ir)
-    evidence_pack = evidence_rag.retrieve(concern, hops=2, max_nodes=12)
     code_context = code_context + "\n\n" + evidence_rag.render(evidence_pack)
 
     # ── Execute diagnostic tools ──────────────────────────────────
@@ -405,16 +505,6 @@ def run_diagnosis_with_graph(
     if verifier:
         console.print("  [dim]证据核查已启用[/dim]")
 
-    def llm_fn(
-        prompt: str, role: str = "", timeout_seconds: float = 120
-    ) -> str:
-        return call_llm(
-            api_config,
-            prompt,
-            role=role,
-            timeout_seconds=timeout_seconds,
-        ) or ""
-
     debate_engine = DebateEngine(
         llm_fn,
         prompt_factory=factory,
@@ -430,6 +520,8 @@ def run_diagnosis_with_graph(
         strategy=selected,
         evidence_pack=evidence_pack,
     )
+    if analysis_session is not None:
+        result.analysis_report = analysis_session.report_dict()
 
     # Verification stats
     if verifier:
@@ -476,6 +568,61 @@ def run_diagnosis_with_graph(
             )
 
     return result
+
+
+def run_diagnosis_with_session(
+    console: Console,
+    session: AnalysisSession,
+    api_config: Optional[Dict],
+    concern: str,
+    *,
+    enable_verify: bool = True,
+    enable_sandbox: bool = False,
+) -> Optional[object]:
+    """Run retrieval and Agent review over an existing full analysis session."""
+    fingerprint = session.fingerprint
+    semantic_ir = session.ir
+    if fingerprint is None:
+        console.print("[red]Project fingerprint is unavailable[/red]")
+        return None
+    if semantic_ir is None or not semantic_ir.nodes:
+        console.print(
+            "  [yellow]完整 SemanticIR 不可用，退回有界源码分析[/yellow]"
+        )
+        return run_fallback_analysis(
+            console,
+            str(session.project_path),
+            fingerprint,
+            api_config,
+            concern,
+        )
+
+    if not api_config:
+        from smartbench.cli.unified import print_diagnosis_result
+
+        console.print(
+            "[yellow]No LLM configured — returning deterministic session result[/yellow]"
+        )
+        print_diagnosis_result(console, session.result, session.project_path)
+        return session.result
+
+    _, hybrid_retriever = build_session_retrieval(
+        console,
+        session,
+        build_rag=True,
+    )
+    return run_diagnosis_with_graph(
+        console,
+        str(session.project_path),
+        fingerprint,
+        semantic_ir,
+        api_config,
+        concern,
+        hybrid_retriever=hybrid_retriever,
+        enable_verify=enable_verify,
+        enable_sandbox=enable_sandbox,
+        analysis_session=session,
+    )
 
 
 def run_fallback_analysis(
@@ -629,23 +776,23 @@ def run_quick_mode(
             "[yellow]No API keys in environment — some features disabled[/yellow]"
         )
 
-    fingerprint = run_phase1_detection(console, project_path)
+    session = run_analysis_session(console, project_path)
+    fingerprint = session.fingerprint
+    if fingerprint is None:
+        console.print("[red]Could not fingerprint the project[/red]")
+        return None
     display_fingerprint(console, fingerprint)
 
     if not concern:
         concern = "analyze the project for potential issues"
 
-    graph, hybrid_retriever = run_phase4_graph(console, project_path, fingerprint)
-    if graph:
-        result = run_diagnosis_with_graph(
-            console, project_path, fingerprint, graph, api_config,
-            concern, hybrid_retriever=hybrid_retriever,
-            enable_sandbox=enable_sandbox,
-        )
-    else:
-        result = run_fallback_analysis(
-            console, project_path, fingerprint, api_config, concern,
-        )
+    result = run_diagnosis_with_session(
+        console,
+        session,
+        api_config,
+        concern,
+        enable_sandbox=enable_sandbox,
+    )
 
     console.print("\n[bold green]Done![/bold green]\n")
     return result
