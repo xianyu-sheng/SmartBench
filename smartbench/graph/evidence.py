@@ -73,7 +73,12 @@ class DeterministicGraphRAG:
             direction="both",
         ) if seeds else CodeGraph()
         ranked = self.retriever._rank_nodes(subgraph, seeds, normalized_query) if seeds else []
-        selected = ranked[: max(0, int(max_nodes))]
+        selected = self._select_nodes(
+            ranked,
+            seeds,
+            normalized_query,
+            max(0, int(max_nodes)),
+        )
         selected_ids = {node.id for node in selected}
         trace.append(f"expand:{max(0, int(hops))}")
         trace.append("selected:" + ",".join(node.id for node in selected))
@@ -186,17 +191,99 @@ class DeterministicGraphRAG:
         )
 
     def _file_seeds(self, query: str) -> list[Any]:
-        """Prefer an exact file mentioned by a finding over lexical noise."""
+        """Prefer exact files while keeping multi-file queries balanced."""
         candidates = [
             node
             for node in self.ir.graph.nodes.values()
             if node.file_path and node.file_path in query
         ]
-        return sorted(
-            candidates,
-            key=lambda node: (len(node.file_path), node.file_path, node.name),
-            reverse=True,
-        )[:10]
+        by_path: dict[str, list[Any]] = {}
+        for node in candidates:
+            by_path.setdefault(node.file_path, []).append(node)
+        query_tokens = {
+            token.lower()
+            for token in re.findall(r"[A-Za-z0-9_]+", query)
+            if len(token) >= 3
+        }
+
+        def relevance(node: Any) -> tuple[Any, ...]:
+            name = node.name.lower()
+            matches = sum(token in name for token in query_tokens)
+            type_priority = {
+                "function": 0,
+                "class": 1,
+                "file": 2,
+            }.get(node.node_type.value, 3)
+            degree = (
+                len(self.ir.graph._adj_out.get(node.id, ()))
+                + len(self.ir.graph._adj_in.get(node.id, ()))
+            )
+            return (
+                -matches,
+                type_priority,
+                -degree,
+                node.line_start,
+                node.name,
+            )
+
+        for nodes in by_path.values():
+            nodes.sort(key=relevance)
+
+        balanced: list[Any] = []
+        paths = sorted(by_path)
+        while len(balanced) < 10:
+            added = False
+            for path in paths:
+                nodes = by_path[path]
+                if nodes:
+                    balanced.append(nodes.pop(0))
+                    added = True
+                    if len(balanced) == 10:
+                        break
+            if not added:
+                break
+        return balanced
+
+    @staticmethod
+    def _select_nodes(
+        ranked: list[Any],
+        seeds: list[Any],
+        query: str,
+        limit: int,
+    ) -> list[Any]:
+        """Reserve evidence capacity for every explicitly named source file."""
+        if limit <= 0:
+            return []
+        explicit_paths = sorted({
+            node.file_path
+            for node in seeds
+            if node.file_path and node.file_path in query
+        })
+        if len(explicit_paths) <= 1:
+            return ranked[:limit]
+
+        quota = max(1, limit // len(explicit_paths))
+        selected: list[Any] = []
+        selected_ids: set[str] = set()
+        for path in explicit_paths:
+            path_count = 0
+            for node in (
+                candidate for candidate in ranked
+                if candidate.file_path == path
+            ):
+                if path_count >= quota:
+                    break
+                selected.append(node)
+                selected_ids.add(node.id)
+                path_count += 1
+
+        for node in ranked:
+            if len(selected) >= limit:
+                break
+            if node.id not in selected_ids:
+                selected.append(node)
+                selected_ids.add(node.id)
+        return selected[:limit]
 
     def _operation_matches(self, query: str, limit: int) -> list[Any]:
         """Retrieve normalized operations when graph names are insufficient."""

@@ -122,7 +122,7 @@ def load_api_keys_from_env() -> Optional[Dict]:
                     f"SMARTBENCH_{provider.upper()}_MODEL", default_model
                 ),
                 "api_key": key,
-                "base_url": info.get("base_url", ""),
+                "base_url": _base_url_from_env(provider, info),
             })
 
     _assign_roles(models)
@@ -141,6 +141,21 @@ def _assign_roles(models: List[Dict]) -> None:
     else:
         for m in models:
             m["role"] = "all"
+
+
+def _base_url_from_env(provider: str, info: Dict) -> str:
+    """Resolve an optional provider endpoint without exposing credentials.
+
+    ``SMARTBENCH_<PROVIDER>_BASE_URL`` is the explicit SmartBench override.
+    The conventional ``<PROVIDER>_BASE_URL`` form remains supported for
+    provider tooling such as the Anthropic and OpenAI CLIs.
+    """
+    prefix = provider.upper()
+    return (
+        os.environ.get(f"SMARTBENCH_{prefix}_BASE_URL")
+        or os.environ.get(f"{prefix}_BASE_URL")
+        or info.get("base_url", "")
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -184,7 +199,9 @@ def configure_api_keys(console: Console) -> Optional[Dict]:
                         ENV_PROVIDER_MAP[provider][1],
                     ),
                     "api_key": key,
-                    "base_url": info.get("base_url", ""),
+                    "base_url": _base_url_from_env(
+                        ENV_PROVIDER_MAP[provider][0], info
+                    ),
                     "role": "all",
                 })
                 console.print(
@@ -199,36 +216,40 @@ def configure_api_keys(console: Console) -> Optional[Dict]:
                 f"{safe_terminal_text(m.get('model', 'auto'))}[/dim]"
             )
 
-    # Step B: Choose config mode
-    console.print("\n  [bold]How to configure?[/bold]")
-    console.print("  [1] One model — all three roles share it (convenient)")
-    console.print("  [2] Three models — Proposer / Critique / Judge each use a different model (credible debate)")
+    configure_more = not models_list or Confirm.ask(
+        "\n  Configure additional models?", default=False
+    )
+    if configure_more:
+        # Step B: Choose config mode
+        console.print("\n  [bold]How to configure?[/bold]")
+        console.print("  [1] One model — all three roles share it (convenient)")
+        console.print("  [2] Three models — Proposer / Critique / Judge each use a different model (credible debate)")
 
-    choice = Prompt.ask("  Choice", default="1", choices=["1", "2"]).strip()
+        choice = Prompt.ask("  Choice", default="1", choices=["1", "2"]).strip()
 
-    # Step C: Collect model(s)
-    if choice == "1":
-        console.print("\n  [bold]Configure the model for all three roles:[/bold]")
-        console.print("  [dim]Examples: deepseek-chat | gpt-4o | claude-sonnet-4[/dim]")
-        model = _prompt_single_model(console)
-        if model:
-            model["role"] = "all"
-            models_list.append(model)
-            console.print(
-                "    [green]OK[/green] Proposer / Critique / Judge 共用 "
-                f"{safe_terminal_text(model['model'])}"
-            )
-    else:
-        console.print("\n  [bold]Configure one model per role:[/bold]")
-        console.print("  [dim]For maximum credibility, use different models for each role.[/dim]")
-        for role_key, role_name, role_color in zip(ROLE_KEYS, ROLE_NAMES_CN, ROLE_COLORS):
-            console.print(f"\n  [{role_color}]── {role_name} ──[/{role_color}]")
+        # Step C: Collect model(s)
+        if choice == "1":
+            console.print("\n  [bold]Configure the model for all three roles:[/bold]")
+            console.print("  [dim]Examples: deepseek-chat | gpt-4o | claude-sonnet-4[/dim]")
             model = _prompt_single_model(console)
-            if not model:
-                console.print("    [yellow]Skipped — this role will use the first available model[/yellow]")
-                continue
-            model["role"] = role_key
-            models_list.append(model)
+            if model:
+                model["role"] = "all"
+                models_list.append(model)
+                console.print(
+                    "    [green]OK[/green] Proposer / Critique / Judge 共用 "
+                    f"{safe_terminal_text(model['model'])}"
+                )
+        else:
+            console.print("\n  [bold]Configure one model per role:[/bold]")
+            console.print("  [dim]For maximum credibility, use different models for each role.[/dim]")
+            for role_key, role_name, role_color in zip(ROLE_KEYS, ROLE_NAMES_CN, ROLE_COLORS):
+                console.print(f"\n  [{role_color}]── {role_name} ──[/{role_color}]")
+                model = _prompt_single_model(console)
+                if not model:
+                    console.print("    [yellow]Skipped — this role will use the first available model[/yellow]")
+                    continue
+                model["role"] = role_key
+                models_list.append(model)
 
     if not models_list:
         return None

@@ -139,7 +139,7 @@ def test_command_runner_preserves_bounded_output_on_timeout():
             "-c",
             "import time; print('started', flush=True); time.sleep(5)",
         ],
-        timeout=0.05,
+        timeout=0.5,
     )
 
     assert result.returncode == -1

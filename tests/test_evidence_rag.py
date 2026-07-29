@@ -39,6 +39,48 @@ def test_graph_rag_is_stable_and_source_backed(tmp_path: Path):
     assert "DETERMINISTIC" not in rag.render(first)
 
 
+def test_graph_rag_balances_explicit_multi_file_queries(tmp_path: Path):
+    graph = CodeGraph(meta={"project_path": str(tmp_path)})
+    for file_path in ("package/sessions.py", "package/adapters.py"):
+        source = tmp_path / file_path
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(
+            "\n".join(f"def fn_{index}(): pass" for index in range(8)),
+            encoding="utf-8",
+        )
+        for index in range(8):
+            node_id = f"{file_path}:{index}"
+            graph.add_node(CodeNode(
+                node_id,
+                NodeType.FUNCTION,
+                f"fn_{index}",
+                file_path,
+                index + 1,
+                index + 1,
+                "python",
+            ))
+    ir = SemanticIR.from_graph(
+        graph, language="python", project_path=str(tmp_path)
+    )
+
+    pack = DeterministicGraphRAG(ir).retrieve(
+        "inspect package/sessions.py and package/adapters.py",
+        hops=1,
+        max_nodes=6,
+    )
+
+    assert {ref.file_path for ref in pack.evidence} == {
+        "package/sessions.py",
+        "package/adapters.py",
+    }
+    assert sum(
+        ref.file_path == "package/sessions.py" for ref in pack.evidence
+    ) == 3
+    assert sum(
+        ref.file_path == "package/adapters.py" for ref in pack.evidence
+    ) == 3
+
+
 def test_debate_evidence_pack_is_explicitly_bounded():
     pack = EvidencePack(query="entry", graph_version="abc", retrieval_trace=("seed:x",))
     context = DebateEngine._append_evidence_pack("base context", pack)

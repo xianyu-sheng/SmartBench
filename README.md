@@ -8,11 +8,13 @@
 
 **Evidence-grounded code diagnosis where LLMs propose hypotheses and deterministic analysis decides what is supportable.**
 
-[中文说明](README_CN.md) · [Silent demo](docs/assets/smartbench-silent-demo.webm) · [Three-minute walkthrough](docs/DEMO_3_MINUTES_CN.md) · [Architecture article](docs/EVIDENCE_LOOP_ARTICLE_CN.md) · [Usage guide](docs/USAGE_GUIDE.md)
+[中文说明](README_CN.md) · [▶ Watch the 2m39s live demo (MP4)](https://raw.githubusercontent.com/xianyu-sheng/SmartBench/main/docs/assets/smartbench-demo.mp4) · [Demo timeline](docs/DEMO_3_MINUTES_CN.md) · [Architecture article](docs/EVIDENCE_LOOP_ARTICLE_CN.md) · [Usage guide](docs/USAGE_GUIDE.md)
 
-[![Watch the 61-second silent SmartBench demo](docs/assets/smartbench-demo-poster.png)](docs/assets/smartbench-silent-demo.webm)
+[![Watch SmartBench analyze a real Requests repository](docs/assets/smartbench-demo-poster.png)](https://raw.githubusercontent.com/xianyu-sheng/SmartBench/main/docs/assets/smartbench-demo.mp4)
 
-*Click the poster to watch the 61-second Ubuntu GNOME native screen recording. No narration, audio track, API key, or network call is used.*
+**[▶ Play or download the H.264 MP4 directly](https://raw.githubusercontent.com/xianyu-sheng/SmartBench/main/docs/assets/smartbench-demo.mp4)**
+
+*This 2m39s silent Ubuntu GNOME recording starts from a new terminal, runs `smartbench`, imports the complete Requests repository at its public pre-fix commit, builds the graph/RAG index, and shows Proposer → Verifier → Critique → Judge. It is a live run, not a replayed report. No API key or audio track appears in the video.*
 
 SmartBench is a language-neutral diagnostic workbench for local repositories. It combines SemanticIR, CFG/ICFG and state analysis, deterministic graph retrieval, and evidence-constrained Agents. The normal diagnosis path is read-only: it does not patch the repository or contact an upstream project.
 
@@ -49,7 +51,7 @@ Current reproducible snapshot, verified on **2026-07-29**:
 
 | Evidence | Result | What it establishes |
 | --- | ---: | --- |
-| Test suite with graph extras | **582 passed** | Contracts, frontends, resolver, analyzers, reports, and CLI regressions |
+| Test suite with graph extras | **586 passed** | Contracts, frontends, resolver, analyzers, reports, and CLI regressions |
 | Historical public corpus | **12/12 snapshots passed** | Six known buggy snapshots produce the declared finding; six fixed snapshots do not |
 | DeepSeek blind resolver A/B | **6/6 trials passed** | Two target-excluded, reference-backed Go protocols survived without repair |
 | Independent negative in that A/B | **0 findings** | The accepted protocols did not fire on the clean negative fixture |
@@ -224,7 +226,7 @@ The model sees pinned, hashed reference inventories with historical target paths
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Usage guide](docs/USAGE_GUIDE.md)
-- [Three-minute Chinese walkthrough](docs/DEMO_3_MINUTES_CN.md)
+- [Live demo timeline (Chinese)](docs/DEMO_3_MINUTES_CN.md)
 - [Evidence-loop architecture article](docs/EVIDENCE_LOOP_ARTICLE_CN.md)
 - [Blind transfer experiment](benchmarks/experiments/project_reader_blind/README.md)
 - [Historical benchmark corpus](benchmarks/real/README.md)

@@ -244,6 +244,60 @@ def test_provider_detection_and_environment_loading(monkeypatch):
     assert config["models"][0]["model"] == "claude-custom"
 
 
+def test_environment_loading_honors_provider_base_url(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-secret")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://gateway.example/v1")
+    for variable in (
+        "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "GLM_API_KEY",
+        "DOUBAO_API_KEY", "MOONSHOT_API_KEY", "DASHSCOPE_API_KEY",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+
+    config = load_api_keys_from_env()
+
+    assert config["models"][0]["base_url"] == "https://gateway.example/v1"
+
+
+def test_smartbench_base_url_override_wins(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-secret")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://provider.example/v1")
+    monkeypatch.setenv(
+        "SMARTBENCH_ANTHROPIC_BASE_URL", "https://smartbench.example/v1"
+    )
+    for variable in (
+        "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "GLM_API_KEY",
+        "DOUBAO_API_KEY", "MOONSHOT_API_KEY", "DASHSCOPE_API_KEY",
+    ):
+        monkeypatch.delenv(variable, raising=False)
+
+    config = load_api_keys_from_env()
+
+    assert config["models"][0]["base_url"] == "https://smartbench.example/v1"
+
+
+def test_environment_model_does_not_force_manual_reconfiguration(monkeypatch):
+    for variable in provider_module.ENV_PROVIDER_MAP:
+        monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
+    answers = iter((True, False))
+    monkeypatch.setattr(
+        provider_module.Confirm,
+        "ask",
+        lambda *_args, **_kwargs: next(answers),
+    )
+
+    def unexpected_prompt(*_args, **_kwargs):
+        raise AssertionError("manual model input must remain optional")
+
+    monkeypatch.setattr(provider_module.Prompt, "ask", unexpected_prompt)
+    console = Console(file=StringIO(), color_system=None)
+
+    config = provider_module.configure_api_keys(console)
+
+    assert len(config["models"]) == 1
+    assert config["models"][0]["provider"] == "openai"
+
+
 def test_parse_json_safe_rejects_invalid_and_accepts_fences():
     assert parse_json_safe("not json") is None
     assert parse_json_safe("[]") is None

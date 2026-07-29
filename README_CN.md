@@ -8,11 +8,13 @@
 
 **让 LLM 提出语义假设，让确定性分析决定证据是否成立。**
 
-[English](README.md) · [无声演示视频](docs/assets/smartbench-silent-demo.webm) · [三分钟讲稿](docs/DEMO_3_MINUTES_CN.md) · [架构文章](docs/EVIDENCE_LOOP_ARTICLE_CN.md) · [使用指南](docs/USAGE_GUIDE.md)
+[English](README.md) · [▶ 观看 2 分 39 秒实战演示（MP4）](https://raw.githubusercontent.com/xianyu-sheng/SmartBench/main/docs/assets/smartbench-demo.mp4) · [演示时间线](docs/DEMO_3_MINUTES_CN.md) · [架构文章](docs/EVIDENCE_LOOP_ARTICLE_CN.md) · [使用指南](docs/USAGE_GUIDE.md)
 
-[![观看 SmartBench 61 秒无声演示](docs/assets/smartbench-demo-poster.png)](docs/assets/smartbench-silent-demo.webm)
+[![观看 SmartBench 分析完整 Requests 仓库](docs/assets/smartbench-demo-poster.png)](https://raw.githubusercontent.com/xianyu-sheng/SmartBench/main/docs/assets/smartbench-demo.mp4)
 
-*点击海报观看 61 秒 Ubuntu GNOME 原生录屏；没有旁白、音轨、API Key 或网络调用。*
+**[▶ 直接播放或下载 H.264 MP4](https://raw.githubusercontent.com/xianyu-sheng/SmartBench/main/docs/assets/smartbench-demo.mp4)**
+
+*这段 2 分 39 秒的 Ubuntu GNOME 无声原生录屏从打开新终端开始，现场输入 `smartbench`，导入处于公开修复前提交的完整 Requests 仓库，构建代码图与 RAG 索引，并展示 Proposer → Verifier → Critique → Judge。它不是预存报告回放；视频中不包含 API Key 或音轨。*
 
 SmartBench 是面向本地代码仓库、强调证据可追溯的语言无关代码诊断工作台。它组合 SemanticIR、CFG/ICFG 与状态分析、确定性图检索，以及受证据约束的多 Agent。常规诊断只读，不修改目标仓库，也不会自动联系上游项目。
 
@@ -49,7 +51,7 @@ Agent 可以选择 operation、result position、cleanup method、member path �
 
 | 证据 | 结果 | 能够说明什么 |
 | --- | ---: | --- |
-| 安装 graph extras 的测试套件 | **582 passed** | 前端、契约、resolver、分析器、报告与 CLI 回归 |
+| 安装 graph extras 的测试套件 | **586 passed** | 前端、契约、resolver、分析器、报告与 CLI 回归 |
 | 历史公开 before/after corpus | **12/12 snapshots passed** | 六个缺陷快照命中声明规则，六个修复快照不命中 |
 | DeepSeek blind resolver A/B | **6/6 trials passed** | 两个排除目标文件、有独立 reference 的 Go 协议无需 repair 即可复现 |
 | 同一 A/B 的独立负样本 | **0 findings** | 已接受协议没有在干净负例上触发 |
@@ -181,7 +183,7 @@ smartbench benchmark run \
 
 - [架构](docs/ARCHITECTURE.md)
 - [使用指南](docs/USAGE_GUIDE.md)
-- [三分钟讲稿](docs/DEMO_3_MINUTES_CN.md)
+- [实战演示时间线](docs/DEMO_3_MINUTES_CN.md)
 - [双架构文章](docs/EVIDENCE_LOOP_ARTICLE_CN.md)
 - [Blind transfer 实验](benchmarks/experiments/project_reader_blind/README.md)
 - [历史 corpus](benchmarks/real/README.md)
