@@ -8,11 +8,11 @@
 
 **让 LLM 提出语义假设，让确定性分析决定证据是否成立。**
 
-[English](README.md) · [▶ 观看 2 分 39 秒实战演示（MP4）](https://raw.githubusercontent.com/xianyu-sheng/SmartBench/main/docs/assets/smartbench-demo.mp4) · [演示时间线](docs/DEMO_3_MINUTES_CN.md) · [架构文章](docs/EVIDENCE_LOOP_ARTICLE_CN.md) · [使用指南](docs/USAGE_GUIDE.md)
+[English](README.md) · [▶ 观看 2 分 39 秒实战演示](https://xianyu-sheng.github.io/SmartBench/) · [演示时间线](docs/DEMO_3_MINUTES_CN.md) · [架构文章](docs/EVIDENCE_LOOP_ARTICLE_CN.md) · [使用指南](docs/USAGE_GUIDE.md)
 
-[![观看 SmartBench 分析完整 Requests 仓库](docs/assets/smartbench-demo-poster.png)](https://raw.githubusercontent.com/xianyu-sheng/SmartBench/main/docs/assets/smartbench-demo.mp4)
+[![观看 SmartBench 分析完整 Requests 仓库](docs/assets/smartbench-demo-poster.png)](https://xianyu-sheng.github.io/SmartBench/)
 
-**[▶ 直接播放或下载 H.264 MP4](https://raw.githubusercontent.com/xianyu-sheng/SmartBench/main/docs/assets/smartbench-demo.mp4)**
+**[▶ 打开浏览器播放器](https://xianyu-sheng.github.io/SmartBench/)** · [下载 H.264 MP4](https://raw.githubusercontent.com/xianyu-sheng/SmartBench/main/docs/assets/smartbench-demo.mp4)
 
 *这段 2 分 39 秒的 Ubuntu GNOME 无声原生录屏从打开新终端开始，现场输入 `smartbench`，导入处于公开修复前提交的完整 Requests 仓库，构建代码图与 RAG 索引，并展示 Proposer → Verifier → Critique → Judge。它不是预存报告回放；视频中不包含 API Key 或音轨。*
 

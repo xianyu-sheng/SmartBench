@@ -8,11 +8,11 @@
 
 **Evidence-grounded code diagnosis where LLMs propose hypotheses and deterministic analysis decides what is supportable.**
 
-[中文说明](README_CN.md) · [▶ Watch the 2m39s live demo (MP4)](https://raw.githubusercontent.com/xianyu-sheng/SmartBench/main/docs/assets/smartbench-demo.mp4) · [Demo timeline](docs/DEMO_3_MINUTES_CN.md) · [Architecture article](docs/EVIDENCE_LOOP_ARTICLE_CN.md) · [Usage guide](docs/USAGE_GUIDE.md)
+[中文说明](README_CN.md) · [▶ Watch the 2m39s live demo](https://xianyu-sheng.github.io/SmartBench/) · [Demo timeline](docs/DEMO_3_MINUTES_CN.md) · [Architecture article](docs/EVIDENCE_LOOP_ARTICLE_CN.md) · [Usage guide](docs/USAGE_GUIDE.md)
 
-[![Watch SmartBench analyze a real Requests repository](docs/assets/smartbench-demo-poster.png)](https://raw.githubusercontent.com/xianyu-sheng/SmartBench/main/docs/assets/smartbench-demo.mp4)
+[![Watch SmartBench analyze a real Requests repository](docs/assets/smartbench-demo-poster.png)](https://xianyu-sheng.github.io/SmartBench/)
 
-**[▶ Play or download the H.264 MP4 directly](https://raw.githubusercontent.com/xianyu-sheng/SmartBench/main/docs/assets/smartbench-demo.mp4)**
+**[▶ Open the browser player](https://xianyu-sheng.github.io/SmartBench/)** · [Download the H.264 MP4](https://raw.githubusercontent.com/xianyu-sheng/SmartBench/main/docs/assets/smartbench-demo.mp4)
 
 *This 2m39s silent Ubuntu GNOME recording starts from a new terminal, runs `smartbench`, imports the complete Requests repository at its public pre-fix commit, builds the graph/RAG index, and shows Proposer → Verifier → Critique → Judge. It is a live run, not a replayed report. No API key or audio track appears in the video.*
 

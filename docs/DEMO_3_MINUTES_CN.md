@@ -1,6 +1,6 @@
 # SmartBench 2 分 39 秒无声实战演示
 
-完整视频：[直接播放或下载 H.264 MP4](https://raw.githubusercontent.com/xianyu-sheng/SmartBench/main/docs/assets/smartbench-demo.mp4)。
+完整视频：[浏览器在线播放](https://xianyu-sheng.github.io/SmartBench/) · [下载 H.264 MP4](https://raw.githubusercontent.com/xianyu-sheng/SmartBench/main/docs/assets/smartbench-demo.mp4)。
 
 这不是测试结果回放。视频使用 Ubuntu GNOME 原生录屏，从一个新终端开始，对 Requests 的完整公开历史仓库执行一次真实 SmartBench 分析。录制中没有旁白、音轨或可见 API Key。
 
