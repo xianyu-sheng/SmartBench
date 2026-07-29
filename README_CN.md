@@ -3,203 +3,188 @@
 [![CI](https://github.com/xianyu-sheng/SmartBench/actions/workflows/ci.yml/badge.svg)](https://github.com/xianyu-sheng/SmartBench/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB.svg)](https://www.python.org/)
 [![Version: 0.7.0](https://img.shields.io/badge/version-0.7.0-4C1.svg)](CHANGELOG.md)
+[![Status: Public Beta](https://img.shields.io/badge/status-public_beta-orange.svg)](#项目状态)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Status: Beta](https://img.shields.io/badge/status-beta-orange.svg)](#项目状态)
 
-面向本地代码仓库、强调证据可追溯的语言无关代码诊断工作台。
+**让 LLM 提出语义假设，让确定性分析决定证据是否成立。**
 
-[English](README.md) · [使用指南](docs/USAGE_GUIDE.md)
+[English](README.md) · [无声演示视频](docs/assets/smartbench-silent-demo.webm) · [三分钟讲稿](docs/DEMO_3_MINUTES_CN.md) · [架构文章](docs/EVIDENCE_LOOP_ARTICLE_CN.md) · [使用指南](docs/USAGE_GUIDE.md)
 
-SmartBench 是一款可以持续迭代的诊断工作台，而不是“已经能够自动发现所有 Bug”的承诺。它将语言无关的 Semantic IR、确定性代码图证据检索、声明式控制流/数据流/状态分析、可选 RAG 检索、三角色 LLM 审查、本地诊断探针和源代码证据核验组合在一起。常规流程不会编辑目标仓库的源文件；启用 RAG 时会在 `<project>/.smartbench/` 下写入索引缓存。
+[![观看 SmartBench 61 秒无声演示](docs/assets/smartbench-demo-poster.png)](docs/assets/smartbench-silent-demo.webm)
 
-> SmartBench 目前处于 Beta 阶段。证据核验能够确认引用的文件、行号、符号以及部分调用关系，可减少虚构引用，但不能证明每条诊断在语义上必然正确。
+*点击海报观看 61 秒 Ubuntu GNOME 原生录屏；没有旁白、音轨、API Key 或网络调用。*
 
-## 当前已经实现
+SmartBench 是面向本地代码仓库、强调证据可追溯的语言无关代码诊断工作台。它组合 SemanticIR、CFG/ICFG 与状态分析、确定性图检索，以及受证据约束的多 Agent。常规诊断只读，不修改目标仓库，也不会自动联系上游项目。
 
-- 通过依赖目录剪枝与明确扫描上限，确定性识别语言、框架、构建系统、入口、依赖和 Git 信号。
-- 安装 `graph` 可选依赖后，对 Python、Go、JavaScript、TypeScript 和 Rust 使用 tree-sitter 提取符号。
-- 其他语言使用正则启发式回退，并保守提取近似调用关系；同名定义存在歧义时不会虚构调用边。
-- 版本化 `SemanticIR` 分析边界、前端契约、能力声明、规范化操作、控制流边以及明确的 `full`/`partial`/`unsupported` 分析状态。
-- 统一的源码来源角色（生产、测试、夹具、示例、生成、文档）会随 IR 传递；声明为生产级的规则不会把夹具结果提升为产品 Bug。
-- Python/Go 的有限跨函数控制流与数据流，包括调用/返回路径、实参到形参、返回值传播，以及声明式跨函数状态规则。
-- JavaScript/TypeScript 共用一个语义前端，将函数、参数、赋值、分支、循环、返回、调用和表层类型注解降低到同一操作模型；异步、异常和类型检查语义仍明确标记为 partial。
-- 确定性的 EvidencePack，包含稳定 fact ID、图快照哈希和源代码位置；证据独占模式会拒绝没有引用证据 fact 的建议。
-- Proposer、Critique、Judge 三个审查角色，可共用模型，也可分别配置模型。
-- 对引用路径、行号、符号和部分调用链做确定性核验；模糊路径修正会明确标记为“部分可信”。
-- 可选代码图与本地向量混合检索，并带有标注过的检索评测样例。
-- 按策略执行 Python、Go、C/C++、Java/Kotlin 及通用系统诊断探针或生成工具建议。
-- 混合语言仓库会按全部已检测语言路由本地诊断，不会退化成空的通用结果。
-- 支持 Git URL、worktree 与单仓库子项目识别，并限制外部命令的执行时间和输出量。
-- 支持输出 JSON 报告，便于非交互流程使用。
+> [!IMPORTANT]
+> SmartBench 当前是公开 Beta，不是生产级 SAST。证据引用能够证明“信息来自哪里”，但不能自动证明每条诊断必然正确。无法覆盖的语义会保留为 `unknown`、`partial` 或 `abstain`，不会被当成干净结果。
 
-语义分析遵循保守策略：无法解析的调用、动态分派、不支持的并发关系或无法证明的守卫会被标记为 unknown/partial，而不会被静默当作“没有问题”。
+## 与普通 LLM 代码审查有什么不同
 
-## 工作流程
+SmartBench 不让模型同时解释项目、创造事实并裁决自己的证据：
 
 ```text
 代码仓库
-   │
-   ├─ 确定性指纹 ── 语言 / 框架 / 构建 / Git 信号
-   │
-   ├─ 语言前端 ─── Python/Go + 部分 JS/TS SemanticIR
-   │       │
-   │       ├─ CFG / ICFG / 数据流 / 状态规则
-   │       └─ 确定性 GraphRAG EvidencePack
-   │                              │
-   └─ Proposer → Critique → Judge ─┘
-                          │
-                          └─ 带源代码证据的诊断结果
+  → 语言前端 → SemanticIR
+  → 确定性 inventory / GraphRAG EvidencePack
+  → Agent 语义假设
+  → 唯一匹配 evidence resolver
+  → 原始 validator
+  → CFG / ICFG / 状态分析
+  → Finding，或明确 abstain
 ```
 
-缺失文件或非法行号会被标记为虚构引用；模糊匹配到的路径只会得到部分可信结论。语义正确性仍需要测试、编译器或 Linter 输出、性能数据或人工审查确认。
+Agent 可以选择 operation、result position、cleanup method、member path 或类型假设，但不能向 SemanticIR 写入事实。`fact-*` 和 `type-*` ID 由 resolver 绑定：
+
+- 恰好一个结构匹配：`resolved`；
+- 没有匹配：`unresolved` 并 abstain；
+- 多个匹配：`ambiguous` 并 abstain；
+- 旧客户端提交的 ID 只进入审计区，不能覆盖确定性证据。
+
+语义选择被拒绝后，bounded repair 只能看到同一份 blind inventory、上一次结构化输出和确定性拒绝原因；它看不到历史目标文件和 before/after 答案，replacement model 仍需通过同一个 resolver 与 validator。
+
+## 当前证据，而不是宣传口号
+
+截至 **2026-07-29** 的可复现快照：
+
+| 证据 | 结果 | 能够说明什么 |
+| --- | ---: | --- |
+| 安装 graph extras 的测试套件 | **582 passed** | 前端、契约、resolver、分析器、报告与 CLI 回归 |
+| 历史公开 before/after corpus | **12/12 snapshots passed** | 六个缺陷快照命中声明规则，六个修复快照不命中 |
+| DeepSeek blind resolver A/B | **6/6 trials passed** | 两个排除目标文件、有独立 reference 的 Go 协议无需 repair 即可复现 |
+| 同一 A/B 的独立负样本 | **0 findings** | 已接受协议没有在干净负例上触发 |
+| Blind unsupported 案例 | **2/4 cases** | Gin、Terraform 缺少合法 reference，系统选择 abstain |
+
+`6/6` 只代表两个 Go 资源协议、每个三轮的真实实验，不是通用 Bug 检测准确率。历史 corpus 证明系统能够确定性表达已知缺陷，不证明未知 Bug recall。
+
+## 离线证据闭环演示
+
+无需 API Key 和网络：
+
+```bash
+python -m smartbench.experiments.evidence_loop_demo \
+  --output /tmp/smartbench-evidence-loop-demo.json
+```
+
+脚本化 Agent 会故意提出错误 cleanup method，终端随后展示：
+
+```text
+初始假设被 gate 拒绝
+  → 一次 bounded repair
+  → evidence resolved
+  → validator supported
+  → cfg_dominance_between_acquire_and_use witness
+  → before=1 / after=0 / negative=0
+```
+
+这是离线机制演示，不冒充真实模型效果。真实 LLM trials 单独报告。
+
+运行第二语言、第二类别的安全案例：
+
+```bash
+smartbench benchmark run \
+  --manifest benchmarks/real/requests_proxy_authorization_guard/manifest.yaml \
+  --output /tmp/requests-security.json
+```
+
+它通过 Python SemanticIR 和语言无关的 `call → guard → assign` 状态不变量验证 Requests `GHSA-j8r2-6x86-q33q`，预期为 `before=1 / after=0`。
+
+## 当前能力
+
+- Python、Go 具有最深的规范化 operation 与控制流支持；JavaScript/TypeScript 共享 partial SemanticIR 前端。
+- CFG、有限 ICFG、保守调用/数据链接、声明式状态不变量、资源生命周期与 provenance 分析。
+- content-addressed EvidencePack、图快照哈希、唯一匹配 resolver，以及显式 unknown/ambiguous。
+- ProjectReader 假设与证据独占的 Proposer、Critique、Judge；无效输出不会被标记为共识。
+- JSON、SARIF、benchmark、capability status、repository zone、source role 和 semantic/heuristic 标签。
+- 混合语言识别、有界文件发现、Git URL worktree、依赖剪枝与路径约束。
 
 ## 语言覆盖
 
-仓库指纹可识别 Python、Go、Rust、C、C++、Java、Kotlin、JavaScript、TypeScript、Ruby、Swift、C# 和 Zig，也能识别混合语言项目。
+| 语言 | 当前层级 | 明确边界 |
+| --- | --- | --- |
+| Python | 深层语义 | CFG/ICFG、调用、状态规则，部分数据/类型语义 |
+| Go | 深层语义 | CFG/ICFG、状态/资源分析、表层 TypeEvidence；不等同于 `go/types` |
+| JavaScript / TypeScript | 部分语义 | 共享语句/调用/控制流；异步、异常、动态分派仍是 partial |
+| Rust | 结构级 | tree-sitter 符号和图上下文，没有完整语义降低 |
+| Java、Kotlin、C/C++、Ruby、Swift、C#、Zig | 识别/启发式 | 项目指纹和回退结构，不是编译器级分析 |
 
-可选 tree-sitter 后端目前覆盖 Python、Go、JavaScript、TypeScript 和 Rust。Python 和 Go 当前具有最深的统一操作与控制流支持；JavaScript/TypeScript 已通过一个共享前端降低常见语句、调用和表层类型，但异步调度、异常、动态分派及类型检查事实仍是 partial。Java 和 Rust 当前主要提供结构化兼容能力。其他语言使用启发式结构解析；C 目前只有文件级发现。回退图适合上下文检索，但不是编译器级分析。
+增加语义语言时只应实现 frontend contract；语言无关分析器不能导入该语言 parser。新前端需要稳定位置、显式 capability、确定性 IR 序列化和至少一个 before/after benchmark。
 
-## 快速开始
-
-要求 Python 3.10 或更高版本，并安装 Git。
+## 安装与仓库分析
 
 ```bash
 git clone https://github.com/xianyu-sheng/SmartBench.git
 cd SmartBench
 python -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
-smartbench --version
-smartbench --help
-```
-
-安装五种语言的 tree-sitter 精确解析器：
-
-```bash
 python -m pip install -e ".[graph]"
+
+smartbench unified run \
+  --project /path/to/repository \
+  --output report.json \
+  --sarif report.sarif
 ```
 
-启动交互式向导：
-
-```bash
-smartbench
-```
-
-通过环境变量配置模型，运行快速诊断并保存报告：
+可选 Agent 审查：
 
 ```bash
 export DEEPSEEK_API_KEY="your-key"
 smartbench quick \
-  --project . \
-  --concern "检查正确性和并发风险" \
-  --output report.json
+  --project /path/to/repository \
+  --concern "检查正确性、状态与并发风险" \
+  --output agent-report.json
 ```
 
-## 统一多语言诊断
+支持 `DEEPSEEK_API_KEY`、`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`GLM_API_KEY`、`DOUBAO_API_KEY`、`MOONSHOT_API_KEY` 和 `DASHSCOPE_API_KEY`。Key 只保存在进程内存，不写入报告。
 
-SmartBench 提供快速的统一诊断框架，支持多语言静态分析：
+## 如何理解结果
+
+| 状态 | 含义 |
+| --- | --- |
+| `full` | 相关语言满足规则声明的全部 capability |
+| `partial` | 执行了有明确边界的保守近似 |
+| `unsupported` | 所需能力不可用，不能当成干净结果 |
+| `unknown` | 规则没有声明足够语义要求，无法声称覆盖 |
+| `abstain` | 证据缺失、冲突、歧义或存在 ownership transfer |
+
+Finding 还会记录 source role、repository zone 和 `semantic`/`heuristic` 派生方式。
+
+## 历史公开 corpus
+
+| 项目 | 语言 | 公开修复 | 类别 |
+| --- | --- | --- | --- |
+| Requests | Python | [GHSA-j8r2-6x86-q33q](https://github.com/advisories/GHSA-j8r2-6x86-q33q) | 安全状态 guard |
+| FastAPI | Python | [#5465](https://github.com/fastapi/fastapi/pull/5465) | 资源生命周期 |
+| Prometheus | Go | [#1070](https://github.com/prometheus/prometheus/pull/1070) | 资源生命周期 |
+| Kubernetes | Go | [#29495](https://github.com/kubernetes/kubernetes/pull/29495) | 资源生命周期 |
+| Gin | Go | [#4422](https://github.com/gin-gonic/gin/pull/4422) | 资源生命周期 |
+| Terraform | Go | [#38585](https://github.com/hashicorp/terraform/pull/38585) | 资源生命周期 |
 
 ```bash
-# 列出可用的诊断规则
-smartbench unified rules
-
-# 列出支持的语言
-smartbench unified languages
-
-# 运行统一诊断
-smartbench unified run --project .
-
-# 只运行指定规则和扫描指定语言
-smartbench unified run --project . --rule null_dereference --rule hardcoded_secret --language python
-
-# 导出 SARIF 报告（用于 GitHub/GitLab 代码扫描集成）
-smartbench unified run --project . --sarif report.sarif --output report.json
-
-# 运行声明式跨函数状态规则
-smartbench unified run \
-  --project /path/to/repository \
-  --language go \
-  --state-rules benchmarks/reasonix/reasoning_stop.yaml \
-  --output state-report.json
-
-# 运行 pre-fix/post-fix 基准测试
-python -m smartbench.cli.main benchmark run \
-  --manifest benchmarks/interprocedural/manifest.yaml \
+smartbench benchmark run \
+  --manifest benchmarks/real/manifest.yaml \
   --output benchmark-report.json
 ```
 
-Python 和 Go 前端会把控制流操作降低到同一个 IR。声明式状态规则使用版本化的
-`smartbench.state-rules/v1` schema，不把仓库专有名称写进语言前端，并通过统一的
-JSON/SARIF 输出返回带源代码证据的发现。在证据独占的多 Agent 模式下，每条被接受
-的建议都必须引用确定性 EvidencePack 中的稳定 `fact-*` ID。基准清单声明 before/after
-快照和预期发现数量，因此回归结果可以复现。
-
-JSON 结果还会给出 `analysis_status` 和 `stats.rules_*`：`partial` 表示有明确边界的保守近似（例如仅函数内污点分析），`unsupported` 表示规则没有运行，绝不等同于“没有问题”。前端能够解析来源时，每条发现也会带上源码角色。
-
-内置的跨函数基准故意让事件发生在调用者、动作发生在被调用函数：before 快照报告
-一个发现，after 快照报告零个发现。它是架构回归样例，不代表通用诊断准确率。
-
-检查本机探针，或跳过 LLM 辩论执行诊断路径：
-
-```bash
-smartbench check
-smartbench diagnose --project . --perf --output diagnostics.json
-smartbench diagnose --project . --perf --system-probes
-smartbench eval-rag --project . --queries tests/fixtures/rag_eval_queries.json
-```
-
-对于可信仓库，可以使用 `smartbench quick --project . --sandbox`：Judge 会尝试
-提供 unified diff，SmartBench 只在临时副本中应用有效补丁，先确认基线测试通过，
-再运行补丁后的同一组测试。只有自然语言建议、没有补丁时会标记为“跳过”，不会误报
-为“已验证”。
-
-凭证环境变量包括 `DEEPSEEK_API_KEY`、`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`GLM_API_KEY`、`DOUBAO_API_KEY`、`MOONSHOT_API_KEY` 和 `DASHSCOPE_API_KEY`。Anthropic 使用原生 Messages 协议，其余供应商使用各自的 OpenAI 兼容聊天端点。快速模式的默认模型可通过 `SMARTBENCH_<PROVIDER>_MODEL` 覆盖，例如 `SMARTBENCH_ANTHROPIC_MODEL`。向导输入的 Key 只保存在当前进程内存中。
-
-每个辩论角色的输出只有在 JSON 对象符合所需结构后才会被接受；格式错误或字段形状错误会重试，无效的 Judge 输出不会被标记为“达成共识”。`--output` 使用原子写入，保存失败时 CLI 返回非零状态码。
-
-## 可选 RAG
-
-```bash
-python -m pip install -e ".[rag]"
-```
-
-未安装可选依赖时，SmartBench 会使用仅代码图检索。启用后，本地向量存储会在被分析仓库的 `.smartbench/` 目录中写入索引；如有需要，请将该目录加入目标仓库的忽略规则。索引会剪枝依赖与缓存目录，并默认限制为最多 2,000 个文件、单文件 2 MB、10,000 个分块。
+每份 manifest 都记录上游仓库、commit、预期行为、rule ID 和 fixture 边界。
 
 ## 安全边界
 
-- 常规诊断流程不会编辑被分析仓库的源文件。
-- Git URL 会以非交互方式克隆到临时目录，并在 SmartBench 退出时清理。
-- 扫描、检索和证据验证只读取解析后仍位于项目根目录内的常规文件；外部符号链接和 `../` 越界路径会被忽略。
-- 仓库元数据、README、源码、日志、工具输出和前序模型输出会在提示词中标记为不可信数据，其中类似指令的文字不应控制工作流。这只能缓解 Prompt Injection，并非形式化隔离边界；不要分析包含不允许发送给所配置模型供应商之秘密的仓库。
-- Git remote 中的凭证以及 URL query/fragment 会在写入项目指纹或显示前移除。
-- 项目级诊断可能在目标路径内执行本机已安装的编译器或分析器，只应分析你信任的仓库。
-- 外部工具不通过 shell 执行，并受到时间和输出上限约束；在 POSIX 系统中，超时会终止所启动的整个进程组。
-- 主机进程、内存和内核探针（`ps`、`vmstat`、`dmesg`）默认关闭；只有显式使用 `diagnose --system-probes` 才会运行，并且输出可能暴露主机信息。
-- `--sandbox` 必须显式开启。它会保护工作区、限制补丁只能修改声明的目标文件，并移除凭证型环境变量，但不是操作系统安全边界；仓库测试仍拥有当前用户权限，也可能访问网络或用户文件。
-- 证据状态只描述“引用是否有依据”，不等价于漏洞或修复已被形式化证明。
+- 常规诊断不会修改仓库、创建 Issue/PR 或联系维护者。
+- 仓库内容会被标记为不可信 prompt 数据，但这不是形式化 sandbox。
+- 外部 symlink 和 `../` 越界路径会被忽略；外部命令不通过 shell，且有时间/输出上限。
+- 本地诊断可能运行已安装的编译器或分析器，只应分析可信仓库。
+- `quick --sandbox` 只在临时副本中应用补丁，但测试仍拥有当前用户的系统权限。
+- 除非确认允许发送给远程 provider，否则不要分析包含秘密的仓库。
 
-## 项目结构
+## 文档与开发
 
-```text
-smartbench/
-├── cli/             命令、交互向导、诊断阶段与展示
-├── core/             统一引擎、规则、适配器与 SARIF 桥接
-├── ir/               版本化 SemanticIR、契约、事实与能力声明
-├── analysis/         CFG、ICFG、跨函数和状态分析
-├── frontends/        Python/Go 与共享 JavaScript/TypeScript 语义降低
-├── detector/        确定性仓库指纹
-├── graph/           tree-sitter 适配、回退结构图与图检索
-├── rag/             可选分块、嵌入、向量检索与评测
-├── engine/          Proposer / Critique / Judge 编排
-├── verifier/        文件、行号、符号和调用链核验
-├── diagnostics/     本地诊断工具注册表与策略执行器
-├── llm/             供应商配置与模型调用
-└── prompts/         上下文感知结构化提示词
-```
-
-早期面向 Raft 的实现保存在 `legacy/` 中，仅供历史参考，并已从发布包中排除。
-
-## 开发与验证
+- [架构](docs/ARCHITECTURE.md)
+- [使用指南](docs/USAGE_GUIDE.md)
+- [三分钟讲稿](docs/DEMO_3_MINUTES_CN.md)
+- [双架构文章](docs/EVIDENCE_LOOP_ARTICLE_CN.md)
+- [Blind transfer 实验](benchmarks/experiments/project_reader_blind/README.md)
+- [历史 corpus](benchmarks/real/README.md)
 
 ```bash
 python -m pip install -e ".[dev,graph]"
@@ -209,32 +194,17 @@ python -m compileall -q smartbench
 python -m build
 ```
 
-CI 会在 Python 3.10、3.11、3.12 上执行 lint、编译检查和测试，单独验证五种 tree-sitter 适配器，构建 wheel 与源码包，并在干净环境安装 wheel、从源码目录外执行 CLI 冒烟测试。
-
-## 验证快照
-
-当前开发快照于 2026-07-24 完成以下验证：
-
-- 安装 graph 可选依赖时 547 项测试全部通过；无可选解析器时 509 项通过、38 项跳过，覆盖语义前端、跨函数 linker/ICFG、证据门和 benchmark。
-- Ruff、字节码编译、wheel 和源码包构建通过。
-- 内置跨函数 benchmark 通过，before=1、after=0。
-- Reasonix reasoning-stop benchmark 能够在已知的修复前快照中发现问题，并对修复后快照返回零发现。
-
-这些 benchmark 仍然规模较小。它们证明当前流水线可以检测一个真实缺陷和一个跨函数回归，
-但还不能代表跨语言、跨 Bug 类型的通用 precision/recall。
-
-版本详情见 [CHANGELOG](CHANGELOG.md)。
-
 ## 项目状态
 
-SmartBench 的定位是诊断工作台，不替代编译器、Linter、安全扫描器、Profiler 或人工审查。
-它现在已经可以用于有证据约束的仓库审查，并会以增量方式继续扩展。接下来的质量里程碑是：
+SmartBench 已适合受控真实仓库审计、秋招展示和架构研究，但还不是通用未知 Bug 检测器或生产级 SAST。下一阶段会优先：
 
-1. 冻结并扩展 SemanticIR 契约，建立所有前端的 conformance test。
-2. 将检索与诊断精度评测扩展到独立的带标签仓库和负例。
-3. 为可选仓库测试执行增加更强的进程隔离。
-4. 加深 Go/Python 的类型、异常、异步和并发语义。
-5. 增加下一个完整语义前端，再扩展机器可应用补丁覆盖率和语言专项验证。
+1. 审计 5–8 个独立仓库，公开 verified、candidate 与 abstained 结果；
+2. 将 blind corpus 扩展到 10–20 个外部 before/after 与自然负样本；
+3. 增加第二种 Agent-discovered protocol 和另一个语义语言案例；
+4. 测量 precision、recall、abstention、trial stability、延迟和成本；
+5. 在不削弱 IR 边界的前提下深化异常、异步、类型、别名和并发语义。
+
+任何 SmartBench finding 在向上游提交前，都必须经过多次验证和明确的人类决策。
 
 ## 许可证
 
