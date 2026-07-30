@@ -17,6 +17,29 @@ SmartBench 是一个实验性的代码诊断工作台：用规范化静态分析
 > [!IMPORTANT]
 > SmartBench 当前是公开 Beta，不是生产级 SAST 替代品。它可以用于受控仓库审计，并能复现一小组已知历史缺陷；目前没有证明通用未知 Bug 的 precision 或 recall。
 
+## SmartBench 正在验证什么
+
+SmartBench 探索的是代码诊断中的一种职责划分：
+
+- 语言前端和确定性分析器拥有源码事实的解释权；
+- LLM 可以把项目特有约定或风险作为 hypothesis 提出；
+- resolver 和 validator 决定 hypothesis 能否重新绑定到真实 operation、类型与控制流；
+- 证据不足的结论保留为 `unknown` 或 `abstained`，不能升级为 finding。
+
+当某种项目约定过于局部、不值得写成一条语言级规则，而直接允许模型宣称 Bug
+又缺乏可信边界时，这种分工才有价值。
+
+当前仓库实际提供的能力是：
+
+| 路径 | 当前输出 | 不能据此证明什么 |
+| --- | --- | --- |
+| 确定性 `unified` 分析 | 规则 finding、capability、源码角色、图事实、JSON 和 SARIF | 干净结果不代表代码没有 Bug |
+| 配置模型后的 `quick` | 项目 hypothesis、受 evidence gate 约束的审查、明确拒绝和 abstain 状态 | Agent 引用了真实 fact，不等于结论已经成立 |
+| 公开 before/after corpus | 可复现地验证部分 analyzer 能区分六个已知修复 | 对未知 Bug 的 precision 或 recall |
+
+目前更适合的使用者，是评估这套架构或进行受控、人工复核仓库审计的人；它还不是
+可以直接放进 CI 作为质量门禁的工具。
+
 ## 快速开始
 
 要求 Python 3.10+ 和 Git。
@@ -94,6 +117,11 @@ Repository
 
 后续 Agent 可以读取 hypothesis 来决定“查什么”，但 evidence gate 不会把它当作 fact。最终具体结论必须引用合法 fact ID；缺失、歧义、冲突或所有权不明时保留为 `unknown` 或 `abstained`。
 
+当前 debate gate 校验的是 fact ID 是否存在，不是“该事实是否在逻辑上蕴含这条
+结论”。模型仍可能引用一个真实但不支持结论的 fact。因此，源码位置核验、
+ProjectReader 的确定性验证和人工复核是彼此独立的要求；typed
+conclusion-to-evidence relation 仍是待完成的契约。
+
 ProjectReader 不能写入 SemanticIR。当前资源生命周期链路中，它只能选择真实 CALL 并提出项目级清理协议，随后由程序：
 
 1. 绑定真实 operation、cleanup fact 与 TypeEvidence；
@@ -131,11 +159,16 @@ ProjectReader 不能写入 SemanticIR。当前资源生命周期链路中，它�
 还需要注意：
 
 - verifier 的 `verified`、`hallucinated` 描述的是源码位置和结构引用是否成立，不证明 Bug 结论正确；
-- `consensus_reached` 当前表示 Judge 返回了 schema 合法的 JSON，不是多个独立模型的统计一致率。
+- `consensus_reached` 当前表示 Proposer、Critique、Judge 三个阶段都返回了 schema
+  合法的输出；它是阶段完成标记，不是多个独立模型的统计一致率；
+- Critique 或 Judge 失败时，Proposer 或 Judge 输出只会保存在
+  `unreviewed_suggestions` 供审计，不会升级为 `final_suggestions`。控制台会明确
+  显示 review 未完成，而不是把它报告成干净结果。
 
 ## 可复现实验
 
-仓库包含六个公开 before/after 案例，共 12 个快照：
+仓库包含六个来自公开修复的 before/after 案例，共 12 个最小源码快照。这些 fixture
+保留声明式 analyzer 所需的代码，并不是六个历史仓库的完整 checkout：
 
 | 项目 | 语言 | 公开修复 | 类别 |
 | --- | --- | --- | --- |
@@ -162,6 +195,10 @@ smartbench benchmark run \
 - 异常流、异步调度、动态分派、别名分析、goroutine happens-before 和跨函数 channel alias 尚不完整。
 - ProjectReader 生命周期 analyzer 当前只证明规范化的 defer-style cleanup。
 - benchmark 规模小，且资源生命周期类别占比过高。
+- 大型仓库的延迟和内存还没有公开、稳定的预算。
+- 本地向量/TF-IDF 缓存还不能跨所有可选依赖变化稳定复用；如果缓存是在安装
+  scikit-learn 时生成、之后又在缺少它的环境中打开，需要删除目标仓库的
+  `.smartbench/` 缓存后重建。
 - `quick` 发送的仓库内容对所配置的远程模型供应商可见。
 - 干净报告可能表示“没有受支持的 finding”，不等于“仓库没有 Bug”。
 

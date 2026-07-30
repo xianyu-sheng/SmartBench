@@ -17,6 +17,33 @@ The normal workflow is read-only. SmartBench does not edit the analyzed reposito
 > [!IMPORTANT]
 > SmartBench is a public Beta, not a production SAST replacement. It can run controlled repository audits and reproduce a small corpus of known defects. It has not established general unknown-bug precision or recall.
 
+## What SmartBench is testing
+
+SmartBench explores a specific division of responsibility in code diagnosis:
+
+- language frontends and deterministic analyzers own source facts;
+- an LLM may propose repository-specific conventions or risks as hypotheses;
+- resolvers and validators decide whether a hypothesis can be bound back to
+  source operations, types, and control flow;
+- unsupported claims remain visible as `unknown` or `abstained` instead of
+  being promoted to findings.
+
+This is useful when a project convention is too local to justify a new
+language-wide rule, but allowing a model to assert a bug directly would be too
+weak a trust boundary.
+
+What the current repository provides:
+
+| Path | Output today | What it does not establish |
+| --- | --- | --- |
+| Deterministic `unified` analysis | Rule findings, capabilities, source roles, graph facts, JSON and SARIF | That a clean result means bug-free code |
+| `quick` with a configured model | Project hypotheses, evidence-gated review, explicit rejection and abstention states | That an Agent conclusion is proved merely because it cites a real fact |
+| Public before/after corpus | Reproducible checks that selected analyzers distinguish six known fixes | Precision or recall on previously unknown bugs |
+
+The intended user today is someone evaluating the architecture or performing a
+controlled, human-reviewed repository audit. It is not yet a drop-in CI quality
+gate.
+
 ## Quick start
 
 Requirements: Python 3.10 or newer and Git.
@@ -94,6 +121,12 @@ An `EvidencePack` separates two types of input:
 
 Hypotheses are visible to later Agents so they can choose what to investigate, but they are not accepted by the evidence gate as facts. A concrete final suggestion must cite valid fact IDs. Missing, ambiguous, or conflicting evidence remains `unknown` or `abstained`.
 
+The current debate gate validates fact-ID existence, not logical entailment. A
+model can still cite a real fact that does not support its conclusion. Location
+verification, deterministic ProjectReader validation, and human review are
+therefore separate requirements; typed conclusion-to-evidence relations remain
+open work.
+
 ProjectReader does not write to SemanticIR. For the currently implemented resource-lifecycle path it selects a real call and proposes a project-scoped cleanup protocol. The deterministic stages then:
 
 1. bind the selected operation, cleanup facts, and type evidence;
@@ -131,11 +164,18 @@ Language-neutral analyzers do not import a language parser. A new semantic front
 Two additional caveats matter:
 
 - verifier labels such as `verified` and `hallucinated` describe source-location and structural-reference checks; they do not prove that a bug conclusion is correct;
-- `consensus_reached` currently means that the Judge returned schema-valid JSON. It is not a statistical agreement score between independent models.
+- `consensus_reached` currently means that Proposer, Critique, and Judge all
+  returned schema-valid output. It is a stage-completion flag, not a statistical
+  agreement score between independent models;
+- if Critique or Judge fails, Proposer or Judge output is retained under
+  `unreviewed_suggestions` for audit but is not promoted to `final_suggestions`.
+  The console reports an incomplete review rather than a clean result.
 
 ## Reproducible evaluation
 
-The repository contains six public before/after cases (12 snapshots):
+The repository contains six before/after cases (12 minimal source snapshots)
+derived from public fixes. These fixtures preserve the code needed by the
+declared analyzer; they are not complete historical repository checkouts:
 
 | Project | Language | Public fix | Category |
 | --- | --- | --- | --- |
@@ -162,6 +202,10 @@ The separate blind ProjectReader experiment excludes historical target files fro
 - Exception flow, async scheduling, dynamic dispatch, alias analysis, goroutine happens-before, and interprocedural channel aliases are incomplete.
 - The ProjectReader lifecycle analyzer currently proves normalized defer-style cleanup only.
 - The benchmark corpus is small and dominated by resource-lifecycle cases.
+- Large-repository latency and memory use do not yet have a published budget.
+- Local vector/TF-IDF caches are not yet portable across every optional-
+  dependency change; remove the repository's `.smartbench/` cache if a cache
+  created with scikit-learn is later opened without it.
 - Repository content sent through `quick` is visible to the configured remote model provider.
 - A clean report can mean “no supported finding,” not “the repository has no bugs.”
 

@@ -1,6 +1,7 @@
 """ProjectReader hypotheses stay outside the deterministic fact boundary."""
 
 import json
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -92,6 +93,76 @@ def test_project_reader_candidate_is_structurally_grounded(tmp_path: Path):
         fact.fact_id,
         cleanup_fact.fact_id,
     )
+
+
+def test_project_reader_inventory_has_serialized_character_budget(tmp_path: Path):
+    functions = []
+    for index in range(60):
+        functions.append(
+            f"""
+func parseValue{index}(path string) error {{
+    value := parse(path)
+    return consume(value)
+}}
+""".strip()
+        )
+    functions.append(
+        """
+func lateLifecycle(path string) error {
+    file, err := os.Open(path)
+    if err != nil { return err }
+    defer file.Close()
+    return parse(file)
+}
+""".strip()
+    )
+    (tmp_path / "many.go").write_text(
+        "package sample\n\n" + "\n\n".join(functions),
+        encoding="utf-8",
+    )
+    ir = GoAdapter().parse_semantic_project(tmp_path)
+    reader = ProjectReaderAgent(
+        lambda _prompt, role="": json.dumps(
+            {
+                "architecture_summary": "bounded",
+                "components": [],
+                "resource_candidates": [],
+                "uncertainties": [],
+            }
+        ),
+        max_inventory_facts=1000,
+        max_inventory_chars=4000,
+    )
+
+    result = reader.read(ir)
+    full_inventory = build_project_inventory(
+        ir,
+        max_facts=1000,
+        max_serialized_chars=256_000,
+    )
+    serialized = json.dumps(
+        result.inventory.to_dict(),
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+    assert len(serialized) <= 4000
+    assert any(
+        item.startswith("project-inventory-char-limit:")
+        for item in result.inventory.retrieval_trace
+    )
+    lifecycle_facts = [
+        fact
+        for fact in result.inventory.facts
+        if fact.object in {"os.Open", "file.Close"}
+    ]
+    assert {fact.object for fact in lifecycle_facts} == {"os.Open", "file.Close"}
+    lifecycle_subjects = {fact.subject for fact in lifecycle_facts}
+    assert len(lifecycle_subjects) == 1
+
+    selected_counts = Counter(fact.subject for fact in result.inventory.facts)
+    full_counts = Counter(fact.subject for fact in full_inventory.facts)
+    assert all(selected_counts[subject] == full_counts[subject] for subject in selected_counts)
 
 
 def test_hallucinated_operation_is_rejected(tmp_path: Path):

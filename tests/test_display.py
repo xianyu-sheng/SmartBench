@@ -85,6 +85,36 @@ def test_repository_paths_and_final_report_markup_are_literal():
     assert "[conceal]command[/conceal]" in output
 
 
+def test_incomplete_review_is_not_rendered_as_a_clean_result():
+    console, stream = _console()
+    fingerprint = ProjectFingerprint(project_path=Path("/tmp/project"))
+    result = DebateResult(
+        unreviewed_suggestions=[{"title": "hypothesis"}],
+        unreviewed_source="proposer",
+        review_status="partial",
+    )
+
+    display_diagnosis_results(console, result, fingerprint)
+
+    output = stream.getvalue()
+    assert "review incomplete" in output
+    assert "not a clean result" in output
+    assert "1 unreviewed proposer hypotheses" in output
+    assert "No supported Agent findings" not in output
+
+
+def test_complete_empty_review_reports_no_supported_agent_findings():
+    console, stream = _console()
+    fingerprint = ProjectFingerprint(project_path=Path("/tmp/project"))
+    result = DebateResult(review_status="complete")
+
+    display_diagnosis_results(console, result, fingerprint)
+
+    output = stream.getvalue()
+    assert "No supported Agent findings" in output
+    assert "not a clean result" not in output
+
+
 def test_terminal_control_sequences_are_removed():
     malicious = (
         "\x1b[31mred\x1b[0m "

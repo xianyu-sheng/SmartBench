@@ -114,6 +114,13 @@ or converted directly into findings. `ProjectReaderAgent` may propose a bounded
 project inventory. Its output remains an untrusted hypothesis and never writes
 facts into `SemanticIR`.
 
+The inventory has both a fact-count limit and a serialized-character limit.
+Facts are retained as complete function/method scopes: cleanup-bearing scopes
+are prioritized, and other scopes are sampled deterministically across source
+files and source ranges. A budget cannot keep an acquire fact while silently
+dropping cleanup facts from the same scope. The retrieval trace records count
+and character truncation explicitly.
+
 The resource-lifecycle path is deliberately split into four trust levels:
 
 ```text
@@ -218,8 +225,11 @@ relations through the session's SemanticIR compatibility view.
 These checks have deliberately limited meanings. Fact-ID membership does not
 prove that a cited fact logically entails the Agent conclusion, and a
 `verified` location does not prove that a Bug exists. In the current JSON
-contract `consensus_reached` means the Judge produced schema-valid JSON; it is
-not a statistical multi-model agreement score.
+contract `consensus_reached` means Proposer, Critique, and Judge all produced
+schema-valid output; it is a stage-completion flag, not a statistical
+multi-model agreement score. If Critique or Judge fails, structured output from
+Proposer or Judge is retained under `unreviewed_suggestions` but cannot enter
+`final_suggestions`.
 
 ## Current migration state
 

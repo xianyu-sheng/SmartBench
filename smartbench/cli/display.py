@@ -290,11 +290,24 @@ def display_diagnosis_results(
     """Display the final diagnosis report with findings."""
     console.print(
         f"\n[bold]Diagnostic Report[/bold] "
-        f"({result.duration_ms}ms, {result.iterations} debate rounds)"
+        f"({result.duration_ms}ms, {result.iterations} debate rounds, "
+        f"review={_safe(result.review_status)})"
     )
 
     if not result.final_suggestions:
-        console.print("  [yellow]No issues identified[/yellow]")
+        if result.review_status == "complete":
+            console.print("  [yellow]No supported Agent findings[/yellow]")
+        else:
+            console.print(
+                "  [yellow]Agent review incomplete — this is not a clean result[/yellow]"
+            )
+            if result.unreviewed_suggestions:
+                console.print(
+                    "  [dim]"
+                    f"{len(result.unreviewed_suggestions)} unreviewed "
+                    f"{_safe(result.unreviewed_source)} hypotheses retained in JSON"
+                    "[/dim]"
+                )
         if graph:
             display_graph_stats(console, graph, fp)
         return
