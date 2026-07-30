@@ -25,8 +25,12 @@ from smartbench.prompts.factory import PromptFactory
 class DebateResult:
     """Structured result from a debate round."""
     final_suggestions: List[Dict[str, Any]] = field(default_factory=list)
+    unreviewed_suggestions: List[Dict[str, Any]] = field(default_factory=list)
+    unreviewed_source: str = ""
     debate_log: List[Dict[str, Any]] = field(default_factory=list)
     consensus_reached: bool = False
+    review_status: str = "not_started"
+    stage_statuses: Dict[str, str] = field(default_factory=dict)
     iterations: int = 0
     total_tokens_used: int = 0
     duration_ms: int = 0
@@ -171,6 +175,12 @@ class DebateEngine:
             return DebateResult(
                 debate_log=log,
                 final_suggestions=[],
+                review_status="failed",
+                stage_statuses={
+                    "proposer": "failed",
+                    "critique": "not_run",
+                    "judge": "not_run",
+                },
                 duration_ms=int((time.time() - start_time) * 1000),
                 total_tokens_used=total_chars // 3,
             )
@@ -282,13 +292,15 @@ class DebateEngine:
 
         # ── Extract final suggestions with final verification ────────
         final_suggestions = []
+        unreviewed_suggestions = []
+        unreviewed_source = ""
         if judge_json:
-            final_suggestions = judge_json.get("final_suggestions", [])
+            judged_suggestions = judge_json.get("final_suggestions", [])
             # Final verification pass on accepted suggestions
-            if self.verifier and final_suggestions:
+            if self.verifier and judged_suggestions:
                 try:
-                    final_suggestions = self.verifier.verify_proposals(
-                        final_suggestions
+                    judged_suggestions = self.verifier.verify_proposals(
+                        judged_suggestions
                     )
                 except Exception as exc:
                     log.append({
@@ -296,20 +308,16 @@ class DebateEngine:
                         "type": "final_check",
                         "error": self._format_call_error(exc),
                     })
-        elif proposer_json:
-            # Fallback: use proposer suggestions directly if judge fails
-            final_suggestions = proposer_json.get("proposals", [])
-            if self.verifier and final_suggestions:
-                try:
-                    final_suggestions = self.verifier.verify_proposals(
-                        final_suggestions
-                    )
-                except Exception as exc:
-                    log.append({
-                        "role": "verifier",
-                        "type": "fallback_check",
-                        "error": self._format_call_error(exc),
-                    })
+            if critique_json is not None:
+                final_suggestions = judged_suggestions
+            else:
+                unreviewed_suggestions = judged_suggestions
+                unreviewed_source = "judge"
+        else:
+            # Preserve the hypothesis for audit without promoting it to a
+            # finding when the mandatory Judge stage did not complete.
+            unreviewed_suggestions = proposer_json.get("proposals", [])
+            unreviewed_source = "proposer"
 
         if evidence_pack is not None and self.evidence_policy != EvidencePolicy.OPTIONAL:
             final_suggestions = self._grounded_items(
@@ -318,13 +326,34 @@ class DebateEngine:
                 log,
                 stage="final",
             )
+            if unreviewed_suggestions:
+                unreviewed_suggestions = self._grounded_items(
+                    unreviewed_suggestions,
+                    evidence_pack,
+                    log,
+                    stage="unreviewed",
+                )
 
         elapsed = int((time.time() - start_time) * 1000)
+        stage_statuses = {
+            "proposer": "complete",
+            "critique": "complete" if critique_json is not None else "failed",
+            "judge": "complete" if judge_json is not None else "failed",
+        }
+        review_status = (
+            "complete"
+            if all(status == "complete" for status in stage_statuses.values())
+            else "partial"
+        )
 
         return DebateResult(
             final_suggestions=final_suggestions,
+            unreviewed_suggestions=unreviewed_suggestions,
+            unreviewed_source=unreviewed_source,
             debate_log=log,
-            consensus_reached=judge_json is not None,
+            consensus_reached=review_status == "complete",
+            review_status=review_status,
+            stage_statuses=stage_statuses,
             iterations=3,
             total_tokens_used=total_chars // 3,
             duration_ms=elapsed,

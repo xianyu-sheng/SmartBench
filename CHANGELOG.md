@@ -19,8 +19,8 @@ semantic versioning while it remains in beta.
 - Capability-strength contracts, source roles, repository zones, shared
   JavaScript/TypeScript lowering, conservative semantic linking, bounded ICFG,
   declarative interprocedural state rules, and TypeEvidence contracts.
-- Six source-backed public before/after cases covering 12 snapshots across
-  Python and Go.
+- Six public-fix-derived before/after cases covering 12 bounded source
+  snapshots across Python and Go.
 
 ### Changed
 
@@ -30,8 +30,20 @@ semantic versioning while it remains in beta.
 - `quick` JSON embeds the deterministic session report under
   `analysis_report`; no-provider quick runs return the deterministic report
   instead of graph statistics only.
-- Documentation now distinguishes fact membership, source verification, Judge
-  JSON completion, and actual semantic correctness.
+- Documentation now distinguishes fact membership, source verification,
+  three-stage review completion, and actual semantic correctness.
+- ProjectReader inventories now enforce a serialized-character budget while
+  retaining complete scopes, prioritizing cleanup-bearing evidence, and
+  sampling deterministically across repository files and ranges.
+
+### Fixed
+
+- Regex fallback graph construction masks comments and string literals before
+  extracting declarations and calls, preventing common phantom nodes and call
+  edges while preserving source offsets and import literals.
+- Failed Critique or Judge stages no longer promote a Proposer fallback into
+  final findings. Structured partial output is retained separately as
+  `unreviewed_suggestions`, with explicit per-stage status.
 
 ### Validation
 

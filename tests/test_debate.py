@@ -643,7 +643,9 @@ class TestDebateErrorHandling:
         result = engine.debate(sample_analysis_context)
 
         assert result.consensus_reached is False
-        assert result.final_suggestions == PROPOSER_RESPONSE["proposals"]
+        assert result.review_status == "partial"
+        assert result.final_suggestions == []
+        assert result.unreviewed_suggestions == PROPOSER_RESPONSE["proposals"]
         assert "Invalid judge response" in result.debate_log[-1]["error"]
 
     def test_progress_callback_failure_does_not_abort_debate(
@@ -684,9 +686,10 @@ class TestDebateErrorHandling:
         assert len(result.debate_log) == 1
         assert result.debate_log[0]["role"] == "proposer"
 
-    def test_judge_non_json_falls_back_to_proposer(self, sample_factory, sample_analysis_context, mock_llm):
-        """When judge returns non-JSON but proposer had valid output,
-        the fallback uses proposer proposals."""
+    def test_judge_non_json_keeps_proposer_outside_final_findings(
+        self, sample_factory, sample_analysis_context, mock_llm
+    ):
+        """A failed Judge cannot promote unreviewed Proposer output."""
         llm = mock_llm([
             json.dumps(PROPOSER_RESPONSE, ensure_ascii=False),
             json.dumps(CRITIQUE_RESPONSE, ensure_ascii=False),
@@ -696,10 +699,33 @@ class TestDebateErrorHandling:
         result = engine.debate(sample_analysis_context)
 
         assert result.consensus_reached is False  # judge_json is None
-        # Falls back to proposer proposals
-        assert len(result.final_suggestions) == 1
-        assert result.final_suggestions[0]["title"] == "增大连接池大小"
+        assert result.review_status == "partial"
+        assert result.final_suggestions == []
+        assert len(result.unreviewed_suggestions) == 1
+        assert result.unreviewed_suggestions[0]["title"] == "增大连接池大小"
         assert len(result.debate_log) == 3
+
+    def test_complete_review_requires_all_three_structured_roles(
+        self, sample_factory, sample_analysis_context, mock_llm
+    ):
+        llm = mock_llm([
+            json.dumps(PROPOSER_RESPONSE, ensure_ascii=False),
+            json.dumps(CRITIQUE_RESPONSE, ensure_ascii=False),
+            json.dumps(JUDGE_RESPONSE, ensure_ascii=False),
+        ])
+
+        result = DebateEngine(
+            llm_call_fn=llm,
+            prompt_factory=sample_factory,
+        ).debate(sample_analysis_context)
+
+        assert result.review_status == "complete"
+        assert result.stage_statuses == {
+            "proposer": "complete",
+            "critique": "complete",
+            "judge": "complete",
+        }
+        assert result.unreviewed_suggestions == []
 
     def test_llm_exception_returns_result_not_raise(self, sample_factory, sample_analysis_context):
         """When the LLM callable raises, the engine catches the exception,

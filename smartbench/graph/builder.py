@@ -8,9 +8,11 @@ Architecture: language-specific parsers register with the builder.
 Adding a new language = adding a new parser class.
 """
 
+import io
 import os
 import re
 import time
+import tokenize
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -34,6 +36,183 @@ _GRAPH_MAX_DIRECTORIES = 5_000
 _GRAPH_MAX_DISCOVERED_FILES = 50_000
 _DEFAULT_MAX_FILES = 500
 _DEFAULT_MAX_FILE_BYTES = 2 * 1024 * 1024
+
+
+def _mask_span(
+    characters: List[str],
+    line_offsets: List[int],
+    start: tuple[int, int],
+    end: tuple[int, int],
+) -> None:
+    """Replace a token span with spaces while preserving line positions."""
+    start_line, start_column = start
+    end_line, end_column = end
+    start_index = line_offsets[max(0, start_line - 1)] + start_column
+    end_index = line_offsets[max(0, end_line - 1)] + end_column
+    for index in range(start_index, min(end_index, len(characters))):
+        if characters[index] not in ("\n", "\r"):
+            characters[index] = " "
+
+
+def _mask_python_non_code(content: str, *, mask_strings: bool) -> str:
+    """Mask Python comments and optional literals with the stdlib tokenizer."""
+    characters = list(content)
+    line_offsets = [0]
+    for match in re.finditer("\n", content):
+        line_offsets.append(match.end())
+    string_token_types = {tokenize.STRING}
+    for token_name in ("FSTRING_START", "FSTRING_MIDDLE", "FSTRING_END"):
+        token_type = getattr(tokenize, token_name, None)
+        if isinstance(token_type, int):
+            string_token_types.add(token_type)
+    token_stream = tokenize.generate_tokens(io.StringIO(content).readline)
+    while True:
+        try:
+            token = next(token_stream)
+        except StopIteration:
+            break
+        except IndentationError:
+            # A fallback parser must tolerate incomplete source. Tokens emitted
+            # before the syntax error are still safe to mask.
+            break
+        except tokenize.TokenError as exc:
+            # ``tokenize`` does not emit a STRING token for an unterminated
+            # triple-quoted literal. Mask that known span to EOF; other token
+            # errors (for example an unfinished parenthesized expression) are
+            # not evidence that the remaining text is non-code.
+            if (
+                mask_strings
+                and exc.args
+                and "multi-line string" in str(exc.args[0])
+                and len(exc.args) > 1
+                and isinstance(exc.args[1], tuple)
+                and len(exc.args[1]) == 2
+            ):
+                last_line = len(line_offsets)
+                last_column = len(content) - line_offsets[-1]
+                _mask_span(
+                    characters,
+                    line_offsets,
+                    exc.args[1],
+                    (last_line, last_column),
+                )
+            break
+        if token.type == tokenize.COMMENT or (
+            mask_strings and token.type in string_token_types
+        ):
+            _mask_span(characters, line_offsets, token.start, token.end)
+    return "".join(characters)
+
+
+def _mask_lexical_non_code(
+    content: str,
+    *,
+    mask_strings: bool,
+    hash_comments: bool,
+    rust_lifetimes: bool,
+) -> str:
+    """Conservatively mask C-like/Ruby comments and string literals.
+
+    This is deliberately a lexical guard for the regex fallback, not a second
+    parser. Newlines and every non-masked character keep their original offset.
+    """
+    characters = list(content)
+    index = 0
+    state = "code"
+    quote = ""
+    while index < len(content):
+        current = content[index]
+        following = content[index + 1] if index + 1 < len(content) else ""
+
+        if state == "line_comment":
+            if current in ("\n", "\r"):
+                state = "code"
+            else:
+                characters[index] = " "
+            index += 1
+            continue
+
+        if state == "block_comment":
+            if current == "*" and following == "/":
+                characters[index] = " "
+                characters[index + 1] = " "
+                index += 2
+                state = "code"
+                continue
+            if current not in ("\n", "\r"):
+                characters[index] = " "
+            index += 1
+            continue
+
+        if state == "string":
+            if mask_strings and current not in ("\n", "\r"):
+                characters[index] = " "
+            if current == "\\" and following:
+                if mask_strings and following not in ("\n", "\r"):
+                    characters[index + 1] = " "
+                index += 2
+                continue
+            if current == quote:
+                state = "code"
+            index += 1
+            continue
+
+        if current == "/" and following == "/":
+            characters[index] = " "
+            characters[index + 1] = " "
+            index += 2
+            state = "line_comment"
+            continue
+        if current == "/" and following == "*":
+            characters[index] = " "
+            characters[index + 1] = " "
+            index += 2
+            state = "block_comment"
+            continue
+        if hash_comments and current == "#":
+            characters[index] = " "
+            index += 1
+            state = "line_comment"
+            continue
+        if current == "'" and rust_lifetimes and following.isidentifier():
+            lifetime_end = index + 2
+            while (
+                lifetime_end < len(content)
+                and (
+                    content[lifetime_end].isalnum()
+                    or content[lifetime_end] == "_"
+                )
+            ):
+                lifetime_end += 1
+            if lifetime_end >= len(content) or content[lifetime_end] != "'":
+                index = lifetime_end
+                continue
+        if current in ("'", '"', "`"):
+            quote = current
+            state = "string"
+            if mask_strings:
+                characters[index] = " "
+            index += 1
+            continue
+        index += 1
+    return "".join(characters)
+
+
+def _regex_source_view(
+    content: str,
+    language: Language,
+    *,
+    mask_strings: bool = True,
+) -> str:
+    """Return an offset-preserving view safe for heuristic regex matching."""
+    if language == Language.PYTHON:
+        return _mask_python_non_code(content, mask_strings=mask_strings)
+    return _mask_lexical_non_code(
+        content,
+        mask_strings=mask_strings,
+        hash_comments=language == Language.RUBY,
+        rust_lifetimes=language == Language.RUST,
+    )
 
 # ── Regex patterns per language ──────────────────────────────────────
 
@@ -349,6 +528,8 @@ class CodeGraphBuilder:
         patterns = _PATTERNS.get(language, {})
         all_functions: Dict[str, List[CodeNode]] = {}
         file_contents: Dict[str, str] = {}
+        regex_code_contents: Dict[str, str] = {}
+        regex_import_contents: Dict[str, str] = {}
 
         tree_parser = None
         if self._treesitter_available:
@@ -361,6 +542,12 @@ class CodeGraphBuilder:
             if content is None:
                 continue
             file_contents[rel_path] = content
+            regex_code_contents[rel_path] = _regex_source_view(
+                content, language, mask_strings=True
+            )
+            regex_import_contents[rel_path] = _regex_source_view(
+                content, language, mask_strings=False
+            )
 
             # File node
             file_node = CodeNode(
@@ -381,10 +568,11 @@ class CodeGraphBuilder:
             else:
                 # ── Regex path (fallback) ──────────────────────────
                 func_nodes = self._parse_functions(
-                    content, rel_path, language, patterns
+                    regex_code_contents[rel_path], rel_path, language, patterns,
+                    signature_content=content,
                 )
                 class_nodes = self._parse_classes(
-                    content, rel_path, language, patterns
+                    regex_code_contents[rel_path], rel_path, language, patterns
                 )
 
             for fn in func_nodes:
@@ -409,12 +597,12 @@ class CodeGraphBuilder:
         # tree-sitter's call_expression traversal across languages.
         # Tree-sitter is used for precise function/class extraction only.
         self._resolve_calls(
-            graph, all_functions, patterns, file_contents
+            graph, all_functions, patterns, regex_code_contents
         )
 
         # 4. Resolve imports
         self._resolve_imports(
-            graph, source_files, language, patterns, file_contents
+            graph, source_files, language, patterns, regex_import_contents
         )
 
         elapsed = int((time.time() - start_time) * 1000)
@@ -643,15 +831,21 @@ class CodeGraphBuilder:
 
     # ── Regex-based parsing (fallback) ──────────────────────────────────
 
-    def _parse_functions(self, content: str, file_path: str,
-                         language: Language, patterns: Dict) -> List[CodeNode]:
+    def _parse_functions(
+        self,
+        content: str,
+        file_path: str,
+        language: Language,
+        patterns: Dict,
+        signature_content: Optional[str] = None,
+    ) -> List[CodeNode]:
         """Extract function/method definitions."""
         func_pattern = patterns.get("function")
         if not func_pattern:
             return []
 
         nodes = []
-        lines = content.split("\n")
+        lines = (signature_content if signature_content is not None else content).split("\n")
 
         for match in func_pattern.finditer(content):
             # Get name from whichever named group matched

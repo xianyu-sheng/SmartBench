@@ -12,7 +12,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, TypeVar
 
 from smartbench.analysis.control_flow import ControlFlowGraph
 from smartbench.analysis.resource_lifecycle import (
@@ -59,6 +59,7 @@ _CANDIDATE_OPTIONAL_FIELDS = {
     "fact_ids",
 }
 _CANDIDATE_FIELDS = _CANDIDATE_REQUIRED_FIELDS | _CANDIDATE_OPTIONAL_FIELDS
+_T = TypeVar("_T")
 
 
 @dataclass(frozen=True)
@@ -190,9 +191,20 @@ class ProjectModelValidation:
         )
 
 
-def build_project_inventory(ir: SemanticIR, max_facts: int = 200) -> EvidencePack:
-    """Build a deterministic, bounded inventory suitable for an entry Agent."""
+def build_project_inventory(
+    ir: SemanticIR,
+    max_facts: int = 200,
+    max_serialized_chars: int = 128_000,
+) -> EvidencePack:
+    """Build a deterministic, scope-preserving inventory for an entry Agent.
+
+    Facts are sampled as complete function/method scopes.  Cleanup-bearing
+    scopes are considered first, then the remaining scopes are spread across
+    source files and source ranges.  This avoids making repository position a
+    hidden relevance score while keeping acquire and cleanup evidence together.
+    """
     limit = max(1, min(int(max_facts), 1000))
+    char_limit = max(1_000, min(int(max_serialized_chars), 256_000))
     operations = {operation.id: operation for operation in ir.operations}
     type_index = TypeEvidenceIndex(ir.type_evidence)
     facts: list[SemanticFact] = []
@@ -250,20 +262,104 @@ def build_project_inventory(ir: SemanticIR, max_facts: int = 200) -> EvidencePac
                     },
                 )
             )
-        if len(facts) >= limit:
-            break
 
-    material = "|".join(fact.fact_id for fact in facts)
-    graph_version = hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
-    trace = [f"project-inventory:{len(facts)}"]
-    if len(facts) >= limit:
-        trace.append(f"project-inventory-limit:{limit}")
-    return EvidencePack.from_facts(
-        "identify project-scoped resource lifecycle protocols",
-        facts,
-        retrieval_trace=trace,
-        graph_version=graph_version,
+    scope_facts: dict[str, list[SemanticFact]] = {}
+    for fact in facts:
+        scope_facts.setdefault(fact.subject, []).append(fact)
+    ordered_groups = _inventory_group_order(tuple(scope_facts.values()))
+
+    def make_pack(selected: list[SemanticFact], trace: list[str]) -> EvidencePack:
+        material = "|".join(fact.fact_id for fact in selected)
+        graph_version = hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+        return EvidencePack.from_facts(
+            "identify project-scoped resource lifecycle protocols",
+            selected,
+            retrieval_trace=trace,
+            graph_version=graph_version,
+        )
+
+    total_facts = len(facts)
+
+    def make_trace(selected_count: int, *, character_limited: bool) -> list[str]:
+        trace = [f"project-inventory:{selected_count}"]
+        if character_limited:
+            trace.append(f"project-inventory-char-limit:{char_limit}")
+            trace.append(
+                f"project-inventory-truncated:{total_facts - selected_count}"
+            )
+        if total_facts > limit:
+            trace.append(f"project-inventory-limit:{limit}")
+        return trace
+
+    count_bounded: list[SemanticFact] = []
+    for group in ordered_groups:
+        if len(count_bounded) + len(group) <= limit:
+            count_bounded.extend(group)
+    count_pack = make_pack(
+        count_bounded,
+        make_trace(len(count_bounded), character_limited=False),
     )
+    count_size = len(
+        json.dumps(count_pack.to_dict(), ensure_ascii=False, sort_keys=True)
+    )
+    if count_size <= char_limit:
+        return count_pack
+
+    # Size each scope once. Summing standalone pack deltas is conservative:
+    # evidence references shared by scopes are counted more than once. The
+    # small separator reserve covers list delimiters between appended groups.
+    sizing_trace = [
+        f"project-inventory:{total_facts}",
+        f"project-inventory-char-limit:{char_limit}",
+        f"project-inventory-truncated:{total_facts}",
+    ]
+    if total_facts > limit:
+        sizing_trace.append(f"project-inventory-limit:{limit}")
+    empty_size = len(
+        json.dumps(
+            make_pack([], sizing_trace).to_dict(),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
+    estimated_size = empty_size
+    selected_groups: list[list[SemanticFact]] = []
+    selected_count = 0
+    for group in ordered_groups:
+        if selected_count + len(group) > limit:
+            continue
+        standalone_size = len(
+            json.dumps(
+                make_pack(group, sizing_trace).to_dict(),
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+        )
+        group_cost = max(0, standalone_size - empty_size) + 4
+        if estimated_size + group_cost <= char_limit:
+            selected_groups.append(group)
+            selected_count += len(group)
+            estimated_size += group_cost
+
+    selected = [fact for group in selected_groups for fact in group]
+    final_pack = make_pack(
+        selected,
+        make_trace(len(selected), character_limited=True),
+    )
+    while (
+        selected_groups
+        and len(
+            json.dumps(final_pack.to_dict(), ensure_ascii=False, sort_keys=True)
+        )
+        > char_limit
+    ):
+        selected_groups.pop()
+        selected = [fact for group in selected_groups for fact in group]
+        final_pack = make_pack(
+            selected,
+            make_trace(len(selected), character_limited=True),
+        )
+    return final_pack
 
 
 class ProjectReaderAgent:
@@ -274,12 +370,18 @@ class ProjectReaderAgent:
         llm_call_fn: Callable[..., str],
         *,
         max_inventory_facts: int = 200,
+        max_inventory_chars: int = 128_000,
     ) -> None:
         self.llm_call = llm_call_fn
         self.max_inventory_facts = max_inventory_facts
+        self.max_inventory_chars = max_inventory_chars
 
     def read(self, ir: SemanticIR) -> ProjectReaderResult:
-        inventory = build_project_inventory(ir, self.max_inventory_facts)
+        inventory = build_project_inventory(
+            ir,
+            self.max_inventory_facts,
+            self.max_inventory_chars,
+        )
         return self._read_prompt(inventory, self._build_prompt(inventory))
 
     def repair(
@@ -986,3 +1088,82 @@ def _operation_order(operation: SemanticOperation) -> tuple[str, int, int, str]:
         operation.location.column_start or 0,
         operation.id,
     )
+
+
+def _inventory_group_order(
+    groups: tuple[list[SemanticFact], ...],
+) -> tuple[list[SemanticFact], ...]:
+    """Prioritize lifecycle evidence, then sample repository ranges fairly."""
+    cleanup_groups = tuple(
+        group
+        for group in groups
+        if any(
+            fact.attributes.get("inventory_role") == "cleanup_registration"
+            for fact in group
+        )
+    )
+    cleanup_subjects = {group[0].subject for group in cleanup_groups}
+    remaining_groups = tuple(
+        group for group in groups if group[0].subject not in cleanup_subjects
+    )
+    return (
+        *_spread_inventory_groups(cleanup_groups),
+        *_spread_inventory_groups(remaining_groups),
+    )
+
+
+def _spread_inventory_groups(
+    groups: tuple[list[SemanticFact], ...],
+) -> tuple[list[SemanticFact], ...]:
+    """Round-robin midpoint-ordered scopes across midpoint-ordered files."""
+    by_file: dict[str, list[list[SemanticFact]]] = {}
+    for group in sorted(groups, key=_inventory_group_key):
+        location = group[0].evidence[0]
+        by_file.setdefault(location.file_path, []).append(group)
+
+    file_order = _midpoint_order(tuple(sorted(by_file)))
+    scope_orders = {
+        file_path: _midpoint_order(tuple(by_file[file_path]))
+        for file_path in file_order
+    }
+    result: list[list[SemanticFact]] = []
+    index = 0
+    while True:
+        added = False
+        for file_path in file_order:
+            scopes = scope_orders[file_path]
+            if index < len(scopes):
+                result.append(scopes[index])
+                added = True
+        if not added:
+            return tuple(result)
+        index += 1
+
+
+def _inventory_group_key(
+    group: list[SemanticFact],
+) -> tuple[str, int, int, str]:
+    location = group[0].evidence[0]
+    return (
+        location.file_path,
+        location.line_start,
+        location.column_start or 0,
+        group[0].subject,
+    )
+
+
+def _midpoint_order(items: tuple[_T, ...]) -> tuple[_T, ...]:
+    """Return a deterministic breadth-first bisection order."""
+    result: list[_T] = []
+    ranges = [(0, len(items))]
+    while ranges:
+        next_ranges: list[tuple[int, int]] = []
+        for start, end in ranges:
+            if start >= end:
+                continue
+            midpoint = (start + end) // 2
+            result.append(items[midpoint])
+            next_ranges.append((start, midpoint))
+            next_ranges.append((midpoint + 1, end))
+        ranges = next_ranges
+    return tuple(result)

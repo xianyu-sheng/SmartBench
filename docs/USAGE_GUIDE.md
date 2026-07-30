@@ -178,9 +178,10 @@ smartbench eval-rag \
 - `hallucinated`：文件不存在、行号非法，或声明的调用关系与当前结构图冲突。
 - `unverifiable`：诊断没有提供足够具体的可核查证据。
 
-这些状态只描述“引用是否有证据”，不等价于缺陷已被证明。`consensus_reached` 也只表示
-Judge 返回了 schema 合法的 JSON，不是独立模型的统计共识。最终结论仍应通过测试、
-编译器、Linter、Profiler 或人工审查确认。
+这些状态只描述“引用是否有证据”，不等价于缺陷已被证明。`consensus_reached` 表示
+Proposer、Critique、Judge 三个阶段都返回 schema 合法的输出，不是独立模型的统计共识。
+Critique 或 Judge 失败时，结构化 hypothesis 只保存在 `unreviewed_suggestions`，不会进入
+`final_suggestions`。最终结论仍应通过测试、编译器、Linter、Profiler 或人工审查确认。
 
 EvidencePack 中的 `facts` 才能被最终建议引用；`hypotheses` 保存 ProjectReader 解释和
 启发式规则候选，只用于决定后续调查方向，不能通过 fact-ID gate。

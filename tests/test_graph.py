@@ -630,6 +630,20 @@ class TestCodeGraphExpand:
         # But 'b' was deleted, so it won't be added
         assert "b" not in sub.nodes
 
+    def test_expand_cycle_is_bounded_and_deduplicated(self, graph_with_edges):
+        graph_with_edges.add_edge(
+            CodeEdge(source_id="c", target_id="a", edge_type=EdgeType.CALLS)
+        )
+
+        sub = graph_with_edges.expand(["a"], hops=100, direction="both")
+
+        assert set(sub.nodes) == {"a", "b", "c"}
+        edge_keys = {
+            (edge.source_id, edge.target_id, edge.edge_type)
+            for edge in sub.edges
+        }
+        assert len(sub.edges) == len(edge_keys) == 4
+
 
 # -- merge --
 
@@ -1078,6 +1092,129 @@ def broken(:
             if n.node_type == NodeType.FUNCTION
         }
         assert "valid" in funcs
+
+    def test_regex_fallback_ignores_python_comments_and_literals(
+        self, test_dir, builder
+    ):
+        source = test_dir / "literal_defs.py"
+        source.write_text(
+            '"""\ndef phantom_docstring():\n    pass\n'
+            'class PhantomDocstring:\n    pass\n"""\n'
+            '# def phantom_comment():\n'
+            'text = "def phantom_string(): pass"\n'
+            'def real():\n'
+            '    return "phantom_docstring()"\n',
+            encoding="utf-8",
+        )
+
+        graph = builder.build(str(test_dir), Language.PYTHON)
+        functions = {
+            node.name
+            for node in graph.nodes.values()
+            if node.node_type == NodeType.FUNCTION
+        }
+        classes = {
+            node.name
+            for node in graph.nodes.values()
+            if node.node_type == NodeType.CLASS
+        }
+
+        assert functions == {"real"}
+        assert classes == set()
+        assert not any(edge.edge_type == EdgeType.CALLS for edge in graph.edges)
+
+    def test_regex_fallback_ignores_unterminated_python_docstring(
+        self, test_dir, builder
+    ):
+        source = test_dir / "unterminated.py"
+        source.write_text(
+            'def real():\n'
+            '    return 1\n\n'
+            '"""unfinished documentation\n'
+            'def phantom():\n'
+            '    phantom()\n',
+            encoding="utf-8",
+        )
+
+        graph = builder.build(str(test_dir), Language.PYTHON)
+        functions = {
+            node.name
+            for node in graph.nodes.values()
+            if node.node_type == NodeType.FUNCTION
+        }
+
+        assert functions == {"real"}
+        assert not any(edge.edge_type == EdgeType.CALLS for edge in graph.edges)
+
+    def test_regex_fallback_masks_fstring_text_but_keeps_expressions(
+        self, test_dir, builder
+    ):
+        source = test_dir / "formatted.py"
+        source.write_text(
+            'def target():\n'
+            '    return 1\n\n'
+            'def caller():\n'
+            '    return f"""target() as text\n{target()}"""\n',
+            encoding="utf-8",
+        )
+
+        graph = builder.build(str(test_dir), Language.PYTHON)
+        call_edges = [edge for edge in graph.edges if edge.edge_type == EdgeType.CALLS]
+
+        assert len(call_edges) == 1
+
+    def test_regex_fallback_ignores_go_comments_and_literals(
+        self, test_dir, builder
+    ):
+        source = test_dir / "literal_defs.go"
+        source.write_text(
+            'package sample\n\n'
+            '/*\nfunc PhantomBlock() {}\n'
+            'type PhantomStruct struct {}\n*/\n'
+            '// func PhantomLine() {}\n'
+            'func Real() string {\n'
+            '    return "PhantomBlock()"\n'
+            '}\n',
+            encoding="utf-8",
+        )
+
+        graph = builder.build(str(test_dir), Language.GO)
+        functions = {
+            node.name
+            for node in graph.nodes.values()
+            if node.node_type == NodeType.FUNCTION
+        }
+        classes = {
+            node.name
+            for node in graph.nodes.values()
+            if node.node_type == NodeType.CLASS
+        }
+
+        assert functions == {"Real"}
+        assert classes == set()
+        assert not any(edge.edge_type == EdgeType.CALLS for edge in graph.edges)
+
+    def test_regex_fallback_preserves_rust_lifetime_syntax(
+        self, test_dir, builder
+    ):
+        source = test_dir / "lifetime.rs"
+        source.write_text(
+            "fn borrow<'a>(value: &'a str) -> &'a str {\n"
+            '    let text = "borrow()";\n'
+            "    value\n"
+            "}\n",
+            encoding="utf-8",
+        )
+
+        graph = builder.build(str(test_dir), Language.RUST)
+        functions = {
+            node.name
+            for node in graph.nodes.values()
+            if node.node_type == NodeType.FUNCTION
+        }
+
+        assert functions == {"borrow"}
+        assert not any(edge.edge_type == EdgeType.CALLS for edge in graph.edges)
 
     def test_build_from_directory_processes_all_files(self, test_dir, builder):
         (test_dir / "mod1.py").write_text("def foo(): pass\n")
