@@ -1146,7 +1146,7 @@ def broken(:
         assert functions == {"real"}
         assert not any(edge.edge_type == EdgeType.CALLS for edge in graph.edges)
 
-    def test_regex_fallback_masks_fstring_text_but_keeps_expressions(
+    def test_regex_fallback_masks_entire_fstring_consistently(
         self, test_dir, builder
     ):
         source = test_dir / "formatted.py"
@@ -1161,7 +1161,7 @@ def broken(:
         graph = builder.build(str(test_dir), Language.PYTHON)
         call_edges = [edge for edge in graph.edges if edge.edge_type == EdgeType.CALLS]
 
-        assert len(call_edges) == 1
+        assert call_edges == []
 
     def test_regex_fallback_ignores_go_comments_and_literals(
         self, test_dir, builder

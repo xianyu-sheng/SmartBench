@@ -44,6 +44,8 @@ semantic versioning while it remains in beta.
 - Failed Critique or Judge stages no longer promote a Proposer fallback into
   final findings. Structured partial output is retained separately as
   `unreviewed_suggestions`, with explicit per-stage status.
+- Python Regex fallback treats f-strings consistently as non-code literals on
+  Python 3.10-3.12, avoiding version-dependent phantom call edges.
 
 ### Validation
 

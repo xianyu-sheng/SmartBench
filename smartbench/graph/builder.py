@@ -60,11 +60,10 @@ def _mask_python_non_code(content: str, *, mask_strings: bool) -> str:
     line_offsets = [0]
     for match in re.finditer("\n", content):
         line_offsets.append(match.end())
-    string_token_types = {tokenize.STRING}
-    for token_name in ("FSTRING_START", "FSTRING_MIDDLE", "FSTRING_END"):
-        token_type = getattr(tokenize, token_name, None)
-        if isinstance(token_type, int):
-            string_token_types.add(token_type)
+    fstring_start_type = getattr(tokenize, "FSTRING_START", None)
+    fstring_end_type = getattr(tokenize, "FSTRING_END", None)
+    fstring_depth = 0
+    fstring_start: tuple[int, int] | None = None
     token_stream = tokenize.generate_tokens(io.StringIO(content).readline)
     while True:
         try:
@@ -80,7 +79,16 @@ def _mask_python_non_code(content: str, *, mask_strings: bool) -> str:
             # triple-quoted literal. Mask that known span to EOF; other token
             # errors (for example an unfinished parenthesized expression) are
             # not evidence that the remaining text is non-code.
-            if (
+            if mask_strings and fstring_start is not None:
+                last_line = len(line_offsets)
+                last_column = len(content) - line_offsets[-1]
+                _mask_span(
+                    characters,
+                    line_offsets,
+                    fstring_start,
+                    (last_line, last_column),
+                )
+            elif (
                 mask_strings
                 and exc.args
                 and "multi-line string" in str(exc.args[0])
@@ -97,8 +105,21 @@ def _mask_python_non_code(content: str, *, mask_strings: bool) -> str:
                     (last_line, last_column),
                 )
             break
+        if mask_strings and token.type == fstring_start_type:
+            if fstring_depth == 0:
+                fstring_start = token.start
+            fstring_depth += 1
+            continue
+        if mask_strings and token.type == fstring_end_type:
+            fstring_depth = max(0, fstring_depth - 1)
+            if fstring_depth == 0 and fstring_start is not None:
+                _mask_span(characters, line_offsets, fstring_start, token.end)
+                fstring_start = None
+            continue
+        if fstring_depth:
+            continue
         if token.type == tokenize.COMMENT or (
-            mask_strings and token.type in string_token_types
+            mask_strings and token.type == tokenize.STRING
         ):
             _mask_span(characters, line_offsets, token.start, token.end)
     return "".join(characters)
