@@ -203,3 +203,50 @@ f.write("hello")
             assert [finding.message for finding in explicit_result.findings] == [
                 "explicit only"
             ]
+
+
+class TestFrontendParseErrorPropagation:
+    """Regression tests for issue #1: unparseable file must not yield a clean report."""
+
+    def setup_method(self):
+        from smartbench.cli.unified import setup_engine
+        self.engine = setup_engine()
+
+    def test_python_syntax_error_surfaces_in_errors(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bad = Path(tmpdir) / "bad.py"
+            bad.write_text("def broken(:\n    pass\n")
+            config = UnifiedDiagnosticConfig()
+            result = self.engine.diagnose(Path(tmpdir), config)
+            # Parse error must be recorded, not silently dropped
+            assert any("bad.py" in e for e in result.errors), (
+                "Expected a parse-error entry for bad.py in result.errors, got: "
+                + repr(result.errors)
+            )
+
+
+    def test_stats_ir_parse_errors_count_matches(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "a.py").write_text("def broken(:\n    pass\n")
+            (Path(tmpdir) / "b.py").write_text("def ok():\n    pass\n")
+            config = UnifiedDiagnosticConfig()
+            result = self.engine.diagnose(Path(tmpdir), config)
+            report = result.to_dict()
+            assert report["stats"]["ir_parse_errors"] >= 1, (
+                "stats.ir_parse_errors should count the unparseable file"
+            )
+
+    def test_valid_file_in_same_project_still_analyzed(self):
+        """A parse error in one file must not abort analysis of other files."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "bad.py").write_text("def broken(:\n    pass\n")
+            good = Path(tmpdir) / "good.py"
+            good.write_text('PASSWORD = "s3cr3t_h4rdcoded"\n')
+            config = UnifiedDiagnosticConfig()
+            result = self.engine.diagnose(Path(tmpdir), config)
+            # Error recorded AND other files still analyzed
+            assert any("bad.py" in e for e in result.errors)
+            rule_ids = {f.rule_id for f in result.findings}
+            assert "hardcoded_secret" in rule_ids, (
+                "good.py should still be analyzed despite bad.py failing"
+            )
