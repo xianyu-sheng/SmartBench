@@ -197,6 +197,7 @@ class UnifiedDiagnosticEngine:
 
             # Merge IRs if multiple languages
             result.ir = self._merge_irs(irs, project_path)
+            self._collect_frontend_errors(result)
             self._link_semantics(result)
 
             # Step 3: Run rules on the IR
@@ -538,6 +539,27 @@ class UnifiedDiagnosticEngine:
         return [finding for finding in findings if finding.confidence >= min_confidence]
 
     @staticmethod
+    def _collect_frontend_errors(result: UnifiedDiagnosticResult) -> None:
+        """Propagate per-language parse errors into the top-level error list.
+
+        Each language adapter stores parse/lowering errors under
+        ``ir.meta["<lang>_frontend"]["errors"]``.  Without this step those
+        errors are silently dropped, making a repository where N files failed
+        to parse indistinguishable from a clean repository (GitHub issue #1).
+        """
+        if result.ir is None:
+            return
+        for key, value in result.ir.meta.items():
+            if not key.endswith("_frontend"):
+                continue
+            if not isinstance(value, dict):
+                continue
+            for msg in value.get("errors", []):
+                formatted = f"[{key}] {msg}"
+                if formatted not in result.errors:
+                    result.errors.append(formatted)
+
+    @staticmethod
     def _link_semantics(result: UnifiedDiagnosticResult) -> None:
         """Add conservative cross-file call and synchronization relations."""
         if result.ir is None:
@@ -604,6 +626,12 @@ class UnifiedDiagnosticEngine:
             contract_meta = result.ir.meta.get("semantic_contract", {})
             stats["ir_contract_errors"] = len(
                 contract_meta.get("errors", []) if isinstance(contract_meta, dict) else []
+            )
+            # Parse errors collected from per-language frontend metadata (issue #1)
+            stats["ir_parse_errors"] = sum(
+                len(v.get("errors", []))
+                for k, v in result.ir.meta.items()
+                if k.endswith("_frontend") and isinstance(v, dict)
             )
             stats["ir_call_edges"] = sum(
                 edge.kind == OperationEdgeKind.CALLS for edge in result.ir.operation_edges
