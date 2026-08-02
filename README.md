@@ -65,6 +65,21 @@ smartbench unified run \
   --sarif report.sarif
 ```
 
+To gate a CI job on the result, opt in with `--fail-on`:
+
+```bash
+smartbench unified run --project . --fail-on warning
+```
+
+| Exit code | Meaning |
+| --- | --- |
+| `0` | No findings at or above the `--fail-on` threshold |
+| `1` | Findings at or above the threshold |
+| `2` | Invalid arguments or an internal error |
+
+`--fail-on` accepts `none` (default), `info`, `warning`, or `error`. The default
+`none` always exits `0`, so adding the flag is required to change behavior.
+
 Run the interactive evidence/Agent path:
 
 ```bash
