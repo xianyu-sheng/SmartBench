@@ -43,8 +43,25 @@ def print_findings_summary(
     result: UnifiedDiagnosticResult,
 ) -> None:
     """Print a summary of findings."""
+    # Warn about files that failed to parse (issue #1 — must not be silent)
+    parse_errors = [e for e in result.errors if e.startswith("[") and "_frontend]" in e]
+    if parse_errors:
+        console.print(
+            f"  ⚠️  [yellow]{len(parse_errors)} file(s) failed to parse and were skipped:[/yellow]"
+        )
+        for msg in parse_errors[:5]:
+            console.print(f"      {msg}")
+        if len(parse_errors) > 5:
+            console.print(f"      … and {len(parse_errors) - 5} more (see report errors)")
+
     if not result.findings:
-        console.print("  ✅ [green]No issues found![/green]")
+        if parse_errors:
+            console.print(
+                "  [yellow]No findings in files that were parsed"
+                " (see parse errors above).[/yellow]"
+            )
+        else:
+            console.print("  ✅ [green]No issues found![/green]")
         return
 
     # Group by severity
