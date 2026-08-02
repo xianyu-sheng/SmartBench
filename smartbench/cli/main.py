@@ -52,6 +52,27 @@ unified_app = typer.Typer(
 )
 app.add_typer(unified_app, name="unified")
 
+# --fail-on severity gating (issue #2). Ordered least to most severe.
+_FAIL_ON_LEVELS = ("none", "info", "warning", "error")
+_SEVERITY_RANK = {"info": 1, "warning": 2, "error": 3}
+
+
+def _count_findings_at_or_above(result, level: str) -> int:
+    """Count findings whose severity is at or above ``level``.
+
+    ``level`` of ``"none"`` disables gating and always returns 0, preserving
+    the historical exit-code-0 behavior for callers that do not opt in.
+    """
+    if level == "none":
+        return 0
+    threshold = _SEVERITY_RANK[level]
+    count = 0
+    for finding in getattr(result, "findings", []) or []:
+        severity = getattr(finding.severity, "value", finding.severity)
+        if _SEVERITY_RANK.get(str(severity), 0) >= threshold:
+            count += 1
+    return count
+
 benchmark_app = typer.Typer(
     name="benchmark",
     help="Reproducible pre-fix/post-fix benchmark execution",
@@ -310,10 +331,26 @@ def unified_run(
         "--state-rules",
         help="Load a versioned YAML state-machine rule file (repeatable)",
     ),
+    fail_on: str = typer.Option(
+        "none",
+        "--fail-on",
+        help=(
+            "Exit non-zero when findings at or above this severity are reported "
+            "[none|info|warning|error]. Default 'none' always exits 0."
+        ),
+    ),
 ):
     """Run unified multi-language diagnosis."""
+    fail_on_normalized = fail_on.strip().lower()
+    if fail_on_normalized not in _FAIL_ON_LEVELS:
+        console.print(
+            f"[red]Invalid --fail-on value: {safe_terminal_text(fail_on)}. "
+            f"Expected one of: {', '.join(_FAIL_ON_LEVELS)}[/red]"
+        )
+        raise typer.Exit(2)
+
     try:
-        run_unified_diagnosis(
+        result, _ = run_unified_diagnosis(
             console,
             project=project,
             output=output,
@@ -330,7 +367,15 @@ def unified_run(
         raise
     except Exception as e:
         console.print(f"[red]Diagnosis failed: {safe_terminal_text(e)}[/red]")
-        raise typer.Exit(1) from e
+        raise typer.Exit(2) from e
+
+    gating = _count_findings_at_or_above(result, fail_on_normalized)
+    if gating:
+        console.print(
+            f"[yellow]--fail-on {fail_on_normalized}: {gating} finding(s) "
+            f"at or above '{fail_on_normalized}'.[/yellow]"
+        )
+        raise typer.Exit(1)
 
 
 @unified_app.command("rules")

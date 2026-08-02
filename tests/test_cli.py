@@ -184,3 +184,44 @@ class TestReportOutput:
             )
 
         assert getattr(caught.value, "exit_code", None) == 1
+
+
+class TestFailOnSeverityGate:
+    """Tests for --fail-on exit-code gating (issue #2)."""
+
+    FIXTURE = 'import os\nPASSWORD = "hunter2supersecret"\ndef f(p):\n    os.system("ls " + p)\n'
+
+    def _project(self, tmp_path):
+        (tmp_path / "x.py").write_text(self.FIXTURE)
+        return str(tmp_path)
+
+    def test_default_is_backward_compatible(self, runner, tmp_path):
+        """Without --fail-on, exit code stays 0 even with findings."""
+        result = runner.invoke(app, ["unified", "run", "-p", self._project(tmp_path)])
+        assert result.exit_code == 0
+
+    def test_fail_on_warning_exits_1(self, runner, tmp_path):
+        result = runner.invoke(
+            app, ["unified", "run", "-p", self._project(tmp_path), "--fail-on", "warning"]
+        )
+        assert result.exit_code == 1
+
+    def test_fail_on_error_passes_when_only_warnings(self, runner, tmp_path):
+        """Fixture yields warnings, not errors, so an error gate must pass."""
+        result = runner.invoke(
+            app, ["unified", "run", "-p", self._project(tmp_path), "--fail-on", "error"]
+        )
+        assert result.exit_code == 0
+
+    def test_invalid_value_exits_2(self, runner, tmp_path):
+        result = runner.invoke(
+            app, ["unified", "run", "-p", self._project(tmp_path), "--fail-on", "bogus"]
+        )
+        assert result.exit_code == 2
+
+    def test_clean_project_passes_any_gate(self, runner, tmp_path):
+        (tmp_path / "ok.py").write_text("def ok():\n    return 1\n")
+        result = runner.invoke(
+            app, ["unified", "run", "-p", str(tmp_path), "--fail-on", "info"]
+        )
+        assert result.exit_code == 0
