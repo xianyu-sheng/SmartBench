@@ -307,6 +307,13 @@ SmartBench 对 12 个 Python/Go 开源仓库进行了评测，结合确定性规
 的文件泄漏。CrossChecker 的 `resource_type` 声明现在基于类型证据验证，
 而非仅凭位置存在。
 
+**独立复核（codex + 人工）**：resty 的两条发现随后被复核，均判定为
+**误报**——`multipart.Writer` 不持有 OS 资源（失败路径上 pipe writer 已
+关闭），而 `bodyBuf` 有全局兜底（`Request.Execute` 无条件调用
+`backToBufPool(r.bodyBuf)`），缺失的局部 `releaseBuffer` 只是不一致，
+不是泄漏。这确认了：内部验证通过率（81%）衡量的是声明 grounding，
+**不是**真实 bug 精度；每条候选在提交前仍需跨依赖复核。
+
 ## 项目状态
 
 SmartBench 适合受控仓库实验、架构研究和项目展示。下一步更有价值的是效果度量，而不是继续堆表层功能：
