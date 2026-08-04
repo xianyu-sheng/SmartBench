@@ -314,6 +314,19 @@ SmartBench 对 12 个 Python/Go 开源仓库进行了评测，结合确定性规
 不是泄漏。这确认了：内部验证通过率（81%）衡量的是声明 grounding，
 **不是**真实 bug 精度；每条候选在提交前仍需跨依赖复核。
 
+### 上游提交追踪 (2026-08-04)
+
+经运行时验证（本地修复 → 复现 → 对照 → 重测）确认的发现已提交上游，
+署名 SmartBench。cron job 每日监控这些线程并报告状态变化。
+
+| Issue | 仓库 | 状态 | 发现 | 验证 |
+| --- | --- | --- | --- | --- |
+| [#22](https://github.com/qi4L/qscan/issues/22) | qi4L/qscan | OPEN | `CheckSID` 所有错误路径泄漏 `*sql.DB`（缺 `defer db.Close()`） | goroutine 每次失败 +5 → 修复后 0 |
+| [#89](https://github.com/firefart/stunner/issues/89) | firefart/stunner | OPEN | `testPassword` 所有路径泄漏 TURN 连接（爆破累积 socket） | 服务器端观测：修复前 LEAK → 修复后 EOF |
+| [#1432](https://github.com/sparckles/Robyn/issues/1432) | sparckles/Robyn | OPEN | SSE 测试 `stream=True` 未关闭响应（测试卫生） | 确认真实，低严重度 |
+
+当 issue 被采纳关闭（或 PR 被合并）时，更新此表并将对应仓库加入成果清单。
+
 ## 项目状态
 
 SmartBench 适合受控仓库实验、架构研究和项目展示。下一步更有价值的是效果度量，而不是继续堆表层功能：
