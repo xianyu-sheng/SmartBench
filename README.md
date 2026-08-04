@@ -311,6 +311,43 @@ Key observations:
   inability to resolve types across dependency boundaries.** Strengthening
   cross-package type resolution would be the highest-leverage improvement.
 
+### Re-run after the type-checker fix (2026-08-04)
+
+The type-checker adapter (`tools/typeprobe` + `GoTypeCheckerProvider`) was
+implemented to close that gap, then the same 10-repository evaluation was
+re-run. Go repositories now emit `TYPE_CHECKER` evidence through
+`go/packages` + `go/types`:
+
+| Repository | Type-checker evidence | Closer types | LLM suggestions | Verified |
+| --- | ---: | ---: | ---: | ---: |
+| Flask | — | — | 0 | 0 |
+| httpx | — | — | 1 | 0 |
+| Bottle | — | — | 2 | 1 |
+| Litestar | — | — | 1 | 1 |
+| resty | 1,294 | 168 | 2 | 2 |
+| Robyn | — | — | 2 | 1 |
+| Reflex | — | — | 4 | 4 |
+| PocketBase | 8,747 | 403 | 0 | 0 |
+| Templ | 4,173 | 278 | 2 | 2 |
+| Reasonix | 26,436 | 1,604 | 2 | 2 |
+| **Total** | **40,650** | **2,453** | **16** | **13 (81%)** |
+
+Before the fix the LLM path produced 18 suggestions with 4 confirmed real
+(22%); after the fix, 13 of 16 suggestions pass verification (81%) with 0
+rejected. The two previously-reported false positives disappeared:
+
+- **Reasonix** no longer proposes closing `resp.File` — the resolved type
+  is `io.Reader` with no Close method, and the CrossChecker `resource_type`
+  claim verification rejects such claims.
+- **PocketBase** produces no unverifiable resource-lifecycle suggestions
+  (previous `panic()` and filesystem-handle findings were both refuted).
+
+New verified findings include production-path resource leaks in resty
+(multipart boundary failure leaks `mw`; JSON escape failure leaks a
+buffer), a gzip writer leak in templ, and file leaks in Reasonix.
+CrossChecker `resource_type` claims are now verified against type evidence
+rather than location existence alone.
+
 ## Project status
 
 SmartBench is suitable for controlled repository experiments, architecture research, and portfolio demonstrations. The next useful work is effect measurement, not more surface features:
