@@ -5,6 +5,7 @@ This module provides the CLI interface for the multi-language
 unified diagnostic framework.
 """
 
+from copy import deepcopy
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -25,6 +26,16 @@ from smartbench.core import (
 )
 from smartbench.core.sarif import save_sarif_log
 from smartbench.terminal import safe_terminal_text
+
+
+def _deterministic_report_payload(payload: dict) -> dict:
+    """Return a JSON report payload with runtime-dependent fields normalized."""
+    normalized = deepcopy(payload)
+    normalized["duration_ms"] = 0
+    fingerprint = normalized.get("fingerprint")
+    if isinstance(fingerprint, dict):
+        fingerprint.pop("scanned_at", None)
+    return normalized
 
 
 def setup_engine() -> UnifiedDiagnosticEngine:
@@ -200,6 +211,7 @@ def run_unified_diagnosis(
     build_evidence_packs: bool = True,
     max_evidence_packs: int = 50,
     state_rule_paths: Optional[List[str]] = None,
+    deterministic_output: bool = False,
 ) -> Tuple[UnifiedDiagnosticResult, Optional[Path]]:
     """
     Run unified diagnosis.
@@ -216,6 +228,7 @@ def run_unified_diagnosis(
         build_evidence_packs: Attach deterministic graph evidence to findings
         max_evidence_packs: Maximum number of finding evidence packs
         state_rule_paths: Versioned YAML state-rule files to evaluate
+        deterministic_output: Normalize runtime-dependent fields in JSON output
 
     Returns:
         (result, sarif_path) tuple
@@ -275,6 +288,8 @@ def run_unified_diagnosis(
         with open(output_path, "w", encoding="utf-8") as f:
             payload = result.to_dict()
             payload["project_path"] = str(project_path)
+            if deterministic_output:
+                payload = _deterministic_report_payload(payload)
             json.dump(payload, f, ensure_ascii=False, indent=2)
         console.print(f"💾 JSON report saved to: [cyan]{safe_terminal_text(output_path)}[/cyan]")
 

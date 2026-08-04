@@ -339,6 +339,11 @@ def unified_run(
             "[none|info|warning|error]. Default 'none' always exits 0."
         ),
     ),
+    deterministic_output: bool = typer.Option(
+        False,
+        "--deterministic-output",
+        help="Normalize runtime-dependent fields in the JSON report",
+    ),
 ):
     """Run unified multi-language diagnosis."""
     fail_on_normalized = fail_on.strip().lower()
@@ -362,6 +367,7 @@ def unified_run(
             build_evidence_packs=not no_evidence,
             max_evidence_packs=max_evidence_packs,
             state_rule_paths=state_rules,
+            deterministic_output=deterministic_output,
         )
     except SystemExit:
         raise

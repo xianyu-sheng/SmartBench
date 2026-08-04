@@ -40,3 +40,7 @@ data/flamegraphs/
 .env
 *.key
 .mypy_cache/
+
+# Evaluation scan artifacts
+scan_repos/
+scan_results/
