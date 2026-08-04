@@ -229,10 +229,11 @@ python -m build
 
 CI 运行 Python 3.10-3.12 测试、parser adapter 检查、12 快照 benchmark、ProjectReader 边界实验和干净 wheel CLI 冒烟。
 
-## 真实世界评测 (2026-08-04)
+## 真实世界评测 (2026-08-04，同日修正)
 
 SmartBench 对 12 个 Python/Go 开源仓库进行了评测，结合确定性规则与 LLM
-证据约束多 Agent 审查（DeepSeek）。共 410 条 finding，全部人工验证。
+证据约束多 Agent 审查（DeepSeek）。共 410 条 finding，全部人工验证，
+随后对照 SDK 类型定义和项目文档进行交叉核查。
 
 | 仓库 | 语言 | Stars | 确定性规则 | LLM Agent |
 | --- | --- | --- | --- | --- |
@@ -241,28 +242,36 @@ SmartBench 对 12 个 Python/Go 开源仓库进行了评测，结合确定性规
 | Bottle | Python | 8k | 21 findings, 0 real | 2 suggestions, 0 real |
 | Litestar | Python | 5k | 269 findings, 0 real | — |
 | resty | Go | 10k | 9 findings, 0 real | 3 suggestions, 0 real |
-| Robyn | Python | 5k | — | 4 suggestions, 1 real |
+| Robyn | Python | 5k | — | 4 suggestions, 1 valid (test hygiene) |
 | Reflex | Python | 20k | — | 1 suggestion, 0 real |
-| PocketBase | Go | 43k | — | 3 suggestions, 2 real |
-| Reasonix | Go | 80k+ | — | 1 suggestion, 1 real |
+| PocketBase | Go | 43k | — | 3 suggestions, 0 real |
+| Reasonix | Go | 80k+ | — | 1 suggestion, 0 real |
 | Templ | Go | 8k | — | review failed (API timeout) |
 
-**4 个确认的真实 Bug**，横跨 3 个仓库（LLM 路径准确率 22%）：
+对照 SDK 类型定义和项目文档后，**最初提交的 4 条中有 3 条被判定为误报**：
 
-| Bug | 仓库 | 严重度 | 上游 |
-| --- | --- | --- | --- |
-| `panic()` 致备份恢复时进程崩溃 | PocketBase | high | [Issue #7789](https://github.com/pocketbase/pocketbase/issues/7789) |
-| 测试 helper 中文件系统句柄未关闭 | PocketBase | medium | [Issue #7790](https://github.com/pocketbase/pocketbase/issues/7790) |
-| 飞书适配器中资源文件句柄未关闭 | Reasonix | medium | [PR #7377](https://github.com/esengine/DeepSeek-Reasonix/pull/7377) |
-| SSE 测试中 HTTP 响应未关闭 | Robyn | low | [Issue #1432](https://github.com/sparckles/Robyn/issues/1432) |
+| 初始发现 | 仓库 | 纠正 |
+| --- | --- | --- |
+| 资源文件句柄未关闭 | Reasonix | SDK 类型为 `io.Reader` 非 `io.ReadCloser`；PR #7377 为 no-op 已关闭 |
+| `panic()` 致备份恢复崩溃 | PocketBase | 函数注释明确说明为 fail-stop 设计；非 bug |
+| 文件系统句柄泄漏 | PocketBase | `NewFilesystem().Close()` 直接返回 nil；无句柄打开 |
 
-所有上游贡献均署名 SmartBench 作为发现工具。
+**1 条确认的有效观察**（测试卫生，非生产 bug）：
+
+| 观察 | 仓库 | 上游 |
+| --- | --- | --- |
+| SSE 测试文件 16 处 `stream=True` 均未显式 `response.close()` | Robyn | [Issue #1432](https://github.com/sparckles/Robyn/issues/1432) |
+
+所有上游线索均已更新为纠正后的评估。
 
 关键观察：
-- 确定性规则在成熟项目上零真实 Bug — 规则偏保守而非误报泛滥。
-- LLM 证据约束路径找到了真实资源生命周期 Bug，经过 3 轮多 Agent 辩论和人工验证。
-- Abstention 和 evidence gate 机制正确拒绝了证据不足的结论（如路径穿越、命令注入
-  等发现已被已有防御措施缓解）。
+- 确定性规则在真实项目上零误报 — 规则偏保守，不会在干净代码上瞎报。
+- LLM 证据约束路径能提出看似合理的资源生命周期模式，但对照 SDK 类型
+  和项目文档后，多数 grounding 不成立。当前 location verification 只校验
+  源文件存在性，不追踪跨依赖的类型定义。
+- Abstention 和 evidence gate 机制正确拒绝了证据不足的结论。
+- **最大短板不是 Agent 辩论质量，而是 verifier 无法解析跨依赖的类型定义。**
+  加强跨包类型解析是最高杠杆的改进方向。
 
 ## 项目状态
 
