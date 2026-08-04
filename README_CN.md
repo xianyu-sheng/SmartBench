@@ -216,6 +216,7 @@ smartbench benchmark run \
 - [使用指南](docs/USAGE_GUIDE.md)
 - [演示时间线](docs/DEMO_3_MINUTES_CN.md)
 - [证据闭环说明](docs/EVIDENCE_LOOP_ARTICLE_CN.md)
+- [类型证据教训：评测误报 → 验证层修复](docs/TYPE_EVIDENCE_LESSON_CN.md)
 - [历史 benchmark](benchmarks/real/README.md)
 - [Blind ProjectReader 实验](benchmarks/experiments/project_reader_blind/README.md)
 
