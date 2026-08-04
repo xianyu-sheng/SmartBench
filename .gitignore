@@ -44,3 +44,6 @@ data/flamegraphs/
 # Evaluation scan artifacts
 scan_repos/
 scan_results/
+
+# Go type probe helper binary
+tools/typeprobe/typeprobe
