@@ -259,11 +259,12 @@ python -m build
 
 CI runs Python 3.10-3.12 tests, parser-adapter checks, the 12-snapshot benchmark, ProjectReader boundary experiments, and a clean-wheel CLI smoke test.
 
-## Real-world evaluation (2026-08-04)
+## Real-world evaluation (2026-08-04, corrected 2026-08-04)
 
 SmartBench was evaluated against 12 open-source repositories across Python
 and Go, combining deterministic rules and LLM evidence-gated multi-agent
-review (DeepSeek). 410 total findings were manually verified.
+review (DeepSeek). 410 total findings were manually verified, then
+cross-checked against SDK types and project documentation.
 
 | Repository | Language | Stars | Deterministic | LLM Agent |
 | --- | --- | --- | --- | --- |
@@ -272,31 +273,42 @@ review (DeepSeek). 410 total findings were manually verified.
 | Bottle | Python | 8k | 21 findings, 0 real | 2 suggestions, 0 real |
 | Litestar | Python | 5k | 269 findings, 0 real | — |
 | resty | Go | 10k | 9 findings, 0 real | 3 suggestions, 0 real |
-| Robyn | Python | 5k | — | 4 suggestions, 1 real |
+| Robyn | Python | 5k | — | 4 suggestions, 1 valid (test hygiene) |
 | Reflex | Python | 20k | — | 1 suggestion, 0 real |
-| PocketBase | Go | 43k | — | 3 suggestions, 2 real |
-| Reasonix | Go | 80k+ | — | 1 suggestion, 1 real |
+| PocketBase | Go | 43k | — | 3 suggestions, 0 real |
+| Reasonix | Go | 80k+ | — | 1 suggestion, 0 real |
 | Templ | Go | 8k | — | review failed (API timeout) |
 
-**4 confirmed real bugs** across 3 repositories (22% LLM-path precision):
+After cross-checking SDK types and project documentation, **3 of the
+4 initially-submitted findings were determined to be incorrect**:
 
-| Bug | Repository | Severity | Upstream |
-| --- | --- | --- | --- |
-| `panic()` in backup restore crashes the process | PocketBase | high | [Issue #7789](https://github.com/pocketbase/pocketbase/issues/7789) |
-| Filesystem handle not closed in test helper | PocketBase | medium | [Issue #7790](https://github.com/pocketbase/pocketbase/issues/7790) |
-| Resource file handle not closed in Feishu adapter | Reasonix | medium | [PR #7377](https://github.com/esengine/DeepSeek-Reasonix/pull/7377) |
-| HTTP response not closed in SSE test | Robyn | low | [Issue #1432](https://github.com/sparckles/Robyn/issues/1432) |
+| Initial finding | Repository | Correction |
+| --- | --- | --- |
+| Resource file handle not closed | Reasonix | SDK type is `io.Reader`, not `io.ReadCloser`; PR #7377 was a no-op and has been closed |
+| `panic()` in backup restore | PocketBase | Intentional fail-stop design per function doc comment; not a bug |
+| Filesystem handle leak | PocketBase | `NewFilesystem().Close()` returns nil immediately; no handle opened |
 
-All upstream contributions credit SmartBench as the discovery tool.
+**1 confirmed valid observation** (test hygiene, not production bug):
+
+| Observation | Repository | Upstream |
+| --- | --- | --- |
+| 16 `stream=True` calls in SSE tests without explicit `response.close()` | Robyn | [Issue #1432](https://github.com/sparckles/Robyn/issues/1432) |
+
+All upstream threads have been updated with corrected assessments.
 
 Key observations:
-- Deterministic rules produced zero real bugs on mature projects — the
-  rules are conservative heuristics, not false-positive-prone detectors.
-- The LLM evidence-gated path found real resource-lifecycle bugs that
-  survived 3-round multi-agent debate and manual verification.
-- The abstention and evidence-gate mechanisms correctly rejected
-  unsupported claims (e.g. path traversal, command injection findings
-  that were already mitigated by existing sanitization).
+- Deterministic rules produced zero real bugs — the rules are conservative
+  heuristics that don't hallucinate on clean code.
+- The LLM evidence-gated path proposed plausible resource-lifecycle patterns,
+  but cross-checking against SDK types and project documentation revealed that
+  most were incorrectly grounded. Current location verification validates
+  source-file existence but does not trace type definitions through
+  dependencies.
+- The abstention and evidence-gate mechanisms correctly rejected unsupported
+  claims (e.g. path traversal, command injection).
+- **The primary gap is not the Agent debate quality, but the verifier's
+  inability to resolve types across dependency boundaries.** Strengthening
+  cross-package type resolution would be the highest-leverage improvement.
 
 ## Project status
 
