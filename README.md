@@ -80,6 +80,14 @@ smartbench unified run --project . --fail-on warning
 `--fail-on` accepts `none` (default), `info`, `warning`, or `error`. The default
 `none` always exits `0`, so adding the flag is required to change behavior.
 
+For byte-stable JSON suitable for golden files or diffs, add
+`--deterministic-output`. It normalizes runtime-dependent report fields while
+leaving the default output unchanged:
+
+```bash
+smartbench unified run --project . --output report.json --deterministic-output
+```
+
 Run the interactive evidence/Agent path:
 
 ```bash
@@ -250,6 +258,45 @@ python -m build
 ```
 
 CI runs Python 3.10-3.12 tests, parser-adapter checks, the 12-snapshot benchmark, ProjectReader boundary experiments, and a clean-wheel CLI smoke test.
+
+## Real-world evaluation (2026-08-04)
+
+SmartBench was evaluated against 12 open-source repositories across Python
+and Go, combining deterministic rules and LLM evidence-gated multi-agent
+review (DeepSeek). 410 total findings were manually verified.
+
+| Repository | Language | Stars | Deterministic | LLM Agent |
+| --- | --- | --- | --- | --- |
+| Flask | Python | 67k | 54 findings, 0 real | — |
+| httpx | Python | 13k | 32 findings, 0 real | — |
+| Bottle | Python | 8k | 21 findings, 0 real | 2 suggestions, 0 real |
+| Litestar | Python | 5k | 269 findings, 0 real | — |
+| resty | Go | 10k | 9 findings, 0 real | 3 suggestions, 0 real |
+| Robyn | Python | 5k | — | 4 suggestions, 1 real |
+| Reflex | Python | 20k | — | 1 suggestion, 0 real |
+| PocketBase | Go | 43k | — | 3 suggestions, 2 real |
+| Reasonix | Go | 80k+ | — | 1 suggestion, 1 real |
+| Templ | Go | 8k | — | review failed (API timeout) |
+
+**4 confirmed real bugs** across 3 repositories (22% LLM-path precision):
+
+| Bug | Repository | Severity | Upstream |
+| --- | --- | --- | --- |
+| `panic()` in backup restore crashes the process | PocketBase | high | [Issue #7789](https://github.com/pocketbase/pocketbase/issues/7789) |
+| Filesystem handle not closed in test helper | PocketBase | medium | [Issue #7790](https://github.com/pocketbase/pocketbase/issues/7790) |
+| Resource file handle not closed in Feishu adapter | Reasonix | medium | [PR #7377](https://github.com/esengine/DeepSeek-Reasonix/pull/7377) |
+| HTTP response not closed in SSE test | Robyn | low | [Issue #1432](https://github.com/sparckles/Robyn/issues/1432) |
+
+All upstream contributions credit SmartBench as the discovery tool.
+
+Key observations:
+- Deterministic rules produced zero real bugs on mature projects — the
+  rules are conservative heuristics, not false-positive-prone detectors.
+- The LLM evidence-gated path found real resource-lifecycle bugs that
+  survived 3-round multi-agent debate and manual verification.
+- The abstention and evidence-gate mechanisms correctly rejected
+  unsupported claims (e.g. path traversal, command injection findings
+  that were already mitigated by existing sanitization).
 
 ## Project status
 

@@ -225,3 +225,68 @@ class TestFailOnSeverityGate:
             app, ["unified", "run", "-p", str(tmp_path), "--fail-on", "info"]
         )
         assert result.exit_code == 0
+
+
+class TestDeterministicOutput:
+    """Tests for reproducible JSON report output (issue #5)."""
+
+    def test_deterministic_report_removes_wall_clock_fields(self):
+        from smartbench.cli.unified import _deterministic_report_payload
+
+        payload = {
+            "duration_ms": 123,
+            "fingerprint": {"project_name": "fixture", "scanned_at": "2026-08-02T12:00:00"},
+            "findings": [],
+        }
+
+        normalized = _deterministic_report_payload(payload)
+
+        assert normalized["duration_ms"] == 0
+        assert "scanned_at" not in normalized["fingerprint"]
+        assert payload["duration_ms"] == 123
+
+    def test_deterministic_report_is_stable_for_different_runtime_values(self):
+        from smartbench.cli.unified import _deterministic_report_payload
+
+        def normalize(duration, scanned_at):
+            return _deterministic_report_payload(
+                {
+                    "duration_ms": duration,
+                    "fingerprint": {"project_name": "fixture", "scanned_at": scanned_at},
+                    "findings": [{"rule_id": "example"}],
+                }
+            )
+
+        assert normalize(1, "2026-08-02T12:00:00") == normalize(
+            999, "2026-08-02T12:01:00"
+        )
+
+    def test_unified_help_documents_deterministic_output(self, runner):
+        result = runner.invoke(app, ["unified", "run", "--help"])
+
+        assert result.exit_code == 0
+        assert "--deterministic-out" in plain_output(result)
+
+    def test_two_deterministic_cli_reports_are_byte_identical(self, runner, tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "ok.py").write_text("def ok():\n    return 1\n")
+        first = tmp_path / "first.json"
+        second = tmp_path / "second.json"
+
+        for output in (first, second):
+            result = runner.invoke(
+                app,
+                [
+                    "unified",
+                    "run",
+                    "--project",
+                    str(project),
+                    "--output",
+                    str(output),
+                    "--deterministic-output",
+                ],
+            )
+            assert result.exit_code == 0
+
+        assert first.read_bytes() == second.read_bytes()

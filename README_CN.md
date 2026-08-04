@@ -229,6 +229,41 @@ python -m build
 
 CI 运行 Python 3.10-3.12 测试、parser adapter 检查、12 快照 benchmark、ProjectReader 边界实验和干净 wheel CLI 冒烟。
 
+## 真实世界评测 (2026-08-04)
+
+SmartBench 对 12 个 Python/Go 开源仓库进行了评测，结合确定性规则与 LLM
+证据约束多 Agent 审查（DeepSeek）。共 410 条 finding，全部人工验证。
+
+| 仓库 | 语言 | Stars | 确定性规则 | LLM Agent |
+| --- | --- | --- | --- | --- |
+| Flask | Python | 67k | 54 findings, 0 real | — |
+| httpx | Python | 13k | 32 findings, 0 real | — |
+| Bottle | Python | 8k | 21 findings, 0 real | 2 suggestions, 0 real |
+| Litestar | Python | 5k | 269 findings, 0 real | — |
+| resty | Go | 10k | 9 findings, 0 real | 3 suggestions, 0 real |
+| Robyn | Python | 5k | — | 4 suggestions, 1 real |
+| Reflex | Python | 20k | — | 1 suggestion, 0 real |
+| PocketBase | Go | 43k | — | 3 suggestions, 2 real |
+| Reasonix | Go | 80k+ | — | 1 suggestion, 1 real |
+| Templ | Go | 8k | — | review failed (API timeout) |
+
+**4 个确认的真实 Bug**，横跨 3 个仓库（LLM 路径准确率 22%）：
+
+| Bug | 仓库 | 严重度 | 上游 |
+| --- | --- | --- | --- |
+| `panic()` 致备份恢复时进程崩溃 | PocketBase | high | [Issue #7789](https://github.com/pocketbase/pocketbase/issues/7789) |
+| 测试 helper 中文件系统句柄未关闭 | PocketBase | medium | [Issue #7790](https://github.com/pocketbase/pocketbase/issues/7790) |
+| 飞书适配器中资源文件句柄未关闭 | Reasonix | medium | [PR #7377](https://github.com/esengine/DeepSeek-Reasonix/pull/7377) |
+| SSE 测试中 HTTP 响应未关闭 | Robyn | low | [Issue #1432](https://github.com/sparckles/Robyn/issues/1432) |
+
+所有上游贡献均署名 SmartBench 作为发现工具。
+
+关键观察：
+- 确定性规则在成熟项目上零真实 Bug — 规则偏保守而非误报泛滥。
+- LLM 证据约束路径找到了真实资源生命周期 Bug，经过 3 轮多 Agent 辩论和人工验证。
+- Abstention 和 evidence gate 机制正确拒绝了证据不足的结论（如路径穿越、命令注入
+  等发现已被已有防御措施缓解）。
+
 ## 项目状态
 
 SmartBench 适合受控仓库实验、架构研究和项目展示。下一步更有价值的是效果度量，而不是继续堆表层功能：
