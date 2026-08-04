@@ -348,6 +348,16 @@ buffer), a gzip writer leak in templ, and file leaks in Reasonix.
 CrossChecker `resource_type` claims are now verified against type evidence
 rather than location existence alone.
 
+**Independent cross-check (codex + manual)**: the two resty findings were
+subsequently reviewed and both were determined to be **false positives** —
+`multipart.Writer` holds no OS resources (the pipe writer is already
+closed on the failure path), and the `bodyBuf` has a global safety net
+(`Request.Execute` unconditionally calls `backToBufPool(r.bodyBuf)`), so
+the missing local `releaseBuffer` is an inconsistency, not a leak. This
+confirms that internal verification passing (81%) measures claim
+grounding, **not** real-bug precision; each candidate still requires
+cross-dependency review before submission.
+
 ## Project status
 
 SmartBench is suitable for controlled repository experiments, architecture research, and portfolio demonstrations. The next useful work is effect measurement, not more surface features:
