@@ -274,6 +274,39 @@ SmartBench 对 12 个 Python/Go 开源仓库进行了评测，结合确定性规
 - **最大短板不是 Agent 辩论质量，而是 verifier 无法解析跨依赖的类型定义。**
   加强跨包类型解析是最高杠杆的改进方向。
 
+### 类型检查器修复后的复测 (2026-08-04)
+
+为关闭上述缺口，实现了类型检查器适配层（`tools/typeprobe` +
+`GoTypeCheckerProvider`），随后用同一批评测仓库重新评测。Go 仓库现在通过
+`go/packages` + `go/types` 产出 `TYPE_CHECKER` 类型证据：
+
+| 仓库 | 类型检查器证据 | Closer 类型 | LLM 建议 | 验证通过 |
+| --- | ---: | ---: | ---: | ---: |
+| Flask | — | — | 0 | 0 |
+| httpx | — | — | 1 | 0 |
+| Bottle | — | — | 2 | 1 |
+| Litestar | — | — | 1 | 1 |
+| resty | 1,294 | 168 | 2 | 2 |
+| Robyn | — | — | 2 | 1 |
+| Reflex | — | — | 4 | 4 |
+| PocketBase | 8,747 | 403 | 0 | 0 |
+| Templ | 4,173 | 278 | 2 | 2 |
+| Reasonix | 26,436 | 1,604 | 2 | 2 |
+| **总计** | **40,650** | **2,453** | **16** | **13 (81%)** |
+
+修复前 LLM 路径产出 18 条建议、4 条确认真实（22%）；修复后 16 条建议中
+13 条通过验证（81%），0 条被拒。之前的两条误报消失：
+
+- **Reasonix** 不再建议关闭 `resp.File`——解析类型为 `io.Reader`（无 Close
+  方法），CrossChecker 的 `resource_type` 声明验证会拒绝此类结论；
+- **PocketBase** 不再产出无法验证的资源生命周期建议（之前的 `panic()` 和
+  文件系统句柄发现均被推翻）。
+
+新验证通过的发现包括 resty 生产路径资源泄漏（multipart boundary 失败泄漏
+`mw`；JSON escape 失败泄漏缓冲区）、templ 的 gzip writer 泄漏、Reasonix
+的文件泄漏。CrossChecker 的 `resource_type` 声明现在基于类型证据验证，
+而非仅凭位置存在。
+
 ## 项目状态
 
 SmartBench 适合受控仓库实验、架构研究和项目展示。下一步更有价值的是效果度量，而不是继续堆表层功能：
