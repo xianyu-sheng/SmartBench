@@ -252,6 +252,9 @@ class PromptFactory:
 1. `file_location` - 问题所在的文件路径和行号
 2. `call_chain` - 涉及的函数调用链（从代码上下文中找真实存在的函数名）
 
+如果方案涉及资源生命周期（如"某对象未关闭/泄漏"），必须额外提供：
+3. `resource_type` - 声称需要 Close 的资源表达式，target 填写变量/字段表达式（如 `resp.File`），expects_close 填 true。验证器会用类型证据检查该表达式对应的真实类型是否真的有 Close 方法；若类型解析为无 Close 方法的类型（如 io.Reader），该声明会被判定为不成立。
+
 ```json
 {{
   "analysis": {{
@@ -281,6 +284,12 @@ class PromptFactory:
           "type": "code_pattern",
           "target": "具体代码模式问题",
           "description": "如：缺少错误处理的异步调用"
+        }},
+        {{
+          "type": "resource_type",
+          "target": "resp.File",
+          "expects_close": true,
+          "description": "声称该资源表达式需要 Close"
         }}
       ],
       "expected_improvement": "预期改进效果（中文，如：延迟降低约15%）",

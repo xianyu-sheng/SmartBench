@@ -185,3 +185,78 @@ def test_type_checker_evidence_preferred_by_index(tmp_path: Path):
     unique = index.unique_type(call.id, TypeEvidenceRole.RECEIVER)
     # TYPE_CHECKER (rank 3) beats surface evidence (rank <= 2).
     assert unique == "net/http.Client"
+
+
+_SDK_FIXTURE = {
+    "go.mod": "module closureverify\n\ngo 1.22\n",
+    "sdk/sdk.go": '''package sdk
+
+import "io"
+
+type Resp struct {
+    File     io.Reader
+    FileName string
+}
+
+func GetResource() (*Resp, error) { return &Resp{}, nil }
+''',
+    "main/main.go": '''package main
+
+import (
+    "closureverify/sdk"
+    "fmt"
+    "io"
+)
+
+func fetch() error {
+    resp, err := sdk.GetResource()
+    if err != nil {
+        return err
+    }
+    data, err := readAll(resp.File)
+    if err != nil {
+        return err
+    }
+    fmt.Println(len(data))
+    return nil
+}
+
+func readAll(r io.Reader) ([]byte, error) { return nil, nil }
+''',
+}
+
+
+def _write_sdk_fixture(tmp_path: Path) -> Path:
+    for rel, content in _SDK_FIXTURE.items():
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    return tmp_path
+
+
+@pytest.mark.skipif(not _typeprobe_available(), reason="typeprobe binary unavailable")
+def test_sdk_field_type_resolution_prevents_false_positive(tmp_path: Path):
+    """Regression for the 2026-08-04 Reasonix false positive.
+
+    resp.File is declared as io.Reader in an SDK package; the type-checker
+    probe must resolve it to io.Reader with no Close method, so a
+    resource-lifecycle claim that "resp.File needs Close" is rejected.
+    """
+    project = _write_sdk_fixture(tmp_path)
+    ir = GoAdapter().parse_semantic_project(project)
+    meta = ir.meta.get("go_type_evidence", {})
+    assert meta.get("surface_only") is False
+
+    # The result binding of GetResource resolves to the SDK type.
+    type_checker = [
+        evidence
+        for evidence in ir.type_evidence
+        if evidence.source == TypeEvidenceSource.TYPE_CHECKER
+    ]
+    by_binding = {
+        evidence.binding: evidence for evidence in type_checker
+    }
+    resp_evidence = by_binding.get("resp")
+    assert resp_evidence is not None
+    assert resp_evidence.normalized_type == "closureverify/sdk.Resp"
+    assert resp_evidence.attributes["has_close_method"] is False

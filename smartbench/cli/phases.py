@@ -487,11 +487,13 @@ def run_diagnosis_with_graph(
     if enable_verify:
         try:
             from smartbench.verifier.verifier import Verifier
+            type_evidence = getattr(semantic_ir, "type_evidence", None)
             verifier = Verifier(
                 project_path=project_path,
                 graph=semantic_ir,
                 graph_retriever=retriever,
                 hybrid_retriever=hybrid_retriever,
+                type_evidence=type_evidence,
             )
         except ImportError as e:
             console.print(f"  [dim]验证模块未加载: {safe_terminal_text(e)}[/dim]")
