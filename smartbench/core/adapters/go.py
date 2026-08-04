@@ -10,6 +10,11 @@ from typing import List, Optional
 from smartbench.core.adapters.base import LanguageAdapter
 from smartbench.detector.fingerprint import Language
 from smartbench.frontends.go import GoSemanticLowerer
+from smartbench.frontends.go_type_checker import (
+    GO_TYPE_CHECKER_PROVIDER,
+    GoTypeCheckerProvider,
+    probe_available,
+)
 from smartbench.frontends.go_type_evidence import GoSurfaceTypeProvider
 from smartbench.graph.builder import CodeGraphBuilder
 from smartbench.graph.schema import CodeGraph
@@ -123,6 +128,9 @@ class GoAdapter(LanguageAdapter):
         ir.facts.extend(lowered.facts)
         type_result = GoSurfaceTypeProvider().provide(ir)
         ir.type_evidence.extend(type_result.evidence)
+
+        checker_result = GoTypeCheckerProvider(project_root=ir.project_path).provide(ir)
+        ir.type_evidence.extend(checker_result.evidence)
         contract_errors = validate_semantic_ir(lowered.operations)
         ir.meta["go_frontend"] = {
             "files_analyzed": lowered.files_analyzed,
@@ -137,10 +145,13 @@ class GoAdapter(LanguageAdapter):
         }
         ir.meta["go_type_evidence"] = {
             "schema_version": TYPE_EVIDENCE_SCHEMA_VERSION,
-            "provider": "go.surface",
-            "surface_only": True,
+            "provider": GO_TYPE_CHECKER_PROVIDER if checker_result.evidence else "go.surface",
+            "surface_only": not checker_result.evidence,
             "files_analyzed": type_result.files_analyzed,
             "count": len(type_result.evidence),
-            "errors": list(type_result.errors),
+            "type_checker_count": len(checker_result.evidence),
+            "type_checker_queries": checker_result.queries,
+            "probe_available": probe_available(),
+            "errors": [*type_result.errors, *checker_result.errors],
         }
         return ir
