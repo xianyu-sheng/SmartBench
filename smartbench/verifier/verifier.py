@@ -38,20 +38,24 @@ class Verifier:
     def __init__(self, project_path: str,
                  graph: CodeGraph,
                  graph_retriever: GraphRetriever,
-                 hybrid_retriever=None):
+                 hybrid_retriever=None,
+                 type_evidence=None):
         """
         Args:
             project_path: Root directory of the project
             graph: The project's code graph
             graph_retriever: GraphRetriever for structural context
             hybrid_retriever: Optional HybridRetriever for RAG verification
+            type_evidence: Optional iterable of TypeEvidence (SemanticIR
+                type evidence) for resource_type claim verification.
         """
         self.project_path = project_path or getattr(graph, "project_path", "")
         self.graph = getattr(graph, "graph", graph)
         self.loc_verifier = LocationVerifier(project_path)
         self.extractor = EvidenceExtractor(project_path, graph)
         self.cross_checker = CrossChecker(
-            graph, project_path, graph_retriever, hybrid_retriever
+            graph, project_path, graph_retriever, hybrid_retriever,
+            type_evidence=type_evidence,
         )
         self.scorer = VerdictScorer()
 

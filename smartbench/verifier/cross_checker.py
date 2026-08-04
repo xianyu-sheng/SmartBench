@@ -15,6 +15,7 @@ from typing import Any, Dict, List
 
 from smartbench.graph.retriever import GraphRetriever
 from smartbench.graph.schema import CodeGraph
+from smartbench.ir import TypeEvidence, TypeEvidenceSource
 from smartbench.verifier import VerificationResult, VerificationStatus
 from smartbench.verifier.extractor import EvidenceExtractor
 from smartbench.verifier.location import LocationVerifier
@@ -35,13 +36,19 @@ class CrossChecker:
 
     def __init__(self, graph: CodeGraph, project_path: str,
                  graph_retriever: GraphRetriever,
-                 hybrid_retriever=None):
+                 hybrid_retriever=None,
+                 type_evidence=None):
         """
         Args:
             graph: The project's code graph
             project_path: Root directory
             graph_retriever: GraphRetriever instance
             hybrid_retriever: Optional HybridRetriever (for RAG verification)
+            type_evidence: Optional iterable of TypeEvidence (SemanticIR
+                type evidence). Enables `resource_type` claim verification:
+                claims that a symbol needs Close() are checked against
+                type-checker evidence, so a claim on an io.Reader (no Close
+                method) is rejected even though the file:line exists.
         """
         self.graph = getattr(graph, "graph", graph)
         self.project_path = project_path or getattr(graph, "project_path", "")
@@ -49,6 +56,11 @@ class CrossChecker:
         self.hybrid_retriever = hybrid_retriever
         self.loc_verifier = LocationVerifier(project_path)
         self.extractor = EvidenceExtractor(project_path, graph)
+        self._binding_evidence: dict[str, list[TypeEvidence]] = {}
+        if type_evidence is not None:
+            for item in type_evidence:
+                if item.binding:
+                    self._binding_evidence.setdefault(item.binding, []).append(item)
 
     # ── Public API ──────────────────────────────────────────────────────
 
@@ -91,6 +103,8 @@ class CrossChecker:
                     result = self._verify_call_claim(claim)
                 elif vtype == "code_pattern":
                     result = self._verify_pattern_claim(claim)
+                elif vtype == "resource_type":
+                    result = self._verify_type_claim(claim)
                 else:
                     result = VerificationResult(
                         status=VerificationStatus.UNVERIFIABLE,
@@ -230,6 +244,88 @@ class CrossChecker:
         return claims
 
     # ── Claim verification ──────────────────────────────────────────────
+
+    def _verify_type_claim(self, claim: Dict) -> VerificationResult:
+        """Verify a resource-type claim against type-checker evidence.
+
+        The Proposer may attach a claim of type ``resource_type`` when it
+        asserts that a symbol is a resource that must be closed (e.g.
+        ``resp.File`` needs ``Close()``).  This verifier looks up the
+        symbol's type evidence (``TYPE_CHECKER`` preferred over surface) and
+        checks whether the resolved type actually has a Close method:
+
+        - type has Close method  -> VERIFIED (claim supported)
+        - type has no Close      -> HALLUCINATED (claim contradicted)
+        - no evidence available  -> UNVERIFIABLE (abstain, do not reject)
+
+        This closes the gap where location verification alone passes a claim
+        on an ``io.Reader`` field whose file:line exists but which has no
+        Close method.
+        """
+        target = claim.get("target", "")
+        if not isinstance(target, str):
+            target = ""
+        expects_close = bool(claim.get("expects_close", True))
+        if not target.strip():
+            return VerificationResult(
+                status=VerificationStatus.UNVERIFIABLE,
+                claim=str(claim),
+                detail="resource_type 声明缺少 target",
+            )
+
+        evidence_list = self._binding_evidence.get(target, [])
+        resolved_binding = target
+        if not evidence_list:
+            # Prefix fallback: "resp.File" has no direct evidence (it is an
+            # argument expression), but its base "resp" usually does.  If the
+            # base object has no Close method, a claim that its field needs
+            # Close is very likely a false positive.
+            parts = target.split(".")
+            for i in range(1, len(parts)):
+                prefix = ".".join(parts[:-i])
+                candidate = self._binding_evidence.get(prefix, [])
+                if candidate:
+                    evidence_list = candidate
+                    resolved_binding = prefix
+                    break
+        if not evidence_list:
+            return VerificationResult(
+                status=VerificationStatus.UNVERIFIABLE,
+                claim=target,
+                detail=f"无类型证据可用（binding={target}），保持 abstain",
+            )
+
+        # Prefer type-checker evidence (rank 3) over surface (rank <= 2).
+        checker = [e for e in evidence_list if e.source == TypeEvidenceSource.TYPE_CHECKER]
+        selected = checker or evidence_list
+        resolved = selected[0]
+        has_close = bool(resolved.attributes.get("has_close_method"))
+
+        if has_close == expects_close:
+            return VerificationResult(
+                status=VerificationStatus.VERIFIED,
+                claim=target,
+                resolved_file=None,
+                confidence=0.9,
+                detail=(
+                    f"类型证据确认: {target} -> {resolved.type_name} "
+                    f"(has_close_method={has_close}, source={resolved.source.value}"
+                    + (f", 通过前缀回退 {resolved_binding}" if resolved_binding != target else "")
+                    + ")"
+                ),
+            )
+
+        return VerificationResult(
+            status=VerificationStatus.HALLUCINATED,
+            claim=target,
+            confidence=0.0,
+            detail=(
+                f"类型证据反驳: {target} -> {resolved.type_name} "
+                f"(has_close_method={has_close}, source={resolved.source.value}"
+                + (f", 通过前缀回退 {resolved_binding}" if resolved_binding != target else "")
+                + "); 资源生命周期结论不成立"
+            ),
+        )
 
     def _verify_location_claim(self, claim: Dict) -> VerificationResult:
         """Verify a file:line location claim."""
