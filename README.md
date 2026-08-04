@@ -358,6 +358,21 @@ confirms that internal verification passing (81%) measures claim
 grounding, **not** real-bug precision; each candidate still requires
 cross-dependency review before submission.
 
+### Upstream submissions tracking (2026-08-04)
+
+Findings confirmed by runtime verification (local fix → reproduce →
+control → re-test) have been submitted upstream, credited to SmartBench.
+A cron job watches these threads daily and reports state changes.
+
+| Issue | Repository | Status | Finding | Verification |
+| --- | --- | --- | --- | --- |
+| [#22](https://github.com/qi4L/qscan/issues/22) | qi4L/qscan | OPEN | `CheckSID` leaks `*sql.DB` on every error path (missing `defer db.Close()`) | goroutine delta +5 per failed check → 0 after fix |
+| [#89](https://github.com/firefart/stunner/issues/89) | firefart/stunner | OPEN | `testPassword` leaks the TURN connection on every path (brute force accumulates sockets) | server-side FIN observed: leak before fix → EOF after fix |
+| [#1432](https://github.com/sparckles/Robyn/issues/1432) | sparckles/Robyn | OPEN | SSE tests use `stream=True` without closing response (test hygiene) | confirmed valid, low severity |
+
+When an issue is closed as accepted (or a PR is merged), this table is
+updated and the corresponding repository is added to the portfolio.
+
 ## Project status
 
 SmartBench is suitable for controlled repository experiments, architecture research, and portfolio demonstrations. The next useful work is effect measurement, not more surface features:
