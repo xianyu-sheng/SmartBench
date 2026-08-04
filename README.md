@@ -246,6 +246,7 @@ The separate blind ProjectReader experiment excludes historical target files fro
 - [Usage guide](docs/USAGE_GUIDE.md)
 - [Demo timeline](docs/DEMO_3_MINUTES_CN.md)
 - [Evidence-loop note](docs/EVIDENCE_LOOP_ARTICLE_CN.md)
+- [Type-evidence lesson: evaluation false positives → verifier fix](docs/TYPE_EVIDENCE_LESSON_CN.md)
 - [Historical benchmark corpus](benchmarks/real/README.md)
 - [Blind ProjectReader experiment](benchmarks/experiments/project_reader_blind/README.md)
 
