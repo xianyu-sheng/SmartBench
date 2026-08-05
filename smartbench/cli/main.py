@@ -255,6 +255,81 @@ def evaluate_rag(
     _maybe_save_output(report, output)
 
 
+@app.command("check-branches")
+def check_branches(
+    input_file: str = typer.Option(..., "--input", "-i", help="Quick-mode output JSON file"),
+    repo: str = typer.Option(..., "--repo", "-r", help="Path to the git repository that was scanned"),
+):
+    """Check whether quick-mode findings are already fixed on other branches.
+
+    Reads a quick-scan JSON output, then checks each finding's file location
+    against local dev/develop/next/release branches.  Findings whose reported
+    function already contains extra resource-cleanup patterns on another
+    branch are reported as "already-fixed" — they should NOT be submitted
+    as a new issue.
+    """
+    import json
+
+    from rich.table import Table
+
+    from smartbench.frontends.git_branch_checker import GitBranchChecker
+
+    input_path = Path(input_file)
+    if not input_path.exists():
+        console.print(f"[red]Input file not found: {input_file}[/red]")
+        raise typer.Exit(1)
+
+    try:
+        data = json.loads(input_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        console.print(f"[red]Invalid JSON: {exc}[/red]")
+        raise typer.Exit(1)
+
+    findings = data.get("final_suggestions", [])
+    if isinstance(findings, dict):
+        findings = findings.get("suggestions", [])
+    if not isinstance(findings, list):
+        console.print("[red]Invalid final_suggestions shape (expected a list)[/red]")
+        raise typer.Exit(1)
+    if not findings:
+        console.print("[yellow]No suggestions found in input file.[/yellow]")
+        return
+
+    repo_path = Path(repo).resolve()
+    if not (repo_path / ".git").exists():
+        console.print(f"[red]Not a git repository: {repo}[/red]")
+        raise typer.Exit(1)
+
+    try:
+        checker = GitBranchChecker(repo_path)
+    except Exception as exc:
+        console.print(f"[red]Failed to init checker: {exc}[/red]")
+        raise typer.Exit(1)
+
+    console.print(f"\nChecking {len(findings)} finding(s) against local branches...\n")
+
+    results = checker.check_findings(findings)
+    already, clean = GitBranchChecker.format_report(results)
+
+    if already:
+        console.print("[bold yellow]Already-fixed on other branch(es) — suppress submission:[/bold yellow]")
+        table = Table("File", "Line", "Fixed on")
+        for r in already:
+            table.add_row(
+                r.file_path,
+                str(r.line_start),
+                ", ".join(r.already_fixed_on),
+            )
+        console.print(table)
+
+    console.print(
+        f"\n[green]Clean (no prior fix found):[/green] {len(clean)} "
+        f"| [yellow]Already-fixed:[/yellow] {len(already)}"
+    )
+    if not already and not clean:
+        console.print("[dim]No findings with location data to check.[/dim]")
+
+
 @app.command()
 def check():
     """Check tool availability for the current system."""

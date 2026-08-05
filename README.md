@@ -98,6 +98,24 @@ smartbench quick \
   --output agent-report.json
 ```
 
+### Before submitting an upstream finding: check active branches
+
+A valid finding on the default branch may already be fixed on a project's
+active `dev`, `develop`, `next`, or `release` branch. Run this gate before
+opening an issue:
+
+```bash
+smartbench check-branches \
+  --input agent-report.json \
+  --repo /path/to/repository
+```
+
+The checker accepts both Quick-mode `path:line` locations and structured
+locations. It checks fetched local/remote branches and, for a shallow clone,
+fetches the tip of missing active branches only (without switching branches or
+modifying worktree files). An `Already-fixed` result means **do not submit**;
+review the upstream branch or its pending pull request instead.
+
 The `rag` extra is optional:
 
 ```bash
