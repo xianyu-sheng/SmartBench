@@ -71,6 +71,22 @@ smartbench quick \
   --output agent-report.json
 ```
 
+### 提交上游 Issue 前先检查其他活跃分支
+
+默认分支上的有效发现，可能已经在项目的 `dev`、`develop`、`next` 或
+`release` 分支修复。提交 Issue 前运行：
+
+```bash
+smartbench check-branches \
+  --input agent-report.json \
+  --repo /path/to/repository
+```
+
+检查器同时支持 Quick 输出的 `path:line` 字符串和结构化位置；会检查已
+获取的本地/远程分支。浅克隆缺少活跃分支时，只抓取该分支最新提交，不切换
+分支、不修改工作区。若显示 `Already-fixed`，**不要重复提交**，应先查看
+对应分支或待合并 PR。
+
 本地向量检索是可选能力：
 
 ```bash
