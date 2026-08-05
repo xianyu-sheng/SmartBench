@@ -367,7 +367,7 @@ A cron job watches these threads daily and reports state changes.
 | Issue | Repository | Status | Finding | Verification |
 | --- | --- | --- | --- | --- |
 | [#22](https://github.com/qi4L/qscan/issues/22) | qi4L/qscan | OPEN | `CheckSID` leaks `*sql.DB` on every error path (missing `defer db.Close()`) | goroutine delta +5 per failed check → 0 after fix |
-| [#89](https://github.com/firefart/stunner/issues/89) | firefart/stunner | OPEN | `testPassword` leaks the TURN connection on every path (brute force accumulates sockets) | server-side FIN observed: leak before fix → EOF after fix |
+| [#89](https://github.com/firefart/stunner/issues/89) | firefart/stunner | CLOSED | `testPassword` leaks the TURN connection on every path (brute force accumulates sockets) | fix confirmed on `dev` branch — discovery correct, already patched upstream |
 | [#1432](https://github.com/sparckles/Robyn/issues/1432) | sparckles/Robyn | OPEN | SSE tests use `stream=True` without closing response (test hygiene) | confirmed valid, low severity |
 
 When an issue is closed as accepted (or a PR is merged), this table is
