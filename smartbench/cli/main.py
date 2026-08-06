@@ -259,14 +259,17 @@ def evaluate_rag(
 def check_branches(
     input_file: str = typer.Option(..., "--input", "-i", help="Quick-mode output JSON file"),
     repo: str = typer.Option(..., "--repo", "-r", help="Path to the git repository that was scanned"),
+    json_output: bool = typer.Option(False, "--json", help="Output machine-readable JSON instead of rich tables"),
+    output_file: str = typer.Option("", "--output", "-o", help="Write JSON result to this file (requires --json)"),
 ):
     """Check whether quick-mode findings are already fixed on other branches.
 
     Reads a quick-scan JSON output, then checks each finding's file location
-    against local dev/develop/next/release branches.  Findings whose reported
-    function already contains extra resource-cleanup patterns on another
-    branch are reported as "already-fixed" — they should NOT be submitted
-    as a new issue.
+    against local dev/develop/next/release branches AND commit history.
+    Findings whose reported function already contains extra resource-cleanup
+    patterns on another branch, or whose cleanup pattern was introduced by a
+    prior commit, are reported as "already-fixed" — they should NOT be
+    submitted as a new issue.
     """
     import json
 
@@ -306,19 +309,43 @@ def check_branches(
         console.print(f"[red]Failed to init checker: {exc}[/red]")
         raise typer.Exit(1)
 
-    console.print(f"\nChecking {len(findings)} finding(s) against local branches...\n")
+    if not json_output:
+        console.print(f"\nChecking {len(findings)} finding(s) against branches and history...\n")
 
     results = checker.check_findings(findings)
     already, clean = GitBranchChecker.format_report(results)
 
+    # ── JSON mode ──────────────────────────────────────────────────
+    if json_output:
+        payload = {
+            "already_fixed": [r.to_dict() for r in already],
+            "clean": [r.to_dict() for r in clean],
+            "errors": [r.to_dict() for r in results if r.error],
+            "summary": {
+                "total": len(results),
+                "already_fixed": len(already),
+                "clean": len(clean),
+                "errors": sum(1 for r in results if r.error),
+            },
+        }
+        text = json.dumps(payload, indent=2, ensure_ascii=False)
+        if output_file:
+            Path(output_file).write_text(text, encoding="utf-8")
+            console.print(f"[green]JSON written to {output_file}[/green]")
+        else:
+            console.print(text)
+        return
+
+    # ── Rich table mode ────────────────────────────────────────────
     if already:
-        console.print("[bold yellow]Already-fixed on other branch(es) — suppress submission:[/bold yellow]")
-        table = Table("File", "Line", "Fixed on")
+        console.print("[bold yellow]Already-fixed — suppress submission:[/bold yellow]")
+        table = Table("File", "Line", "Fixed on", "Evidence")
         for r in already:
             table.add_row(
                 r.file_path,
                 str(r.line_start),
                 ", ".join(r.already_fixed_on),
+                r.fix_evidence or "",
             )
         console.print(table)
 
