@@ -295,7 +295,14 @@ def _pickaxe_search(
     Uses ``git log -S <pattern> --all -- <file>`` to find the most recent
     commit that added or removed a known cleanup string in the target file.
     Returns ``(commit_hash, matched_pattern)`` or ``None``.
+
+    Excludes HEAD commit (current scan point) to avoid false positives in
+    shallow clones where HEAD is the only commit.
     """
+    # Get HEAD commit hash to exclude it.
+    head_r = _run_git(repo, "rev-parse", "HEAD")
+    head_hash = head_r.stdout.strip() if head_r.returncode == 0 else ""
+
     for token in _PICKAXE_STRINGS:
         args = [
             "log",
@@ -309,7 +316,7 @@ def _pickaxe_search(
         r = _run_git(repo, *args, timeout=30)
         if r.returncode != 0:
             continue
-        commits = [c.strip() for c in r.stdout.splitlines() if c.strip()]
+        commits = [c.strip() for c in r.stdout.splitlines() if c.strip() and c.strip() != head_hash]
         if commits:
             return commits[0], token
     return None
