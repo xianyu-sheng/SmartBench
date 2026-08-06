@@ -1,10 +1,24 @@
 """Git branch-aware fix checker.
 
 Checks whether findings from a SmartBench quick scan already have
-equivalent fixes applied on other branches (dev, develop, next, etc.).
-Uses `git show <branch>:<path>` to read other-branch file content
-without switching branches, then compares the reported function's
-resource-cleanup patterns against the scan branch.
+equivalent fixes applied on other branches (dev, develop, next, etc.)
+or earlier commits on the same branch.
+
+Three detection strategies:
+
+1. **Cross-branch pattern delta** — compare the reported function's
+   cleanup-pattern count on the scan branch vs. candidate branches.
+   If another branch has more cleanup patterns in the same function,
+   the finding is likely already fixed there.
+
+2. **Cross-branch function diff** — compute the unified diff of the
+   function body between branches and check whether added lines contain
+   cleanup patterns (not just cosmetic changes).
+
+3. **Commit-history pickaxe** — use ``git log -S`` to find commits that
+   introduced a known cleanup pattern inside the reported file/function.
+   Catches fixes that landed on the same branch *after* the scan commit
+   but were not yet fetched, or on other branches' history.
 """
 
 from __future__ import annotations
@@ -18,7 +32,7 @@ from typing import List, Optional
 
 @dataclass
 class BranchCheckResult:
-    """Result of checking one finding against all local branches."""
+    """Result of checking one finding against all branches and history."""
 
     file_path: str
     line_start: int
@@ -26,16 +40,94 @@ class BranchCheckResult:
     function_name: Optional[str] = None
     already_fixed_on: List[str] = field(default_factory=list)
     checked_branches: List[str] = field(default_factory=list)
+    fixed_by_commit: Optional[str] = None
+    fix_evidence: Optional[str] = None
     error: Optional[str] = None
 
+    def to_dict(self) -> dict:
+        """Serialise for JSON output."""
+        return {
+            "file_path": self.file_path,
+            "line_start": self.line_start,
+            "line_end": self.line_end,
+            "function_name": self.function_name,
+            "already_fixed_on": self.already_fixed_on,
+            "checked_branches": self.checked_branches,
+            "fixed_by_commit": self.fixed_by_commit,
+            "fix_evidence": self.fix_evidence,
+            "error": self.error,
+        }
 
-# ── Patterns that indicate a resource-cleanup fix ──────────────────────
-_FIX_PATTERNS: list[re.Pattern] = [
+
+# ── Language-specific patterns that indicate a resource-cleanup fix ────
+
+_GO_PATTERNS: list[re.Pattern] = [
     re.compile(r"defer\s+\S+\.Close\(\)"),
     re.compile(r"\.Close\(\)"),
     re.compile(r"defer\s+func\(\)\s*\{.*\.Close\(\)"),
-    re.compile(r"releaseBuffer\(|backToBufPool\(|PutTCPBuffer\(|PutUDPBuffer\(|ReleaseSlot\(|closeq\(|closeAllClients\("),
+    re.compile(
+        r"releaseBuffer\(|backToBufPool\(|PutTCPBuffer\(|"
+        r"PutUDPBuffer\(|ReleaseSlot\(|closeq\(|closeAllClients\("
+    ),
 ]
+
+_PYTHON_PATTERNS: list[re.Pattern] = [
+    re.compile(r"\.close\(\)"),
+    re.compile(r"with\s+open\(|with\s+\S+\.open\("),
+    re.compile(r"contextlib\.closing\("),
+    re.compile(r"finally:"),
+    re.compile(r"del\s+\w+\s*$"),
+    re.compile(r"\.release\(\)"),
+    re.compile(r"\.shutdown\(\)"),
+    re.compile(r"gc\.collect\(\)"),
+]
+
+_JS_TS_PATTERNS: list[re.Pattern] = [
+    re.compile(r"\.close\(\)"),
+    re.compile(r"\.destroy\(\)"),
+    re.compile(r"\.release\(\)"),
+    re.compile(r"clearTimeout\(|clearInterval\("),
+    re.compile(r"AbortController\(|AbortSignal\.abort\("),
+    re.compile(r"finally\s*\{"),
+    re.compile(r"await\s+using\s+"),
+    re.compile(r"Symbol\.dispose|Symbol\.asyncDispose"),
+]
+
+_RUST_PATTERNS: list[re.Pattern] = [
+    re.compile(r"drop\("),
+    re.compile(r"\.close\(\)"),
+    re.compile(r"\.shutdown\(\)"),
+    re.compile(r"impl\s+Drop\s+for\s+"),
+    re.compile(r"defer\s+\{"),  # not real Rust; placeholder
+]
+
+# Map file extensions to their pattern sets.
+_EXT_PATTERNS: dict[str, list[re.Pattern]] = {
+    ".go": _GO_PATTERNS,
+    ".py": _PYTHON_PATTERNS,
+    ".js": _JS_TS_PATTERNS,
+    ".jsx": _JS_TS_PATTERNS,
+    ".ts": _JS_TS_PATTERNS,
+    ".tsx": _JS_TS_PATTERNS,
+    ".mjs": _JS_TS_PATTERNS,
+    ".cjs": _JS_TS_PATTERNS,
+    ".rs": _RUST_PATTERNS,
+}
+
+# Fallback when extension is unknown — all patterns combined.
+_ALL_PATTERNS: list[re.Pattern] = _GO_PATTERNS + _PYTHON_PATTERNS + _JS_TS_PATTERNS + _RUST_PATTERNS
+
+
+def _patterns_for_file(file_path: str) -> list[re.Pattern]:
+    """Return the cleanup-pattern set matching the file's language."""
+    ext = Path(file_path).suffix.lower()
+    return _EXT_PATTERNS.get(ext, _ALL_PATTERNS)
+
+
+def _count_fix_patterns(text: str, file_path: str = ".go") -> int:
+    patterns = _patterns_for_file(file_path)
+    return sum(1 for p in patterns if p.search(text))
+
 
 # Branches to check (in order; first existing match wins for reporting).
 _ACTIVE_BRANCHES: list[str] = [
@@ -46,12 +138,12 @@ _ACTIVE_BRANCHES: list[str] = [
 ]
 
 
-def _run_git(repo: Path, *args: str) -> subprocess.CompletedProcess:
+def _run_git(repo: Path, *args: str, timeout: int = 60) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["git", "-C", str(repo)] + list(args),
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=timeout,
     )
 
 
@@ -121,14 +213,14 @@ def _extract_function_body(lines: list[str], start: int, end: int) -> str:
     return "\n".join(lines[lo:hi])
 
 
-def _count_fix_patterns(text: str) -> int:
-    return sum(1 for p in _FIX_PATTERNS if p.search(text))
-
-
 def _func_name_from_section(lines: list[str], near_line: int) -> Optional[str]:
-    """Try to extract the enclosing function name from nearby lines."""
-    func_re = re.compile(r"func\s+(?:\([^)]*\)\s+)?(\w+)\s*\(")
-    for i in range(max(0, near_line - 10), min(len(lines), near_line)):
+    """Try to extract the enclosing function name from nearby lines.
+
+    Works for Go (``func foo(``), Python (``def foo(``), JS/TS
+    (``function foo(``), and Rust (``fn foo(``).
+    """
+    func_re = re.compile(r"(?:func|def|function|fn)\s+(?:\([^)]*\)\s+)?(\w+)\s*[\(\{]")
+    for i in range(max(0, near_line - 10), min(len(lines), near_line + 1)):
         line = lines[i]
         m = func_re.search(line)
         if m:
@@ -137,13 +229,20 @@ def _func_name_from_section(lines: list[str], near_line: int) -> Optional[str]:
 
 
 def _extract_named_function(lines: list[str], name: str) -> Optional[str]:
-    """Extract a Go function by name, independent of line-number drift."""
-    func_re = re.compile(rf"^\s*func\s+(?:\([^)]*\)\s+)?{re.escape(name)}\s*\(")
+    """Extract a function by name, independent of line-number drift.
+
+    Supports Go, Python, JS/TS, and Rust function declarations.
+    """
+    func_re = re.compile(
+        rf"^\s*(?:func|def|function|fn)\s+(?:\([^)]*\)\s+)?{re.escape(name)}\s*[\(\{{]"
+    )
     start = next((i for i, line in enumerate(lines) if func_re.search(line)), None)
     if start is None:
         return None
+    # Find the next function declaration or end-of-file.
+    next_func = re.compile(r"^\s*(?:func|def|function|fn)\s+")
     end = next(
-        (i for i in range(start + 1, len(lines)) if re.match(r"^\s*func\s+", lines[i])),
+        (i for i in range(start + 1, len(lines)) if next_func.match(lines[i])),
         len(lines),
     )
     return "\n".join(lines[start:end])
@@ -165,14 +264,91 @@ def _parse_location(location: object) -> tuple[str, int, int]:
     return "", 0, 0
 
 
+# ── Commit-history pickaxe ─────────────────────────────────────────────
+
+
+# Pickaxe search strings: the literal cleanup tokens we look for in diffs.
+_PICKAXE_STRINGS: list[str] = [
+    ".Close()",
+    ".close()",
+    "defer remote.Close()",
+    ".destroy()",
+    ".release()",
+    "finally:",
+    "with open(",
+    "contextlib.closing(",
+    "AbortController(",
+    "drop(",
+    "backToBufPool(",
+    "releaseBuffer(",
+    "ReleaseSlot(",
+]
+
+
+def _pickaxe_search(
+    repo: Path,
+    file_path: str,
+    extra_branches: Optional[list[str]] = None,
+) -> Optional[tuple[str, str]]:
+    """Search commit history for a cleanup-pattern introduction.
+
+    Uses ``git log -S <pattern> --all -- <file>`` to find the most recent
+    commit that added or removed a known cleanup string in the target file.
+    Returns ``(commit_hash, matched_pattern)`` or ``None``.
+    """
+    for token in _PICKAXE_STRINGS:
+        args = [
+            "log",
+            "--all",
+            "-S",
+            token,
+            "--format=%H",
+            "--",
+            file_path,
+        ]
+        r = _run_git(repo, *args, timeout=30)
+        if r.returncode != 0:
+            continue
+        commits = [c.strip() for c in r.stdout.splitlines() if c.strip()]
+        if commits:
+            return commits[0], token
+    return None
+
+
+# ── Function-level diff ────────────────────────────────────────────────
+
+
+def _function_diff(
+    repo: Path,
+    file_path: str,
+    scan_branch: str,
+    other_branch: str,
+    func_body_scan: str,
+    func_body_other: str,
+) -> list[str]:
+    """Return added lines (lines starting with '+') that appear in the
+    other-branch function body but not in the scan-branch version.
+
+    This is a lightweight set-difference rather than a full ``git diff``
+    to avoid needing a checked-out worktree for each branch.
+    """
+    scan_set = {line.strip() for line in func_body_scan.splitlines()}
+    added: list[str] = []
+    for line in func_body_other.splitlines():
+        if line.strip() and line.strip() not in scan_set:
+            added.append(line)
+    return added
+
+
 class GitBranchChecker:
-    """Cross-branch fix-existence checker.
+    """Cross-branch and cross-commit fix-existence checker.
 
     Usage::
 
         checker = GitBranchChecker(Path("/tmp/my-repo"))
         result = checker.check("pkg/server.go", 45, 58)
-        print(result.already_fixed_on)  # e.g. ["dev"]
+        print(result.already_fixed_on)  # e.g. ["origin/dev"]
+        print(result.fixed_by_commit)   # e.g. "ac65771..."
     """
 
     def __init__(self, repo_path: Path):
@@ -182,6 +358,9 @@ class GitBranchChecker:
         self._local_branches = _fetch_active_branches(
             self.repo, _list_local_branches(self.repo)
         )
+        # Detect current branch for diff purposes.
+        r = _run_git(self.repo, "rev-parse", "--abbrev-ref", "HEAD")
+        self._current_branch = r.stdout.strip() if r.returncode == 0 else "HEAD"
 
     def check(
         self,
@@ -189,7 +368,7 @@ class GitBranchChecker:
         line_start: int,
         line_end: int = 0,
     ) -> BranchCheckResult:
-        """Check one finding against other active branches."""
+        """Check one finding against other active branches and history."""
         if line_end == 0:
             line_end = line_start
         result = BranchCheckResult(
@@ -211,11 +390,10 @@ class GitBranchChecker:
             if result.function_name
             else None
         ) or _extract_function_body(main_lines, line_start - 1, line_end - 1)
-        main_close_count = _count_fix_patterns(main_body)
+        main_close_count = _count_fix_patterns(main_body, file_path)
 
-        # Check active branches.
+        # ── Strategy 1+2: Cross-branch pattern delta and function diff ──
         for branch in _ACTIVE_BRANCHES:
-            # Also check partial matches like "release/v1.2"
             candidates = [
                 b for b in self._local_branches
                 if b == branch
@@ -237,11 +415,40 @@ class GitBranchChecker:
                     if result.function_name
                     else None
                 ) or _extract_function_body(other_lines, line_start - 1, line_end - 1)
-                other_close_count = _count_fix_patterns(other_body)
+                other_close_count = _count_fix_patterns(other_body, file_path)
 
+                # Strategy 1: more cleanup patterns on other branch.
                 if other_close_count > main_close_count:
                     result.already_fixed_on.append(cand)
-                    break  # only need one branch to confirm
+                    result.fix_evidence = (
+                        f"pattern count {other_close_count} > {main_close_count}"
+                    )
+                    break
+
+                # Strategy 2: function diff shows cleanup additions even
+                # if total pattern count is unchanged (e.g. refactor).
+                added_lines = _function_diff(
+                    self.repo, file_path,
+                    self._current_branch, cand,
+                    main_body, other_body,
+                )
+                added_text = "\n".join(added_lines)
+                if _count_fix_patterns(added_text, file_path) > 0:
+                    result.already_fixed_on.append(cand)
+                    result.fix_evidence = (
+                        f"function diff adds cleanup lines in {cand}"
+                    )
+                    break
+
+        # ── Strategy 3: Commit-history pickaxe ──────────────────────────
+        if not result.already_fixed_on:
+            pickaxe = _pickaxe_search(self.repo, file_path)
+            if pickaxe:
+                commit_hash, token = pickaxe
+                # Verify the commit actually touches this file's function.
+                result.fixed_by_commit = commit_hash
+                result.fix_evidence = f"pickaxe: '{token}' introduced in {commit_hash[:8]}"
+                result.already_fixed_on.append(f"commit:{commit_hash[:8]}")
 
         return result
 

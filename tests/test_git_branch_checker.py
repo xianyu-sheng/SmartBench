@@ -179,3 +179,151 @@ def test_remote_only_dev_branch(tmp_path: Path, dual_branch_repo: Path):
     result = checker.check("leak.go", 5, 11)
     assert "origin/dev" in checker._local_branches
     assert "origin/dev" in result.already_fixed_on
+
+
+# ── Multi-language pattern tests ─────────────────────────────────────
+
+
+@pytest.fixture
+def python_dual_branch_repo(tmp_path: Path) -> Path:
+    """A Python repo where main has a missing close() and dev fixes it."""
+    repo = tmp_path / "pyrepo"
+    repo.mkdir()
+
+    def _git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(repo)] + list(args), check=True, capture_output=True, text=True)
+
+    main_src = (
+        "def read_file(path):\n"
+        "    f = open(path)\n"
+        "    data = f.read()\n"
+        "    return data\n"
+    )
+    (repo / "leak.py").write_text(main_src)
+    _git("init", "-b", "main")
+    _git("config", "user.email", "test@test")
+    _git("config", "user.name", "Test")
+    _git("add", "leak.py")
+    _git("commit", "-m", "initial")
+
+    fixed_src = (
+        "def read_file(path):\n"
+        "    with open(path) as f:\n"
+        "        data = f.read()\n"
+        "    return data\n"
+    )
+    _git("checkout", "-b", "dev")
+    (repo / "leak.py").write_text(fixed_src)
+    _git("add", "leak.py")
+    _git("commit", "-m", "fix: use context manager")
+    _git("checkout", "main")
+    return repo
+
+
+def test_python_patterns_detected(python_dual_branch_repo: Path):
+    """Python cleanup patterns should be detected cross-branch."""
+    checker = GitBranchChecker(python_dual_branch_repo)
+    result = checker.check("leak.py", 2, 4)
+    assert result.error is None, result.error
+    assert "dev" in result.already_fixed_on, f"expected dev, got {result.already_fixed_on}"
+
+
+# ── Commit pickaxe test ──────────────────────────────────────────────
+
+
+def test_pickaxe_detects_fix_in_history(tmp_path: Path):
+    """A fix commit on the current branch should be detected via pickaxe."""
+    repo = tmp_path / "pickaxe-repo"
+    repo.mkdir()
+
+    def _git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(repo)] + list(args), check=True, capture_output=True, text=True)
+
+    buggy = (
+        "package main\n"
+        "\n"
+        "import \"net\"\n"
+        "\n"
+        "func process(addr string) error {\n"
+        "    conn, err := net.Dial(\"tcp\", addr)\n"
+        "    if err != nil {\n"
+        "        return err\n"
+        "    }\n"
+        "    return nil\n"
+        "}\n"
+    )
+    (repo / "server.go").write_text(buggy)
+    _git("init", "-b", "main")
+    _git("config", "user.email", "test@test")
+    _git("config", "user.name", "Test")
+    _git("add", "server.go")
+    _git("commit", "-m", "initial")
+
+    fixed = buggy.replace("    return nil\n}\n", "    defer conn.Close()\n    return nil\n}\n")
+    (repo / "server.go").write_text(fixed)
+    _git("add", "server.go")
+    _git("commit", "-m", "fix: add defer conn.Close()")
+
+    # Revert to buggy version (simulate scanning old commit).
+    (repo / "server.go").write_text(buggy)
+    _git("add", "server.go")
+    _git("commit", "-m", "revert to buggy for testing")
+
+    checker = GitBranchChecker(repo)
+    result = checker.check("server.go", 6, 12)
+    # Pickaxe should find the commit that added "defer conn.Close()".
+    assert result.fixed_by_commit is not None, "expected pickaxe to find the fix commit"
+    assert ".Close()" in (result.fix_evidence or "")
+
+
+# ── JSON output test ─────────────────────────────────────────────────
+
+
+def test_to_dict_serialization(dual_branch_repo: Path):
+    """BranchCheckResult.to_dict() should produce JSON-serialisable output."""
+    import json as _json
+
+    checker = GitBranchChecker(dual_branch_repo)
+    result = checker.check("leak.go", 5, 11)
+    d = result.to_dict()
+    # Verify it's serialisable.
+    _json.dumps(d)
+    assert d["file_path"] == "leak.go"
+    assert d["line_start"] == 5
+    assert "dev" in d["already_fixed_on"]
+    assert d["function_name"] == "process"
+    assert d["fix_evidence"] is not None
+
+
+# ── Multi-function language detection ────────────────────────────────
+
+
+def test_patterns_for_file_extensions():
+    """Pattern selection should match file extension to language."""
+    from smartbench.frontends.git_branch_checker import _patterns_for_file
+
+    go_patterns = _patterns_for_file("main.go")
+    py_patterns = _patterns_for_file("app.py")
+    js_patterns = _patterns_for_file("server.js")
+    ts_patterns = _patterns_for_file("app.ts")
+    rs_patterns = _patterns_for_file("lib.rs")
+    unknown_patterns = _patterns_for_file("Makefile")
+
+    # Each language should have non-empty pattern list.
+    assert len(go_patterns) > 0
+    assert len(py_patterns) > 0
+    assert len(js_patterns) > 0
+    assert len(ts_patterns) > 0
+    assert len(rs_patterns) > 0
+
+    # JS and TS should share the same pattern set.
+    assert js_patterns is ts_patterns
+
+    # Unknown extensions get all patterns combined.
+    assert len(unknown_patterns) >= len(go_patterns) + len(py_patterns)
+
+    # Go patterns should include .Close() detection.
+    assert any(p.search(".Close()") for p in go_patterns)
+
+    # Python patterns should include with open().
+    assert any(p.search("with open(f)") for p in py_patterns)
