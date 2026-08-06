@@ -387,6 +387,7 @@ A cron job watches these threads daily and reports state changes.
 | [#22](https://github.com/qi4L/qscan/issues/22) | qi4L/qscan | OPEN | `CheckSID` leaks `*sql.DB` on every error path (missing `defer db.Close()`) | goroutine delta +5 per failed check → 0 after fix |
 | [#89](https://github.com/firefart/stunner/issues/89) | firefart/stunner | CLOSED | `testPassword` leaks the TURN connection on every path (brute force accumulates sockets) | fix confirmed on `dev` branch — discovery correct, already patched upstream |
 | [#1432](https://github.com/sparckles/Robyn/issues/1432) | sparckles/Robyn | OPEN | SSE tests use `stream=True` without closing response (test hygiene) | confirmed valid, low severity |
+| [#203](https://github.com/mosajjal/sniproxy/pull/203) | mosajjal/sniproxy | PR OPEN | `refresh_interval: 0` crashes the process: `time.NewTicker` panics in the ACL refresh goroutine (cidr/domain/geoip) | reproduced panic at runtime → fix control → no panic, tests pass |
 
 When an issue is closed as accepted (or a PR is merged), this table is
 updated and the corresponding repository is added to the portfolio.

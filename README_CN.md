@@ -340,6 +340,7 @@ SmartBench 对 12 个 Python/Go 开源仓库进行了评测，结合确定性规
 | [#22](https://github.com/qi4L/qscan/issues/22) | qi4L/qscan | OPEN | `CheckSID` 所有错误路径泄漏 `*sql.DB`（缺 `defer db.Close()`） | goroutine 每次失败 +5 → 修复后 0 |
 | [#89](https://github.com/firefart/stunner/issues/89) | firefart/stunner | CLOSED | `testPassword` 所有路径泄漏 TURN 连接（爆破累积 socket） | 修复已在 `dev` 分支确认 — 发现正确，上游已自行修复 |
 | [#1432](https://github.com/sparckles/Robyn/issues/1432) | sparckles/Robyn | OPEN | SSE 测试 `stream=True` 未关闭响应（测试卫生） | 确认真实，低严重度 |
+| [#203](https://github.com/mosajjal/sniproxy/pull/203) | mosajjal/sniproxy | PR OPEN | `refresh_interval: 0` 导致进程崩溃：`time.NewTicker` 在 ACL 刷新 goroutine 中 panic（cidr/domain/geoip） | 运行时复现 panic → 修复对照 → 无 panic，测试通过 |
 
 当 issue 被采纳关闭（或 PR 被合并）时，更新此表并将对应仓库加入成果清单。
 
