@@ -10,9 +10,16 @@ from typing import List, Optional
 from smartbench.core.adapters.base import LanguageAdapter
 from smartbench.detector.fingerprint import Language
 from smartbench.frontends.python import PythonSemanticLowerer
+from smartbench.frontends.python_type_evidence import PYTHON_TYPE_EVIDENCE_PROVIDER
 from smartbench.graph.builder import CodeGraphBuilder
 from smartbench.graph.schema import CodeGraph
-from smartbench.ir import Capability, CapabilitySet, SemanticIR, validate_semantic_ir
+from smartbench.ir import (
+    TYPE_EVIDENCE_SCHEMA_VERSION,
+    Capability,
+    CapabilitySet,
+    SemanticIR,
+    validate_semantic_ir,
+)
 
 
 class PythonAdapter(LanguageAdapter):
@@ -114,12 +121,25 @@ class PythonAdapter(LanguageAdapter):
         ir.operations.extend(lowered.operations)
         ir.operation_edges.extend(lowered.edges)
         ir.facts.extend(lowered.facts)
+
+        from smartbench.frontends.python_type_evidence import PythonSurfaceTypeProvider
+
+        type_result = PythonSurfaceTypeProvider().provide(ir)
+        ir.type_evidence.extend(type_result.evidence)
+
         contract_errors = validate_semantic_ir(lowered.operations)
         ir.meta["python_frontend"] = {
             "files_analyzed": lowered.files_analyzed,
             "operations": len(lowered.operations),
             "operation_edges": len(lowered.edges),
             "errors": [*lowered.errors, *contract_errors],
+        }
+        ir.meta["python_type_evidence"] = {
+            "schema_version": TYPE_EVIDENCE_SCHEMA_VERSION,
+            "provider": PYTHON_TYPE_EVIDENCE_PROVIDER,
+            "files_analyzed": type_result.files_analyzed,
+            "count": len(type_result.evidence),
+            "errors": type_result.errors,
         }
         ir.meta["semantic_contract"] = {
             "version": "semantic-ir/contracts/v1",
