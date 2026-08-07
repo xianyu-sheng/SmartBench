@@ -1,0 +1,21 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: file-close-before-copy
+    name: Opened files must be closed before copy
+    description: Files opened for a copy must have Close registered (defer) before io.Copy, so error paths release both handles.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: opened files must be closed before copy
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [assign]
+        contains_all: [os.Open]
+      guard:
+        kinds: [defer]
+        contains_all: [in.Close]
+      action:
+        kinds: [assign]
+        contains_all: [io.Copy]

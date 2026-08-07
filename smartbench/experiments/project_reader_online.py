@@ -205,6 +205,11 @@ def run_online_project_reader_experiment(
     for case in cases:
         if case.language not in allowed:
             continue
+        # State-rule-only fixtures (configuration validation, concurrency
+        # patterns that the resource-protocol pipeline cannot express) are
+        # validated by the benchmark runner, not by this online experiment.
+        if str(case.metadata.get("experiment_scope", "resource-protocol")) != "resource-protocol":
+            continue
         adapter = registry.get_adapter_for_language(case.language)
         if adapter is None:
             report.errors.append(f"{case.case_id}: no adapter for {case.language}")

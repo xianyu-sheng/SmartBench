@@ -123,6 +123,12 @@ def run_project_reader_resource_experiment(
     for case in cases:
         if case.language not in allowed:
             continue
+        # State-rule-only fixtures (configuration validation, concurrency
+        # patterns that ResourceLifecycleAnalyzer cannot express as resource
+        # protocols) are validated by the benchmark runner, not by this
+        # resource-protocol experiment.
+        if str(case.metadata.get("experiment_scope", "resource-protocol")) != "resource-protocol":
+            continue
         adapter = registry.get_adapter_for_language(case.language)
         if adapter is None:
             report.errors.append(f"{case.case_id}: no adapter for {case.language}")

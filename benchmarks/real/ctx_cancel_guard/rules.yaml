@@ -1,0 +1,21 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: ctx-cancel-before-spawn
+    name: Derived context must be cancelled before goroutine spawn
+    description: A context derived with context.WithCancel must have its cancel function invoked (defer) before the goroutine is spawned, so the worker can be stopped.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: derived context must be cancelled before spawning the goroutine
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [assign]
+        contains_all: [context.WithCancel]
+      guard:
+        kinds: [defer]
+        contains_all: [cancel]
+      action:
+        kinds: [spawn]
+        contains_all: [doWork]

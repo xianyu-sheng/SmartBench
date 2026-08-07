@@ -214,9 +214,11 @@ Two additional caveats matter:
 
 ## Reproducible evaluation
 
-The repository contains six before/after cases (12 minimal source snapshots)
-derived from public fixes. These fixtures preserve the code needed by the
-declared analyzer; they are not complete historical repository checkouts:
+The repository contains 20 before/after cases (36 minimal source snapshots:
+18 in `benchmarks/real/`, 1 interprocedural, 1 reasonix) derived from public
+fixes and SmartBench-discovered bugs. These fixtures preserve the code
+needed by the declared analyzer; they are not complete historical
+repository checkouts:
 
 | Project | Language | Public fix | Category |
 | --- | --- | --- | --- |
@@ -226,6 +228,14 @@ declared analyzer; they are not complete historical repository checkouts:
 | Kubernetes | Go | [#29495](https://github.com/kubernetes/kubernetes/pull/29495) | Resource lifecycle |
 | Gin | Go | [#4422](https://github.com/gin-gonic/gin/pull/4422) | Resource lifecycle |
 | Terraform | Go | [#38585](https://github.com/hashicorp/terraform/pull/38585) | Resource lifecycle |
+| Sniproxy | Go | [PR #203](https://github.com/mosajjal/sniproxy/pull/203) (SmartBench) | Configuration validation |
+| Qscan | Go | [Issue #22](https://github.com/qi4L/qscan/issues/22) (SmartBench) | Resource lifecycle |
+| Stunner | Go | [Issue #89](https://github.com/firefart/stunner/issues/89) (SmartBench) | Resource lifecycle |
+
+Plus nine synthetic common-pattern fixtures (HTTP body close, SQL rows
+close, file copy close, buffered writer flush, ticker stop, mutex unlock,
+context cancel, websocket close, requests session close) that pin the
+state-rule engine against recurring defect shapes.
 
 ```bash
 smartbench benchmark run \
@@ -233,7 +243,10 @@ smartbench benchmark run \
   --output benchmark-report.json
 ```
 
-The current expected result is 12/12 snapshot checks: each declared buggy snapshot produces the expected rule and each fixed snapshot produces none. This shows that SmartBench can express these known defects. It does not measure unknown-bug recall.
+The current expected result is 36/36 snapshot checks: each declared buggy
+snapshot produces the expected rule and each fixed snapshot produces none.
+This shows that SmartBench can express these known defects. It does not
+measure unknown-bug recall.
 
 The separate blind ProjectReader experiment excludes historical target files from the model inventory. A recorded DeepSeek A/B completed 6/6 trials over two admissible Go protocols after deterministic ID resolution; two other cases remained unsupported because no admissible reference survived exclusion. See [the experiment notes](benchmarks/experiments/project_reader_blind/README.md) for the exact boundary.
 

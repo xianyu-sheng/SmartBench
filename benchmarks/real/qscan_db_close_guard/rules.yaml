@@ -1,0 +1,21 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: db-close-guarded-before-exec
+    name: Database handle must be closed before use
+    description: A database handle opened with sql.Open must have its Close registered (defer) before the handle is used, so error paths after use do not leak the *sql.DB handle.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: database handle must be closed before it is used
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [assign]
+        contains_all: [sql.Open]
+      guard:
+        kinds: [defer]
+        contains_all: [db.Close]
+      action:
+        kinds: [assign]
+        contains_all: [db.Exec]

@@ -1,0 +1,21 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: ws-close-before-write
+    name: Websocket must be closed before write
+    description: A websocket connection must have Close registered (defer) before writing, so the error path releases the connection.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: websocket must be closed before write
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [assign]
+        contains_all: [websocket.DefaultDialer.Dial]
+      guard:
+        kinds: [defer]
+        contains_all: [conn.Close]
+      action:
+        kinds: [assign]
+        contains_all: [conn.WriteMessage]

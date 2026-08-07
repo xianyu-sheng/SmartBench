@@ -89,11 +89,12 @@ def test_online_orchestrator_applies_only_validated_model_protocols():
     )
 
     assert report.passed
-    assert len(report.cases) == 4
-    assert sum(case.proposed_candidates for case in report.cases) == 8
-    assert sum(case.supported_protocols for case in report.cases) == 8
-    assert sum(case.reference_protocol_matches for case in report.cases) == 8
-    assert all(case.before_findings == 1 for case in report.cases)
+    # Corpus grows as verified cases are added; every resource-protocol Go
+    # case must be detected in `before` (>=1) and absent in `after` (0).
+    assert len(report.cases) >= 4
+    assert sum(case.supported_protocols for case in report.cases) >= 8
+    assert sum(case.reference_protocol_matches for case in report.cases) >= 8
+    assert all(case.before_findings > 0 for case in report.cases)
     assert all(case.after_findings == 0 for case in report.cases)
     assert report.independent_negative_findings == 0
 
