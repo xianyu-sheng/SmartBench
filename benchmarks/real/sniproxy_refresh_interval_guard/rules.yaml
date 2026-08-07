@@ -1,0 +1,21 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: refresh-interval-guarded-before-ticker
+    name: Refresh interval must be validated before the refresh worker starts
+    description: time.NewTicker panics on non-positive durations. ConfigAndStart must validate refresh_interval (reject <= 0) before spawning the refresh worker, otherwise a zero or negative configured interval crashes the whole process from inside the goroutine.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: refresh_interval must be validated as positive before the refresh worker starts
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [assign]
+        contains_all: [RefreshInterval]
+      guard:
+        kinds: [branch]
+        contains_all: [RefreshInterval, "<= 0"]
+      action:
+        kinds: [spawn]
+        contains_all: [loadCIDRCSVWorker]

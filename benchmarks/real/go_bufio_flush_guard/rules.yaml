@@ -1,0 +1,20 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: writer-flush-before-return
+    name: Buffered writer must be flushed before return
+    description: A buffered writer must have Flush registered (defer) before the function returns, otherwise buffered data is lost.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: buffered writer must be flushed before return
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [assign]
+        contains_all: [bufio.NewWriter]
+      guard:
+        kinds: [defer]
+        contains_all: [w.Flush]
+      action:
+        kinds: [return]

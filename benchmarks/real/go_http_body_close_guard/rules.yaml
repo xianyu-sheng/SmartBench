@@ -1,0 +1,21 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: http-body-close-before-read
+    name: HTTP response body must be closed before read
+    description: An HTTP response body must have Close registered before it is read, so error paths release the connection.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: HTTP response body must be closed before read
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [assign]
+        contains_all: [http.Get]
+      guard:
+        kinds: [defer]
+        contains_all: [resp.Body.Close]
+      action:
+        kinds: [assign]
+        contains_all: [io.ReadAll]

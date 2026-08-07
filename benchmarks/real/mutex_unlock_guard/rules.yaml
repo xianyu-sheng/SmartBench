@@ -1,0 +1,21 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: mutex-unlock-before-use
+    name: Mutex must be unlocked before map access returns
+    description: A mutex acquired with Lock must have Unlock registered (defer) before the protected map access, so error paths do not leave the mutex locked forever.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: mutex must be unlocked before the protected access
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [call]
+        contains_all: [s.mu.Lock]
+      guard:
+        kinds: [defer]
+        contains_all: [s.mu.Unlock]
+      action:
+        kinds: [assign]
+        contains_all: [s.data]

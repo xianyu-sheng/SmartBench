@@ -1,0 +1,21 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: sql-rows-close-before-scan
+    name: Query rows must be closed before scanning
+    description: Rows returned by db.Query must have Close registered (defer) before the scan loop, so error paths release the cursor and its connection.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: query rows must be closed before scanning
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [assign]
+        contains_all: [db.Query]
+      guard:
+        kinds: [defer]
+        contains_all: [rows.Close]
+      action:
+        kinds: [assign]
+        contains_all: [rows.Scan]

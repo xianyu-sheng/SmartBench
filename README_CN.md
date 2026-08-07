@@ -35,7 +35,7 @@ SmartBench 探索的是代码诊断中的一种职责划分：
 | --- | --- | --- |
 | 确定性 `unified` 分析 | 规则 finding、capability、源码角色、图事实、JSON 和 SARIF | 干净结果不代表代码没有 Bug |
 | 配置模型后的 `quick` | 项目 hypothesis、受 evidence gate 约束的审查、明确拒绝和 abstain 状态 | Agent 引用了真实 fact，不等于结论已经成立 |
-| 公开 before/after corpus | 可复现地验证部分 analyzer 能区分六个已知修复 | 对未知 Bug 的 precision 或 recall |
+| 公开 before/after corpus | 可复现地验证部分 analyzer 能区分 20 个已知修复 | 对未知 Bug 的 precision 或 recall |
 
 目前更适合的使用者，是评估这套架构或进行受控、人工复核仓库审计的人；它还不是
 可以直接放进 CI 作为质量门禁的工具。
@@ -183,8 +183,8 @@ ProjectReader 不能写入 SemanticIR。当前资源生命周期链路中，它�
 
 ## 可复现实验
 
-仓库包含六个来自公开修复的 before/after 案例，共 12 个最小源码快照。这些 fixture
-保留声明式 analyzer 所需的代码，并不是六个历史仓库的完整 checkout：
+仓库包含 20 个 before/after 案例（36 个最小源码快照：`benchmarks/real/` 18 个、interprocedural 1 个、reasonix 1 个），来自公开修复与 SmartBench 自发现 Bug。这些 fixture
+保留声明式 analyzer 所需的代码，并不是历史仓库的完整 checkout：
 
 | 项目 | 语言 | 公开修复 | 类别 |
 | --- | --- | --- | --- |
@@ -194,6 +194,14 @@ ProjectReader 不能写入 SemanticIR。当前资源生命周期链路中，它�
 | Kubernetes | Go | [#29495](https://github.com/kubernetes/kubernetes/pull/29495) | 资源生命周期 |
 | Gin | Go | [#4422](https://github.com/gin-gonic/gin/pull/4422) | 资源生命周期 |
 | Terraform | Go | [#38585](https://github.com/hashicorp/terraform/pull/38585) | 资源生命周期 |
+| Sniproxy | Go | [PR #203](https://github.com/mosajjal/sniproxy/pull/203)（SmartBench） | 配置校验 |
+| Qscan | Go | [Issue #22](https://github.com/qi4L/qscan/issues/22)（SmartBench） | 资源生命周期 |
+| Stunner | Go | [Issue #89](https://github.com/firefart/stunner/issues/89)（SmartBench） | 资源生命周期 |
+
+另有 9 个合成常见模式 fixture（HTTP body 关闭、SQL rows 关闭、文件复制
+关闭、缓冲写入 flush、ticker Stop、mutex Unlock、context cancel、
+websocket 关闭、requests session 关闭），用于固定状态规则引擎对常见
+缺陷形态的识别能力。
 
 ```bash
 smartbench benchmark run \
@@ -201,7 +209,7 @@ smartbench benchmark run \
   --output benchmark-report.json
 ```
 
-当前预期是 12/12 快照检查通过：声明的缺陷快照产生对应规则，修复快照不产生。它证明 SmartBench 能表达这些已知缺陷，不测量未知 Bug recall。
+当前预期是 36/36 快照检查通过：声明的缺陷快照产生对应规则，修复快照不产生。它证明 SmartBench 能表达这些已知缺陷，不测量未知 Bug recall。
 
 独立 blind ProjectReader 实验会从模型 inventory 中排除历史目标文件。一次已记录的 DeepSeek A/B 在两个具有合法 reference 的 Go 协议上完成 6/6 trials；另外两个案例因 reference 不成立保持 unsupported。完整边界见 [实验说明](benchmarks/experiments/project_reader_blind/README.md)。
 
@@ -244,7 +252,7 @@ python -m compileall -q smartbench
 python -m build
 ```
 
-CI 运行 Python 3.10-3.12 测试、parser adapter 检查、12 快照 benchmark、ProjectReader 边界实验和干净 wheel CLI 冒烟。
+CI 运行 Python 3.10-3.12 测试、parser adapter 检查、36 快照 benchmark、ProjectReader 边界实验和干净 wheel CLI 冒烟。
 
 ## 真实世界评测 (2026-08-04，同日修正)
 

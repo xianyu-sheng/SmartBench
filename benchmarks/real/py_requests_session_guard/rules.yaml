@@ -1,0 +1,20 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: session-close-before-return
+    name: HTTP session must be closed before return
+    description: An HTTP session must have its close registered (with-context) before the function returns so pooled connections are released.
+    severity: error
+    confidence: 1.0
+    languages: [python]
+    message: http session must be closed before return
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [assign]
+        contains_all: [requests.Session]
+      guard:
+        kinds: [call]
+        contains_all: [session.close]
+      action:
+        kinds: [return]

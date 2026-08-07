@@ -1,0 +1,21 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: ticker-stop-before-exit
+    name: Ticker must be stopped before the consuming loop
+    description: A ticker created with time.NewTicker must have its Stop registered (defer) before the select loop that consumes it, otherwise the ticker leaks until GC.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: ticker must be stopped before the consuming loop
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [assign]
+        contains_all: [time.NewTicker]
+      guard:
+        kinds: [defer]
+        contains_all: [ticker.Stop]
+      action:
+        kinds: [select]
+        contains_all: [ticker.C]
