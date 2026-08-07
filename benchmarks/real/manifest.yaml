@@ -317,7 +317,11 @@ cases:
     snapshots:
       - label: before
         path: go_file_copy_close_guard/before
-        min_findings: 2
+        # The state-rule benchmark reports 1 finding (os.Open protocol
+        # only); the ProjectReader resource-protocol experiment learns
+        # os.Open AND os.Create protocols and reports 2. Both share this
+        # manifest, so the acceptable range is [1, 2].
+        min_findings: 1
         max_findings: 2
         expected_rule_ids: [file-close-before-copy]
       - label: after
