@@ -6,11 +6,20 @@
 [![Status: Public Beta](https://img.shields.io/badge/status-public_beta-orange.svg)](#project-status)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-SmartBench is an experimental code-diagnosis workbench that combines
-normalized static analysis with evidence-constrained LLM review. It is
-the tool behind several [upstream bugs](#upstream-submissions) found in
-real open-source projects — each reproduced at runtime, fixed locally,
-and verified before submission.
+**证据约束的代码诊断工作台**——静态分析提供源码事实，LLM 提出假设，resolver/validator 决定能否绑定为实际发现。证据不足时保持 `unknown` 或 `abstained`，从架构层面抑制幻觉。
+
+## 🎯 已验证的真实成果
+
+SmartBench 在真实开源项目中发现并验证了以下 bug（均已运行时复现 + 本地修复 + 控制实验）：
+
+| 项目 | 发现 | 状态 | 验证方式 |
+|------|------|------|---------|
+| [qi4L/qscan](https://github.com/qi4L/qscan/issues/22) | `CheckSID` 在每个错误路径泄漏 `*sql.DB`（缺失 `defer db.Close()`） | **OPEN** | goroutine 增量 +5 → 修复后归零 |
+| [firefart/stunner](https://github.com/firefart/stunner/issues/89) | `testPassword` 在所有路径泄漏 TURN 连接（暴力破解累积 socket） | **CLOSED** | 修复已在 `dev` 分支确认，发现正确 |
+| [mosajjal/sniproxy](https://github.com/mosajjal/sniproxy/pull/203) | `refresh_interval: 0` 导致进程崩溃：`time.NewTicker` 在 ACL 刷新 goroutine 中 panic | **PR OPEN** | 运行时复现 panic → 控制修复 → 测试通过 |
+| [sparckles/Robyn](https://github.com/sparckles/Robyn/issues/1432) | SSE 测试用 `stream=True` 但未显式 `response.close()`（测试卫生问题） | **OPEN** | 已确认有效，低严重性 |
+
+SmartBench 是这些 bug 背后的工具——每个发现都经过完整验证链：静态审计 → 运行时复现 → 本地修复 → 对照实验（修复前失败，修复后通过）。
 
 [中文说明](README_CN.md) · [Live demo](https://xianyu-sheng.github.io/SmartBench/) · [Architecture](docs/ARCHITECTURE.md) · [Usage](docs/USAGE_GUIDE.md)
 
