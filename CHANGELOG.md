@@ -5,6 +5,13 @@ semantic versioning while it remains in beta.
 
 ## [Unreleased]
 
+### Removed
+
+- 删除 `legacy/` 目录（v0.1–v0.5 Raft KV benchmark 时代的死代码，468K，
+  不可运行且无任何现行引用）。历史仍在 git 中：旧代码可通过 tag
+  `v0.5.x` 或 `git log -- legacy/` 找回。同步移除 `pyproject.toml`
+  中 sdist exclude 与 ruff extend-exclude 对 `/legacy` 的引用。
+
 ### Added
 
 - `AnalysisSession`, a shared runtime boundary for repository discovery,
