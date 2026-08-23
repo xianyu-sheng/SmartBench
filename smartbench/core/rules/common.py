@@ -184,9 +184,11 @@ class ResourceLeakRule(DiagnosticRule):
                 ),
             ],
             "go": [
+                # File/resource opened without defer Close()
+                # Matches both = and := assignment
                 (
-                    r"^(\s*)(?!.*defer.*Close)\s*(\w+),\s*(\w+)\s*=\s*os\.Open\(",
-                    "File opened without defer Close(): may not be closed",
+                    r"^(\s*)(?!.*defer.*Close)\s*(\w+),\s*(\w+)\s*:?=\s*(os\.Open|os\.OpenFile|sql\.Open|net\.Dial|net\.Listen)\(",
+                    "Resource opened without defer Close(): may leak",
                 ),
             ],
         }
