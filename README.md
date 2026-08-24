@@ -537,3 +537,7 @@ The next useful work is effect measurement, not more surface features:
 ## License
 
 [MIT](LICENSE)
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
