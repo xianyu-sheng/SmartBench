@@ -8,27 +8,27 @@ import (
 
 // ProcessItemsConcurrently spawns goroutines but never waits for them to complete.
 // This leaks goroutines and may cause data races or incomplete processing.
-func ProcessItemsConcurrently(items []string) {
+func ProcessItemsConcurrently(items []string) error {
 	var wg sync.WaitGroup
 
 	for _, item := range items {
 		wg.Add(1)
 		go func(s string) {
 			defer wg.Done()
-			// Simulate processing
 			time.Sleep(100 * time.Millisecond)
 			fmt.Println("Processed:", s)
 		}(item)
 	}
 
-	// BUG: Function returns without calling wg.Wait()
-	// Goroutines may still be running when function returns
-	// This can cause incomplete processing or data corruption
+	// BUG: Returns without calling wg.Wait().
+	// Goroutines may still be running when the caller proceeds.
+	return nil
 }
 
 func main() {
 	items := []string{"task1", "task2", "task3"}
-	ProcessItemsConcurrently(items)
-	fmt.Println("Main function finished")
-	// The goroutines are still running but we've already returned
+	if err := ProcessItemsConcurrently(items); err != nil {
+		fmt.Println("Error:", err)
+	}
+	fmt.Println("Main finished — goroutines may still be running")
 }
