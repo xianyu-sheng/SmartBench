@@ -284,23 +284,84 @@ def _useless_probe_type(type_name: str) -> bool:
 def _probeable_receiver(receiver: str) -> bool:
     """True when a receiver expression is worth probing.
 
-    Only simple identifiers and selector chains are probeable.  Chained call
-    expressions (``exec.Command(...).Run()``), string literals, and package
-    references resolve to nothing useful; skip them.
+    Supports:
+    1. Simple identifiers: ``client``
+    2. Selector chains: ``client.conn``
+    3. Single call with field access: ``http.Get(url).Body``
+
+    Rejects:
+    - Multiple chained calls: ``Get().Do().Run()``
+    - String literals and package references
     """
     stripped = receiver.strip()
     if not stripped:
         return False
-    if "(" in stripped or ")" in stripped:
-        return False
+
+    # Reject string literals and expressions with spaces (operators)
     if '"' in stripped or "'" in stripped:
         return False
-    if " " in stripped:
+    if " " in stripped and not _is_single_call_pattern(stripped):
         return False
-    parts = stripped.split(".")
-    if not all(part.isidentifier() for part in parts):
+
+    # No parentheses: simple identifier chain
+    if "(" not in stripped and ")" not in stripped:
+        parts = stripped.split(".")
+        return all(part.isidentifier() for part in parts)
+
+    # Has parentheses: check if it's a single call pattern
+    return _is_single_call_pattern(stripped)
+
+
+def _is_single_call_pattern(expr: str) -> bool:
+    """Check if expression matches: pkg.Func(args).field or obj.method().field
+
+    Examples that should return True:
+    - http.Get(url).Body
+    - client.Do(req).StatusCode
+    - resp.Body.Read(buf)
+
+    Examples that should return False:
+    - Get().Do().Run() (multiple calls)
+    - "string literal"
+    - exec.Command("cmd", "arg") (no field access after call)
+    """
+    # Count opening parens - should be exactly 1 for single call
+    if expr.count("(") != 1 or expr.count(")") != 1:
         return False
-    return True
+
+    # Find the parentheses positions
+    open_idx = expr.find("(")
+    close_idx = expr.find(")")
+
+    # Closing paren must come after opening
+    if close_idx <= open_idx:
+        return False
+
+    # Must have content before opening paren (function name)
+    before_call = expr[:open_idx]
+    if not before_call or not before_call.replace(".", "").replace("_", "").isalnum():
+        return False
+
+    # Check what comes after the closing paren
+    after_call = expr[close_idx + 1:]
+
+    # If nothing after, this is just a function call without field access
+    # Still probeable if the function name itself is a selector
+    if not after_call:
+        return "." in before_call
+
+    # Must start with a dot for field access
+    if not after_call.startswith("."):
+        return False
+
+    # The field access part should be a valid identifier chain
+    field_chain = after_call[1:]  # Skip the leading dot
+    if not field_chain:
+        return False
+
+    # Check if field chain is valid identifiers separated by dots
+    parts = field_chain.split(".")
+    return all(part.isidentifier() for part in parts)
 
 
 def _canonical_symbol(receiver: str, type_name: str) -> str:
