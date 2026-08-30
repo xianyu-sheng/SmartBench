@@ -1,0 +1,38 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: rwmutex-rlock-runlock-guard
+    name: RWMutex RLock must be paired with RUnlock
+    description: A read lock acquired with RLock must have RUnlock registered (defer) before the protected read access, so error paths do not leave the lock held.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: RWMutex.RLock must be followed by defer RUnlock
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [call]
+        contains_all: [RLock]
+      guard:
+        kinds: [defer]
+        contains_all: [RUnlock]
+      action:
+        kinds: [return]
+  - id: rwmutex-lock-unlock-guard
+    name: RWMutex Lock must be paired with Unlock
+    description: A write lock acquired with Lock must have Unlock registered (defer) before the protected write access, so error paths do not leave the lock held.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: RWMutex.Lock must be followed by defer Unlock
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [call]
+        contains_all: [.Lock()]
+      guard:
+        kinds: [defer]
+        contains_all: [.Unlock()]
+      action:
+        kinds: [return]

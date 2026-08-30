@@ -1,0 +1,20 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: channel-close-before-return
+    name: Channel producer must close channel before return
+    description: A channel used for producer-consumer pattern must be closed by the producer to signal completion, otherwise consumers will block forever.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: channel must be closed before function returns to prevent consumer deadlock
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [assign]
+        contains_all: [make(chan]
+      guard:
+        kinds: [call, defer]
+        contains_any: [close(]
+      action:
+        kinds: [return]

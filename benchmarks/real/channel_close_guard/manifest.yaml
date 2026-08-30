@@ -1,0 +1,29 @@
+version: smartbench.case-manifest/v1
+metadata:
+  title: "Channel Close Guard"
+  description: "Channels used in producer-consumer pattern must be closed to prevent consumer deadlock"
+  languages: [go]
+  tags: [concurrency, channel, deadlock, producer-consumer]
+
+source:
+  origin: "synthetic"
+  project: "smartbench-concurrency-patterns"
+  category: "concurrency-bug"
+
+vulnerability:
+  cwe: "CWE-667"
+  severity: "high"
+  impact: "Consumer goroutines block forever causing deadlock and resource leak"
+
+pattern:
+  event: "make(chan) creates a channel"
+  required_guard: "close() must be called before producer returns"
+  missing_in_before: "Channel never closed, consumers block forever"
+
+files:
+  before: "before/main.go"
+  after: "after/main.go"
+
+expected_findings:
+  before: 1
+  after: 0
