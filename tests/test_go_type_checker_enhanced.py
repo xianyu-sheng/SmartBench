@@ -1,6 +1,5 @@
 """Tests for enhanced _probeable_receiver with chained call support."""
-import pytest
-from smartbench.frontends.go_type_checker import _probeable_receiver, _is_single_call_pattern
+from smartbench.frontends.go_type_checker import _is_single_call_pattern, _probeable_receiver
 
 
 class TestProbeableReceiver:
