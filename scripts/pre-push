@@ -7,9 +7,9 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
-echo "┌─────────────────────────────────────────┐"
-echo "│  SmartBench pre-push: running test suite │"
-echo "└─────────────────────────────────────────┘"
+echo "┌──────────────────────────────────────────────┐"
+echo "│  SmartBench pre-push: lint + test suite      │"
+echo "└──────────────────────────────────────────────┘"
 
 # Prefer the repo venv; fall back to whatever python3 is on PATH.
 PYTHON="${REPO_ROOT}/.venv/bin/python"
@@ -17,6 +17,14 @@ if [[ ! -x "$PYTHON" ]]; then
     PYTHON="$(command -v python3 2>/dev/null || command -v python)"
 fi
 
+echo "» ruff lint..."
+if ! "$PYTHON" -m ruff check smartbench tests 2>&1; then
+    echo ""
+    echo "✗ Lint failed — push blocked. Run: ruff check smartbench tests --fix"
+    exit 1
+fi
+
+echo "» pytest..."
 if ! "$PYTHON" -m pytest tests/ -q --tb=short 2>&1; then
     echo ""
     echo "✗ Tests failed — push blocked. Fix the failures above and try again."
