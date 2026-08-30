@@ -1,0 +1,36 @@
+version: smartbench.case-manifest/v1
+metadata:
+  title: "HTTP Get Body Close - Chained Call Pattern"
+  description: "Demonstrates the enhanced type checker's ability to detect resource leaks in chained call expressions like http.Get(url).Body"
+  languages: [go]
+  tags: [http, resource-leak, chained-call, type-checker-enhancement]
+
+source:
+  origin: "synthetic"
+  project: "smartbench-type-checker-showcase"
+  category: "resource-leak"
+
+vulnerability:
+  cwe: "CWE-772"
+  severity: "high"
+  impact: "Connection pool exhaustion leads to application failure"
+
+pattern:
+  event: "http.Get(url) called in chained expression"
+  required_guard: "resp.Body.Close() must be called via defer"
+  missing_in_before: "Body never closed when using inline http.Get()"
+  enhancement: "Enhanced type checker now detects single-call patterns like http.Get(url).Body"
+
+files:
+  before: "before/main.go"
+  after: "after/main.go"
+
+expected_findings:
+  before: 1
+  after: 0
+
+notes: |
+  This case showcases the type checker enhancement that supports:
+  - Single function call with field access: http.Get(url).Body
+  - Previously this pattern was skipped (rejected due to parentheses)
+  - Now properly detected and type-checked via the typeprobe tool

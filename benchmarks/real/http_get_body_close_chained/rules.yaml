@@ -1,0 +1,21 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: http-get-body-close-chained
+    name: HTTP Get response body must be closed in chained call pattern
+    description: When using http.Get() directly in an expression chain, the response body must still be closed to prevent connection leaks.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: http.Get(url).Body must be closed with defer before use
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [call]
+        contains_all: [http.Get]
+      guard:
+        kinds: [defer]
+        contains_any: [Body.Close, Close()]
+      action:
+        kinds: [call, assign]
+        contains_any: [Read, ReadAll, Copy]
