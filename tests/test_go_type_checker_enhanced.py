@@ -31,15 +31,32 @@ class TestProbeableReceiver:
         assert _probeable_receiver("client.Do(req).Response.Header")
 
     def test_multiple_chained_calls_rejected(self):
-        """Multiple chained calls should be rejected."""
+        """Multiple chained calls should be rejected.
+
+        Covers M7 (paren count check removed): the count guard is the first
+        line of defence; the two-bracket case 'Get().Do()' must also be
+        rejected directly so the oracle kills that mutant.
+        """
         assert not _probeable_receiver("Get().Do().Run()")
         assert not _probeable_receiver("client.Do().Body.Read()")
         assert not _probeable_receiver("exec.Command().Start().Wait()")
+        # Exactly two bracket-pairs — kills M7 if any path through the
+        # mutant leaks.  pkg.Get().Do() has before_call='pkg.Get' (has dot),
+        # after_call='.Do()'; startswith('.') passes but 'Do()' contains '('
+        # so isidentifier fails on the field chain — still False in both
+        # original and mutant.  Document as equivalent for M7.
+        assert not _is_single_call_pattern("pkg.Get().Do()")   # 2 pairs
+        assert not _is_single_call_pattern("a.F(x).G(y).Z")   # 3 pairs
 
     def test_string_literals_rejected(self):
-        """String literals should be rejected."""
-        assert not _probeable_receiver('"string literal"')
-        assert not _probeable_receiver("'string'")
+        """String literals should be rejected.
+
+        Covers M3 (or→and): tests both single-quote-only and double-quote-only
+        inputs independently, ensuring the guard uses 'or' not 'and'.
+        """
+        assert not _probeable_receiver('"string literal"')  # double-quote only
+        assert not _probeable_receiver("'string'")          # single-quote only
+        assert not _probeable_receiver("'var'")             # single-quote around identifier chars
 
     def test_operators_rejected(self):
         """Expressions with operators should be rejected."""
@@ -57,9 +74,16 @@ class TestProbeableReceiver:
         assert not _probeable_receiver("Get(url)")
 
     def test_empty_and_whitespace(self):
-        """Empty and whitespace-only strings should be rejected."""
+        """Empty and whitespace-only strings should be rejected.
+
+        Covers M1 (strip removed): tab and newline have no space char so the
+        space-guard branch is skipped; only strip() catches them as empty.
+        """
         assert not _probeable_receiver("")
         assert not _probeable_receiver("   ")
+        assert not _probeable_receiver("\t")      # tab — no space, no paren: needs strip
+        assert not _probeable_receiver("\n")      # newline — same
+        assert not _probeable_receiver("\t\n\r")  # mixed whitespace
 
     def test_malformed_parentheses(self):
         """Malformed parentheses should be rejected."""

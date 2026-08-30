@@ -88,3 +88,8 @@ warn_redundant_casts = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mutmut]
+source_paths = ["smartbench/frontends/go_type_checker.py"]
+tests_dir = "tests"
+runner = "python -m pytest tests/test_go_type_checker_enhanced.py -x -q"
