@@ -1,0 +1,22 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: no-commit-after-rollback
+    name: Transaction must not be committed after rollback
+    description: >
+      Calling Commit() on a transaction after Rollback() has already been called
+      is a logic error. The transaction is already finalized; the second call
+      either panics, silently succeeds, or causes a double-finalize error depending
+      on the driver. Both finalizers must be on mutually exclusive paths.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: Commit must not be called after Rollback on the same transaction
+    invariant:
+      scope: intraprocedural
+      kind: forbid_action_after_event
+      event:
+        kinds: [call]
+        contains_all: [Rollback]
+      action:
+        kinds: [call]
+        contains_all: [Commit]
