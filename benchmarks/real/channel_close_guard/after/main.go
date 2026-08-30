@@ -1,33 +1,22 @@
 package main
 
-import (
-	"fmt"
-	"time"
-)
+import "fmt"
 
-// GenerateNumbers produces numbers on a channel and closes it when done.
-func GenerateNumbers(max int) <-chan int {
-	ch := make(chan int)
-
-	go func() {
-		defer close(ch) // FIX: Close channel when goroutine exits
-		for i := 0; i < max; i++ {
-			ch <- i
-			time.Sleep(10 * time.Millisecond)
-		}
-	}()
-
+// BatchSend writes items to a buffered channel, closes it, and returns it.
+// Closing the channel signals receivers that no more values are coming,
+// so a `for v := range ch` loop terminates cleanly.
+func BatchSend(items []int) chan int {
+	ch := make(chan int, len(items))
+	for _, item := range items {
+		ch <- item
+	}
+	close(ch) // FIX: signal completion to receivers
 	return ch
 }
 
 func main() {
-	numbers := GenerateNumbers(5)
-
-	// This will print 0,1,2,3,4 then exit cleanly
-	// because the channel is properly closed
-	for num := range numbers {
-		fmt.Println("Received:", num)
+	ch := BatchSend([]int{1, 2, 3})
+	for v := range ch {
+		fmt.Println(v)
 	}
-
-	fmt.Println("All numbers received, program exits cleanly")
 }

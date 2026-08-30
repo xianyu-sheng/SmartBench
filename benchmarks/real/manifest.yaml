@@ -409,12 +409,12 @@ cases:
       bug_category: concurrency
       experiment_scope: state-rules-only
       expected_behavior: RLock/Lock calls are matched by RUnlock/Unlock (via defer) before the function returns.
-      fixture_note: Synthetic RWMutex missing-unlock pattern fixture.
+      fixture_note: Synthetic RWMutex missing-unlock pattern fixture. Get has 3 unguarded return paths, Set has 2 — 5 findings total.
     snapshots:
       - label: before
         path: rwmutex_unlock_guard/before
         min_findings: 1
-        max_findings: 2
+        max_findings: 5
         expected_rule_ids: [rwmutex-rlock-runlock-guard, rwmutex-lock-unlock-guard]
       - label: after
         path: rwmutex_unlock_guard/after
