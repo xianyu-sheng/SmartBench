@@ -146,3 +146,224 @@ def test_cli_loads_repeatable_state_rule_option(tmp_path: Path):
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert [finding["rule_id"] for finding in report["findings"]] == ["terminal-before-retry"]
     assert len(report["evidence_packs"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# YAML round-trip tests for forbid_action_after_event
+# ---------------------------------------------------------------------------
+
+FORBID_RULE_DOCUMENT = """
+version: smartbench.state-rules/v1
+rules:
+  - id: no-commit-after-rollback
+    name: No commit after rollback
+    description: Commit must not be called after Rollback on the same transaction.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: Commit must not be called after Rollback
+    invariant:
+      kind: forbid_action_after_event
+      event:
+        kinds: [call]
+        contains_all: [Rollback]
+      action:
+        kinds: [call]
+        contains_all: [Commit]
+""".strip()
+
+FORBID_SOURCE_BEFORE = """
+package sample
+
+import "database/sql"
+
+func finish(tx *sql.Tx, ok bool) error {
+    if !ok {
+        tx.Rollback()
+        tx.Commit()
+    }
+    return nil
+}
+""".strip()
+
+FORBID_SOURCE_AFTER = """
+package sample
+
+import "database/sql"
+
+func finish(tx *sql.Tx, ok bool) error {
+    if !ok {
+        return tx.Rollback()
+    }
+    return tx.Commit()
+}
+""".strip()
+
+
+def test_forbid_rule_loader_parses_yaml(tmp_path: Path):
+    path = tmp_path / "rules.yaml"
+    path.write_text(FORBID_RULE_DOCUMENT, encoding="utf-8")
+
+    definitions = load_state_rule_file(path)
+
+    assert len(definitions) == 1
+    defn = definitions[0]
+    assert defn.rule_id == "no-commit-after-rollback"
+    from smartbench.analysis.state_machine import InvariantKind
+    assert defn.invariant.kind == InvariantKind.FORBID_ACTION_AFTER_EVENT
+    assert defn.invariant.guard is None
+
+
+def test_forbid_rule_end_to_end_before(tmp_path: Path):
+    (tmp_path / "main.go").write_text(FORBID_SOURCE_BEFORE, encoding="utf-8")
+    rule_path = tmp_path / "rules.yaml"
+    rule_path.write_text(FORBID_RULE_DOCUMENT, encoding="utf-8")
+
+    adapters = AdapterRegistry()
+    adapters.register(GoAdapter())
+    engine = UnifiedDiagnosticEngine(adapters, RuleRegistry())
+    result = engine.diagnose_file(
+        tmp_path / "main.go",
+        tmp_path,
+        UnifiedDiagnosticConfig(use_static_rules=False, state_rule_paths=[rule_path]),
+    )
+
+    assert result.errors == []
+    assert len(result.findings) >= 1
+    assert result.findings[0].rule_id == "no-commit-after-rollback"
+
+
+def test_forbid_rule_end_to_end_after(tmp_path: Path):
+    (tmp_path / "main.go").write_text(FORBID_SOURCE_AFTER, encoding="utf-8")
+    rule_path = tmp_path / "rules.yaml"
+    rule_path.write_text(FORBID_RULE_DOCUMENT, encoding="utf-8")
+
+    adapters = AdapterRegistry()
+    adapters.register(GoAdapter())
+    engine = UnifiedDiagnosticEngine(adapters, RuleRegistry())
+    result = engine.diagnose_file(
+        tmp_path / "main.go",
+        tmp_path,
+        UnifiedDiagnosticConfig(use_static_rules=False, state_rule_paths=[rule_path]),
+    )
+
+    assert result.errors == []
+    assert result.findings == []
+
+
+# ---------------------------------------------------------------------------
+# YAML round-trip tests for require_exit_after_event
+# ---------------------------------------------------------------------------
+
+REQUIRE_EXIT_RULE_DOCUMENT = """
+version: smartbench.state-rules/v1
+rules:
+  - id: return-after-http-error
+    name: Return after http.Error
+    description: Handler must return after writing an error response.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: handler must return after writing an error response
+    invariant:
+      kind: require_exit_after_event
+      event:
+        kinds: [call]
+        contains_all: [http.Error]
+      action:
+        kinds: [call]
+        contains_all: [writeJSON]
+""".strip()
+
+REQUIRE_EXIT_SOURCE_BEFORE = """
+package sample
+
+import "net/http"
+
+func handle(w http.ResponseWriter, r *http.Request) {
+    if r.Method != "GET" {
+        http.Error(w, "not allowed", http.StatusMethodNotAllowed)
+    }
+    writeJSON(w, "ok")
+}
+
+func writeJSON(w http.ResponseWriter, v any) {}
+""".strip()
+
+REQUIRE_EXIT_SOURCE_AFTER = """
+package sample
+
+import "net/http"
+
+func handle(w http.ResponseWriter, r *http.Request) {
+    if r.Method != "GET" {
+        http.Error(w, "not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+    writeJSON(w, "ok")
+}
+
+func writeJSON(w http.ResponseWriter, v any) {}
+""".strip()
+
+
+def test_require_exit_rule_loader_parses_yaml(tmp_path: Path):
+    path = tmp_path / "rules.yaml"
+    path.write_text(REQUIRE_EXIT_RULE_DOCUMENT, encoding="utf-8")
+
+    definitions = load_state_rule_file(path)
+
+    assert len(definitions) == 1
+    defn = definitions[0]
+    assert defn.rule_id == "return-after-http-error"
+    from smartbench.analysis.state_machine import InvariantKind
+    assert defn.invariant.kind == InvariantKind.REQUIRE_EXIT_AFTER_EVENT
+    assert defn.invariant.guard is None
+
+
+def test_require_exit_rule_end_to_end_before(tmp_path: Path):
+    (tmp_path / "main.go").write_text(REQUIRE_EXIT_SOURCE_BEFORE, encoding="utf-8")
+    rule_path = tmp_path / "rules.yaml"
+    rule_path.write_text(REQUIRE_EXIT_RULE_DOCUMENT, encoding="utf-8")
+
+    adapters = AdapterRegistry()
+    adapters.register(GoAdapter())
+    engine = UnifiedDiagnosticEngine(adapters, RuleRegistry())
+    result = engine.diagnose_file(
+        tmp_path / "main.go",
+        tmp_path,
+        UnifiedDiagnosticConfig(use_static_rules=False, state_rule_paths=[rule_path]),
+    )
+
+    assert result.errors == []
+    assert len(result.findings) >= 1
+    assert result.findings[0].rule_id == "return-after-http-error"
+
+
+def test_require_exit_rule_end_to_end_after(tmp_path: Path):
+    (tmp_path / "main.go").write_text(REQUIRE_EXIT_SOURCE_AFTER, encoding="utf-8")
+    rule_path = tmp_path / "rules.yaml"
+    rule_path.write_text(REQUIRE_EXIT_RULE_DOCUMENT, encoding="utf-8")
+
+    adapters = AdapterRegistry()
+    adapters.register(GoAdapter())
+    engine = UnifiedDiagnosticEngine(adapters, RuleRegistry())
+    result = engine.diagnose_file(
+        tmp_path / "main.go",
+        tmp_path,
+        UnifiedDiagnosticConfig(use_static_rules=False, state_rule_paths=[rule_path]),
+    )
+
+    assert result.errors == []
+    assert result.findings == []
+
+
+def test_forbid_rule_rejects_unknown_invariant_kind(tmp_path: Path):
+    bad_doc = FORBID_RULE_DOCUMENT.replace(
+        "kind: forbid_action_after_event", "kind: unknown_kind"
+    )
+    path = tmp_path / "rules.yaml"
+    path.write_text(bad_doc, encoding="utf-8")
+
+    with pytest.raises(StateRuleConfigError, match="kind must be one of"):
+        load_state_rule_file(path)
