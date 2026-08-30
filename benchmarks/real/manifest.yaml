@@ -420,6 +420,44 @@ cases:
         path: rwmutex_unlock_guard/after
         max_findings: 0
 
+  - id: tx-double-finalize-guard
+    language: go
+    state_rules: [tx_double_finalize_guard/rules.yaml]
+    rules: [no-commit-after-rollback]
+    metadata:
+      bug_category: correctness
+      experiment_scope: state-rules-only
+      expected_behavior: Rollback and Commit are on mutually exclusive paths; Commit is never called after Rollback.
+      fixture_note: Synthetic double-finalize fixture exercising FORBID_ACTION_AFTER_EVENT invariant kind.
+    snapshots:
+      - label: before
+        path: tx_double_finalize_guard/before
+        min_findings: 1
+        max_findings: 4
+        expected_rule_ids: [no-commit-after-rollback]
+      - label: after
+        path: tx_double_finalize_guard/after
+        max_findings: 0
+
+  - id: http-error-fallthrough-guard
+    language: go
+    state_rules: [http_error_fallthrough_guard/rules.yaml]
+    rules: [return-after-http-error]
+    metadata:
+      bug_category: correctness
+      experiment_scope: state-rules-only
+      expected_behavior: Handler returns immediately after writing an error response; no fallthrough to the success path.
+      fixture_note: Synthetic HTTP double-write fixture exercising REQUIRE_EXIT_AFTER_EVENT invariant kind.
+    snapshots:
+      - label: before
+        path: http_error_fallthrough_guard/before
+        min_findings: 1
+        max_findings: 2
+        expected_rule_ids: [return-after-http-error]
+      - label: after
+        path: http_error_fallthrough_guard/after
+        max_findings: 0
+
   - id: http-get-body-close-chained
     language: go
     state_rules: [http_get_body_close_chained/rules.yaml]

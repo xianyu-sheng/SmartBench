@@ -1,0 +1,23 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: return-after-http-error
+    name: HTTP handler must return after writing an error response
+    description: >
+      After calling http.Error() (or any error-response helper), the handler must
+      return immediately. Falling through to normal response code produces a
+      superfluous WriteHeader call: the second write is silently discarded but
+      the first error response is already sent to the client, causing split-brain
+      behavior that is hard to reproduce and diagnose.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: handler must return after writing an error response; falling through causes a double-write
+    invariant:
+      scope: intraprocedural
+      kind: require_exit_after_event
+      event:
+        kinds: [call]
+        contains_any: [http.Error, http.NotFound, http.Redirect]
+      action:
+        kinds: [call]
+        contains_any: [json.NewEncoder, json.Marshal, w.Write, writeJSON, WriteHeader]
