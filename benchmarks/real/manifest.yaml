@@ -362,3 +362,79 @@ cases:
       - label: after
         path: go_bufio_flush_guard/after
         max_findings: 0
+
+  - id: goroutine-waitgroup-guard
+    language: go
+    state_rules: [goroutine_waitgroup_guard/rules.yaml]
+    rules: [goroutine-wait-before-return]
+    metadata:
+      bug_category: concurrency
+      experiment_scope: state-rules-only
+      expected_behavior: WaitGroup.Add is matched by WaitGroup.Wait before the function returns.
+      fixture_note: Synthetic goroutine-leak pattern fixture.
+    snapshots:
+      - label: before
+        path: goroutine_waitgroup_guard/before
+        min_findings: 1
+        max_findings: 1
+        expected_rule_ids: [goroutine-wait-before-return]
+      - label: after
+        path: goroutine_waitgroup_guard/after
+        max_findings: 0
+
+  - id: channel-close-guard
+    language: go
+    state_rules: [channel_close_guard/rules.yaml]
+    rules: [channel-close-before-return]
+    metadata:
+      bug_category: resource-lifecycle
+      experiment_scope: state-rules-only
+      expected_behavior: A channel created with make(chan) is closed before the function returns.
+      fixture_note: Synthetic channel-leak pattern fixture.
+    snapshots:
+      - label: before
+        path: channel_close_guard/before
+        min_findings: 1
+        max_findings: 1
+        expected_rule_ids: [channel-close-before-return]
+      - label: after
+        path: channel_close_guard/after
+        max_findings: 0
+
+  - id: rwmutex-unlock-guard
+    language: go
+    state_rules: [rwmutex_unlock_guard/rules.yaml]
+    rules: [rwmutex-rlock-runlock-guard, rwmutex-lock-unlock-guard]
+    metadata:
+      bug_category: concurrency
+      experiment_scope: state-rules-only
+      expected_behavior: RLock/Lock calls are matched by RUnlock/Unlock (via defer) before the function returns.
+      fixture_note: Synthetic RWMutex missing-unlock pattern fixture.
+    snapshots:
+      - label: before
+        path: rwmutex_unlock_guard/before
+        min_findings: 1
+        max_findings: 2
+        expected_rule_ids: [rwmutex-rlock-runlock-guard, rwmutex-lock-unlock-guard]
+      - label: after
+        path: rwmutex_unlock_guard/after
+        max_findings: 0
+
+  - id: http-get-body-close-chained
+    language: go
+    state_rules: [http_get_body_close_chained/rules.yaml]
+    rules: [http-get-body-close-chained]
+    metadata:
+      bug_category: resource-lifecycle
+      experiment_scope: state-rules-only
+      expected_behavior: HTTP response body from http.Get is closed (defer) before the body is read.
+      fixture_note: Synthetic chained-call body-leak fixture; exercises the enhanced _probeable_receiver type checker.
+    snapshots:
+      - label: before
+        path: http_get_body_close_chained/before
+        min_findings: 1
+        max_findings: 2
+        expected_rule_ids: [http-get-body-close-chained]
+      - label: after
+        path: http_get_body_close_chained/after
+        max_findings: 0
