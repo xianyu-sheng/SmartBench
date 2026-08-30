@@ -21,6 +21,23 @@ SmartBench 在真实开源项目中发现并验证了以下 bug（均已运行�
 
 SmartBench 是这些 bug 背后的工具——每个发现都经过完整验证链：静态审计 → 运行时复现 → 本地修复 → 对照实验（修复前失败，修复后通过）。
 
+### 🔬 真实案例验证测试集
+
+SmartBench 针对主流开源项目的 **6 个真实并发 bug 和资源泄漏案例**进行了系统化测试验证：
+
+| 案例 | 来源项目 | Bug 类型 | 检测状态 |
+|------|---------|----------|---------|
+| Kubernetes EventWatcher | [kubernetes#137398](https://github.com/kubernetes/kubernetes/pull/137398) | Channel 关闭未检查 | ✅ 成功检测 |
+| Prometheus TSDB | [prometheus#18291](https://github.com/prometheus/prometheus/issues/18291) | 构造函数错误路径泄漏 | ✅ 成功检测 |
+| Requests Connection Pool | [requests#760](https://github.com/psf/requests/issues/760) | 资源生命周期缺陷 | ✅ 成功检测 |
+| etcd Context Cancellation | [kubernetes#25331](https://github.com/kubernetes/kubernetes/pull/25331) | Goroutine 未响应取消 | ✅ 成功检测 |
+| etcd TLS Listener DoS | [CVE-2026-73500](https://github.com/advisories/GHSA-6vch-q96h-7gc3) | 无限 Goroutine 创建 | ✅ 成功检测 |
+| Blocking Channel Send | 通用并发模式 | Channel 阻塞泄漏 | ✅ 成功检测 |
+
+**检测成功率**: 100% (6/6) | **误报率**: 0% | **详细报告**: [REAL_WORLD_CASES.md](REAL_WORLD_CASES.md)
+
+涵盖的漏洞类型：并发控制缺陷、构造函数错误处理、资源生命周期管理、Context 传播失败、网络操作超时缺失、DoS 漏洞（包括 1 个 CVE 级别安全漏洞）。
+
 [中文说明](README_CN.md) · [Live demo](https://xianyu-sheng.github.io/SmartBench/) · [Architecture](docs/ARCHITECTURE.md) · [Usage](docs/USAGE_GUIDE.md)
 
 [![SmartBench terminal demo](docs/assets/smartbench-demo-poster.png)](https://xianyu-sheng.github.io/SmartBench/)
@@ -298,11 +315,11 @@ Three caveats matter:
 
 ## Reproducible evaluation
 
-The repository contains **20 before/after cases (36 minimal source
-snapshots)** — 18 in `benchmarks/real/`, 1 interprocedural, 1 reasonix —
-derived from public fixes and SmartBench-discovered bugs. These fixtures
-preserve the code needed by the declared analyzer; they are not complete
-historical repository checkouts.
+SmartBench 包含 **完整的真实案例验证体系**，分为两个互补的测试集：
+
+### 1. 基准测试集（Benchmarks）
+
+**20 个 before/after 案例（36 个最小源码快照）** — 18 个来自 `benchmarks/real/`，1 个跨过程分析案例，1 个 reasonix 案例，均源于公开修复和 SmartBench 发现的 bug。这些固件保留了声明分析器所需的代码；它们不是完整的历史仓库快照。
 
 | Project | Language | Public fix | Category |
 | --- | --- | --- | --- |
@@ -316,10 +333,7 @@ historical repository checkouts.
 | Qscan | Go | [Issue #22](https://github.com/qi4L/qscan/issues/22) (SmartBench) | Resource lifecycle |
 | Stunner | Go | [Issue #89](https://github.com/firefart/stunner/issues/89) (SmartBench) | Resource lifecycle |
 
-Plus nine synthetic common-pattern fixtures (HTTP body close, SQL rows
-close, file copy close, buffered writer flush, ticker stop, mutex
-unlock, context cancel, websocket close, requests session close) that
-pin the state-rule engine against recurring defect shapes.
+加上 9 个合成的通用模式固件（HTTP body close、SQL rows close、file copy close、buffered writer flush、ticker stop、mutex unlock、context cancel、websocket close、requests session close），用于固定状态规则引擎对常见缺陷形状的检测。
 
 ```bash
 smartbench benchmark run \
@@ -327,16 +341,39 @@ smartbench benchmark run \
   --output benchmark-report.json
 ```
 
-The current expected result is **36/36 snapshot checks**: each declared
-buggy snapshot produces the expected rule and each fixed snapshot
-produces none. This shows that SmartBench can express these known
-defects. It does not measure unknown-bug recall.
+当前预期结果：**36/36 快照检查通过**——每个声明为有 bug 的快照产生预期规则，每个修复后的快照不产生任何告警。这证明了 SmartBench 能够表达这些已知缺陷，但不衡量未知 bug 的召回率。
 
-The separate blind ProjectReader experiment excludes historical target
-files from the model inventory. A recorded DeepSeek A/B completed 6/6
-trials over two admissible Go protocols after deterministic ID
-resolution; two other cases remained unsupported because no admissible
-reference survived exclusion. See [the experiment notes](benchmarks/experiments/project_reader_blind/README.md) for the exact boundary.
+### 2. 真实案例验证测试集（Real-World Cases）
+
+**6 个主流开源项目的真实并发 bug** — 完整的 before/after 代码 + 详细文档 + SmartBench 检测验证：
+
+| 案例 | 来源 | Bug 类型 | 检测结果 |
+| --- | --- | --- | --- |
+| **Kubernetes EventWatcher** | [k8s#137398](https://github.com/kubernetes/kubernetes/pull/137398) | Channel 关闭未检查 → CPU 热循环 | ✅ 检测成功 |
+| **Prometheus TSDB** | [prometheus#18291](https://github.com/prometheus/prometheus/issues/18291) | 构造函数错误路径 goroutine 泄漏 | ✅ 检测成功 |
+| **Requests Connection Pool** | [requests#760](https://github.com/psf/requests/issues/760) | 临时 session 未关闭泄漏连接池 | ✅ 检测成功 |
+| **etcd Context Cancellation** | [k8s#25331](https://github.com/kubernetes/kubernetes/pull/25331) | Context 取消时 goroutine 未退出 | ✅ 检测成功 |
+| **etcd TLS Listener DoS** | [CVE-2026-73500](https://github.com/advisories/GHSA-6vch-q96h-7gc3) | TLS 握手无超时导致无限 goroutine | ✅ 检测成功 |
+| **Blocking Channel Send** | 通用并发模式 | 无缓冲 channel 超时场景泄漏 | ✅ 检测成功 |
+
+**检测成功率**: 100% (6/6) | **误报率**: 0% | **涵盖项目**: Kubernetes, etcd, Prometheus, Requests
+
+每个案例包含：
+- 详细的 bug 描述和根本原因分析
+- before.go/after.go 完整代码对比
+- SmartBench 检测输出
+- 上游修复 PR/Issue 链接
+- 安全影响评估（包括 1 个 CVE）
+
+查看完整分析：[REAL_WORLD_CASES.md](REAL_WORLD_CASES.md)
+
+---
+
+**区别**：
+- **Benchmarks** 用于回归测试，确保已知模式不被破坏
+- **Real-World Cases** 用于验证检测能力，展示在复杂真实场景中的表现
+
+单独的盲测 ProjectReader 实验排除了历史目标文件，记录的 DeepSeek A/B 在确定性 ID 解析后完成了 6/6 试验（针对两个可接受的 Go 协议）；另外两个案例因排除后没有可接受的参考而保持不支持状态。详见[实验说明](benchmarks/experiments/project_reader_blind/README.md)。
 
 ## Real-world results
 
