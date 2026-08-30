@@ -1,0 +1,29 @@
+version: smartbench.case-manifest/v1
+metadata:
+  title: "Goroutine WaitGroup Guard"
+  description: "Goroutines spawned with WaitGroup.Add must be awaited with Wait before function returns"
+  languages: [go]
+  tags: [concurrency, goroutine, waitgroup, leak]
+
+source:
+  origin: "synthetic"
+  project: "smartbench-concurrency-patterns"
+  category: "resource-leak"
+
+vulnerability:
+  cwe: "CWE-772"
+  severity: "medium"
+  impact: "Goroutine leak causes memory leak and incomplete processing"
+
+pattern:
+  event: "sync.WaitGroup.Add() called"
+  required_guard: "sync.WaitGroup.Wait() must be called before return"
+  missing_in_before: "wg.Wait() not called before function returns"
+
+files:
+  before: "before/main.go"
+  after: "after/main.go"
+
+expected_findings:
+  before: 1
+  after: 0

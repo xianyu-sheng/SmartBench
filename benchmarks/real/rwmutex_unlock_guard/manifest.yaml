@@ -1,0 +1,29 @@
+version: smartbench.case-manifest/v1
+metadata:
+  title: "RWMutex Unlock Guard"
+  description: "RWMutex locks (both RLock and Lock) must be properly released on all exit paths"
+  languages: [go]
+  tags: [concurrency, rwmutex, deadlock, lock]
+
+source:
+  origin: "synthetic"
+  project: "smartbench-concurrency-patterns"
+  category: "concurrency-bug"
+
+vulnerability:
+  cwe: "CWE-667"
+  severity: "high"
+  impact: "Lock not released on error paths causes deadlock and application hang"
+
+pattern:
+  event: "sync.RWMutex.RLock() or Lock() called"
+  required_guard: "defer RUnlock() or Unlock() immediately after lock"
+  missing_in_before: "Error paths return without unlocking"
+
+files:
+  before: "before/main.go"
+  after: "after/main.go"
+
+expected_findings:
+  before: 2
+  after: 0

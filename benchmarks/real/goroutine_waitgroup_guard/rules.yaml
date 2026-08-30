@@ -1,0 +1,20 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: goroutine-wait-before-return
+    name: Goroutine must be awaited before function return
+    description: A goroutine spawned without a corresponding Wait call will leak. WaitGroup.Add must be followed by Wait before function returns.
+    severity: error
+    confidence: 1.0
+    languages: [go]
+    message: goroutine must be awaited with WaitGroup.Wait before function returns
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [call]
+        contains_all: [wg.Add]
+      guard:
+        kinds: [call]
+        contains_all: [wg.Wait]
+      action:
+        kinds: [return]
