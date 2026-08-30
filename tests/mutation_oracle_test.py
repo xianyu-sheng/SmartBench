@@ -1,3 +1,4 @@
+# ruff: noqa: N802
 """正确的变异测试：每个变异体注入后，运行原始测试套件，
 如果套件全部通过说明变异体存活（真正的测试盲区）。
 
@@ -8,11 +9,10 @@ from __future__ import annotations
 
 import contextlib
 import textwrap
-import types
+
 import pytest
 
 import smartbench.frontends.go_type_checker as _mod
-
 
 # ---------------------------------------------------------------------------
 # 修复后的 _patch：把模块级所有名称都带进 exec 命名空间
