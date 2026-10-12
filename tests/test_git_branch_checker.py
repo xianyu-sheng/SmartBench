@@ -162,6 +162,24 @@ def test_string_location_from_real_quick_output(dual_branch_repo: Path):
     assert "dev" in results[0].already_fixed_on
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "tracked in https://github.com/xianyu-sheng/SmartBench/issues/29; "
+        "comma-separated locations are not parsed yet"
+    ),
+)
+def test_parse_location_accepts_multi_segment_quick_location():
+    """Issue #19 / follow-up #29: preserve every segment of a Quick location."""
+    assert GitBranchChecker._parse_location(
+        "pkg/acl/cidr.go:110-124, pkg/acl/cidr.go"
+    ) == (
+        "pkg/acl/cidr.go",
+        110,
+        124,
+    )
+
+
 def test_remote_only_dev_branch(tmp_path: Path, dual_branch_repo: Path):
     """A shallow clone fetches origin/dev when it lacks a local dev branch."""
     bare = tmp_path / "remote.git"

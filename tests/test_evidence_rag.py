@@ -162,6 +162,48 @@ def test_exclusive_debate_rejects_context_and_unsupported_suggestions(tmp_path: 
     ]
 
 
+def test_evidence_gate_accepts_existing_fact_id_without_entailment(
+    tmp_path: Path,
+):
+    """Issue #19 / qscan #22: fact IDs prove existence, not entailment."""
+    fact = SemanticFact(
+        subject="app.py",
+        predicate=FactKind.STATE_TRANSITION,
+        object="retry without terminal guard",
+        evidence=(EvidenceRef("app.py", 4, snippet="retries += 1"),),
+    )
+    pack = EvidencePack.from_facts("retry", [fact], graph_version="stable-v2")
+    responses = iter([
+        '{"proposals": ['
+        f'{{"title": "unrelated", "description": "Enable dark mode", '
+        f'"fact_ids": ["{fact.fact_id}"]}}'
+        "]}",
+        '{"verdicts": []}',
+        '{"final_suggestions": ['
+        f'{{"title": "unrelated", "description": "Enable dark mode", '
+        f'"fact_ids": ["{fact.fact_id}"]}}'
+        "]}",
+    ])
+
+    engine = DebateEngine(
+        lambda _prompt, **_kwargs: next(responses),
+        fingerprint=ProjectFingerprint(project_path=tmp_path, project_name="fixture"),
+        max_call_attempts=1,
+        evidence_policy=EvidencePolicy.EXCLUSIVE,
+    )
+    result = engine.debate("context", evidence_pack=pack)
+
+    # The gate deliberately checks ID membership only. The Judge's
+    # _UNTRUSTED_DATA_RULES prompt boundary is the compensating control:
+    # a real fact citation still cannot be treated as an instruction or proof.
+    assert [item["title"] for item in result.final_suggestions] == ["unrelated"]
+    gates = [entry for entry in result.debate_log if entry["role"] == "evidence_gate"]
+    assert [(entry["stage"], entry["rejected"]) for entry in gates] == [
+        ("proposer", 0),
+        ("final", 0),
+    ]
+
+
 def test_required_evidence_policy_rejects_missing_pack(tmp_path: Path):
     engine = DebateEngine(
         lambda _prompt: "{}",
