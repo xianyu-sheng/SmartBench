@@ -19,6 +19,7 @@ from smartbench.detector.fingerprint import (
     ProjectType,
 )
 from smartbench.detector.scanner import ProjectScanner
+from smartbench.prompts.factory import PromptFactory
 
 # ── Helper factories ────────────────────────────────────────────────────────
 
@@ -186,6 +187,25 @@ class TestLanguageDetection:
         assert fingerprint.scan_truncated is True
         assert fingerprint.scan_file_limit == 3
         assert ">=3 src files" in fingerprint.summary()
+
+    def test_scan_truncated_count_survives_analysis_prompt_context(
+        self, tmp_path: Path
+    ):
+        """Issue #19 / qscan #22: retain the lower-bound count downstream."""
+        project = tmp_path / "prompt-bounded"
+        project.mkdir()
+        for index in range(5):
+            (project / f"module_{index}.py").write_text(
+                f"VALUE = {index}\n"
+            )
+
+        fingerprint = ProjectScanner(str(project), max_files=3).scan()
+        prompt = PromptFactory(fingerprint).build_project_understanding_prompt()
+
+        assert ">=3 src files" in fingerprint.summary()
+        assert "至少 3 个" in prompt
+        assert "扫描是否达到上限" in prompt
+        assert "True" in prompt
 
     def test_scanner_skips_oversized_manifest_content(self, tmp_path: Path):
         project = tmp_path / "oversized-manifest"
