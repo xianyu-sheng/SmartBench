@@ -248,22 +248,6 @@ def _extract_named_function(lines: list[str], name: str) -> Optional[str]:
     return "\n".join(lines[start:end])
 
 
-def _parse_location(location: object) -> tuple[str, int, int]:
-    """Normalize structured and LLM-style ``path:line`` locations."""
-    if isinstance(location, dict):
-        path = str(location.get("file_path", ""))
-        start = int(location.get("line_start") or 0)
-        end = int(location.get("line_end") or start)
-        return path, start, end
-    if isinstance(location, str):
-        match = re.match(r"^(.*):([0-9]+)(?:-([0-9]+))?$", location.strip())
-        if match:
-            start = int(match.group(2))
-            end = int(match.group(3) or start)
-            return match.group(1), start, end
-    return "", 0, 0
-
-
 # ── Commit-history pickaxe ─────────────────────────────────────────────
 
 
@@ -459,6 +443,31 @@ class GitBranchChecker:
 
         return result
 
+    @staticmethod
+    def _parse_location(location: object) -> tuple[str, int, int]:
+        """Normalize structured and LLM-style ``path:line`` locations.
+
+        Handles three input shapes:
+        - dict with ``file_path``, ``line_start``, ``line_end`` keys
+        - string ``path:line`` or ``path:line-line``
+        - string ``path:line, path2[:line[-line]], ...`` (multi-segment Quick output);
+          only the **first** segment is parsed; downstream segments are ignored.
+        """
+        if isinstance(location, dict):
+            path = str(location.get("file_path", ""))
+            start = int(location.get("line_start") or 0)
+            end = int(location.get("line_end") or start)
+            return path, start, end
+        if isinstance(location, str):
+            # Multi-segment Quick output (e.g. "path:110-124, path") — take first segment.
+            first_segment = location.strip().split(",")[0].strip()
+            match = re.match(r"^(.*):([0-9]+)(?:-([0-9]+))?$", first_segment)
+            if match:
+                start = int(match.group(2))
+                end = int(match.group(3) or start)
+                return match.group(1), start, end
+        return "", 0, 0
+
     def check_findings(
         self,
         findings: list[dict],
@@ -467,7 +476,7 @@ class GitBranchChecker:
         results = []
         for f in findings:
             loc = f.get("location", {})
-            path, start, end = _parse_location(loc)
+            path, start, end = GitBranchChecker._parse_location(loc)
             if not path or start == 0:
                 continue
             try:
