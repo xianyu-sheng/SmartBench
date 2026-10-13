@@ -162,15 +162,8 @@ def test_string_location_from_real_quick_output(dual_branch_repo: Path):
     assert "dev" in results[0].already_fixed_on
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "tracked in https://github.com/xianyu-sheng/SmartBench/issues/29; "
-        "comma-separated locations are not parsed yet"
-    ),
-)
 def test_parse_location_accepts_multi_segment_quick_location():
-    """Issue #19 / follow-up #29: preserve every segment of a Quick location."""
+    """Issue #29: first segment of comma-separated Quick locations is parsed."""
     assert GitBranchChecker._parse_location(
         "pkg/acl/cidr.go:110-124, pkg/acl/cidr.go"
     ) == (
@@ -178,6 +171,18 @@ def test_parse_location_accepts_multi_segment_quick_location():
         110,
         124,
     )
+
+
+def test_parse_location_ignores_trailing_segments():
+    """Issue #29: trailing comma segments are silently ignored (no crash)."""
+    # Whitespace-only tail.
+    assert GitBranchChecker._parse_location("leak.go:5-11,   ") == ("leak.go", 5, 11)
+    # Empty second segment.
+    assert GitBranchChecker._parse_location("leak.go:5-11,") == ("leak.go", 5, 11)
+    # Non-numeric garbage trailing segment.
+    assert GitBranchChecker._parse_location("leak.go:5-11, some random text") == ("leak.go", 5, 11)
+    # Single-segment input is unchanged.
+    assert GitBranchChecker._parse_location("leak.go:5-11") == ("leak.go", 5, 11)
 
 
 def test_remote_only_dev_branch(tmp_path: Path, dual_branch_repo: Path):
