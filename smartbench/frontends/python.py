@@ -41,6 +41,7 @@ class _FlowFragment:
     fallthroughs: list[_PendingEdge] = field(default_factory=list)
     breaks: list[str] = field(default_factory=list)
     continues: list[str] = field(default_factory=list)
+    terminal_ids: list[str] = field(default_factory=list)
 
     @classmethod
     def simple(cls, operation_id: str) -> "_FlowFragment":
@@ -200,6 +201,7 @@ class _PythonFileLowerer:
                 sequence.fallthroughs = list(fragment.fallthroughs)
                 sequence.breaks.extend(fragment.breaks)
                 sequence.continues.extend(fragment.continues)
+                sequence.terminal_ids.extend(fragment.terminal_ids)
                 continue
             if not sequence.fallthroughs:
                 continue
@@ -208,6 +210,7 @@ class _PythonFileLowerer:
             sequence.fallthroughs = list(fragment.fallthroughs)
             sequence.breaks.extend(fragment.breaks)
             sequence.continues.extend(fragment.continues)
+            sequence.terminal_ids.extend(fragment.terminal_ids)
         return sequence
 
     def _lower_statement(self, node: ast.stmt, scope_id: str) -> _FlowFragment:
@@ -215,6 +218,8 @@ class _PythonFileLowerer:
             return self._lower_branch(node, scope_id)
         if isinstance(node, ast.Try):
             return self._lower_try(node, scope_id)
+        if isinstance(node, (ast.With, ast.AsyncWith)):
+            return self._lower_with(node, scope_id)
         if isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
             return self._lower_loop(node, scope_id)
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
@@ -245,18 +250,190 @@ class _PythonFileLowerer:
                 attributes={"values": values},
             )
             self._register_call_hosts(node.value, operation.id)
-            return _FlowFragment(entry_id=operation.id)
+            return _FlowFragment(entry_id=operation.id, terminal_ids=[operation.id])
+        if isinstance(node, ast.Raise):
+            operation = self._operation(
+                OperationKind.RAISE,
+                node,
+                scope_id,
+                value=self._unparse(node.exc),
+                operands=tuple(self._identifiers(node.exc)),
+                attributes={
+                    "exception": self._unparse(node.exc),
+                    "cause": self._unparse(node.cause),
+                    "bare": node.exc is None,
+                },
+            )
+            self._register_call_hosts(node.exc, operation.id)
+            return _FlowFragment(entry_id=operation.id, terminal_ids=[operation.id])
         if isinstance(node, ast.Continue):
             operation = self._operation(OperationKind.CONTINUE, node, scope_id)
-            return _FlowFragment(entry_id=operation.id, continues=[operation.id])
+            return _FlowFragment(
+                entry_id=operation.id,
+                continues=[operation.id],
+                terminal_ids=[operation.id],
+            )
         if isinstance(node, ast.Break):
             operation = self._operation(OperationKind.BREAK, node, scope_id)
-            return _FlowFragment(entry_id=operation.id, breaks=[operation.id])
-        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+            return _FlowFragment(
+                entry_id=operation.id,
+                breaks=[operation.id],
+                terminal_ids=[operation.id],
+            )
+        if isinstance(node, ast.Expr) and (
+            isinstance(node.value, ast.Call)
+            or (isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call))
+        ):
+            call_node = node.value if isinstance(node.value, ast.Call) else node.value.value
             return _FlowFragment.simple(
-                self._lower_call(node.value, scope_id, location_node=node).id
+                self._lower_call(
+                    call_node,
+                    scope_id,
+                    location_node=node,
+                ).id
             )
         return _FlowFragment()
+
+    def _lower_with(
+        self,
+        node: ast.With | ast.AsyncWith,
+        scope_id: str,
+    ) -> _FlowFragment:
+        """Lower context managers into acquire/binding/cleanup-registration ops.
+
+        ``with`` and ``async with`` are source-level cleanup protocols.  The
+        cleanup runs when the body exits, but registration happens before the
+        first body operation.  Representing that registration as ``DEFER``
+        lets the language-neutral lifecycle analyzer apply the same CFG
+        dominance proof it uses for Go's ``defer`` without pretending that a
+        context manager is an ordinary explicit ``close`` call.
+        """
+        sequence = _FlowFragment()
+        is_async = isinstance(node, ast.AsyncWith)
+        for item in node.items:
+            fragment = self._lower_with_item(item, scope_id, is_async=is_async)
+            if fragment.entry_id is None:
+                continue
+            if sequence.entry_id is None:
+                sequence = fragment
+                continue
+            if not sequence.fallthroughs:
+                continue
+            for pending in sequence.fallthroughs:
+                self._edge(pending.source_id, fragment.entry_id, pending.kind)
+            sequence.fallthroughs = list(fragment.fallthroughs)
+
+        body = self._lower_sequence(node.body, scope_id)
+        if body.entry_id is not None:
+            if sequence.entry_id is None:
+                sequence = body
+            else:
+                for pending in sequence.fallthroughs:
+                    self._edge(pending.source_id, body.entry_id, pending.kind)
+                sequence.fallthroughs = list(body.fallthroughs)
+                sequence.breaks.extend(body.breaks)
+                sequence.continues.extend(body.continues)
+                sequence.terminal_ids.extend(body.terminal_ids)
+        return sequence
+
+    def _lower_with_item(
+        self,
+        item: ast.withitem,
+        scope_id: str,
+        *,
+        is_async: bool,
+    ) -> _FlowFragment:
+        """Lower one context item while preserving its primary call binding."""
+        context = item.context_expr
+        optional_vars = item.optional_vars
+        targets = self._assignment_targets(optional_vars) if optional_vars is not None else []
+        call = self._direct_context_call(context)
+        if call is None:
+            # Calls nested in an unsupported context expression are still
+            # collected by ``_lower_remaining_calls``; without a direct call
+            # result binding we must not claim a lifecycle protocol.
+            return _FlowFragment()
+
+        if not targets:
+            return _FlowFragment.simple(
+                self._lower_call(
+                    call,
+                    scope_id,
+                    location_node=context,
+                    awaited=is_async,
+                ).id
+            )
+
+        async_marker = bool(is_async)
+        enter_method = "__aenter__" if async_marker else "__enter__"
+        exit_method = "__aexit__" if async_marker else "__exit__"
+        target = ", ".join(targets)
+        assignment = self._operation(
+            OperationKind.ASSIGN,
+            context,
+            scope_id,
+            target=target,
+            value=self._unparse(context),
+            operands=tuple(self._identifiers(context)),
+            attributes={
+                "calls": [self._unparse(call.func)],
+                "bindings": [
+                    {
+                        "target": name,
+                        "declared_type": "",
+                        "inferred_type": "",
+                    }
+                    for name in targets
+                ],
+                "context_manager": True,
+                "context_manager_kind": "async" if async_marker else "sync",
+                "enter_method": enter_method,
+                "exit_method": exit_method,
+            },
+        )
+        self._call_hosts[id(call)] = assignment.id
+        acquire = self._lower_call(
+            call,
+            scope_id,
+            location_node=context,
+            result_targets=targets,
+            awaited=async_marker,
+        )
+        self._edge(assignment.id, acquire.id, OperationEdgeKind.NEXT)
+
+        # This is a registration fact, not an invocation.  It must dominate
+        # every body use just like a Go defer registration does.
+        cleanup = self._operation(
+            OperationKind.DEFER,
+            context,
+            scope_id,
+            target=f"{targets[0]}.{exit_method}",
+            value=f"{targets[0]}.{exit_method}()",
+            operands=(targets[0],),
+            attributes={
+                "arguments": [],
+                "argument_names": [],
+                "receiver": targets[0],
+                "result_targets": [],
+                "host_operation": "",
+                "context_manager": True,
+                "context_manager_kind": "async" if async_marker else "sync",
+                "enter_method": enter_method,
+                "exit_method": exit_method,
+                "cleanup_registration": "context_manager_exit",
+            },
+        )
+        self._edge(acquire.id, cleanup.id, OperationEdgeKind.NEXT)
+        return _FlowFragment.simple(cleanup.id)
+
+    @staticmethod
+    def _direct_context_call(node: ast.AST) -> ast.Call | None:
+        """Return a direct or awaited call that yields a context manager."""
+        if isinstance(node, ast.Call):
+            return node
+        if isinstance(node, ast.Await) and isinstance(node.value, ast.Call):
+            return node.value
+        return None
 
     def _lower_try(self, node: ast.Try, scope_id: str) -> _FlowFragment:
         """Lower try/except/finally as conservative CFG branches.
@@ -271,7 +448,14 @@ class _PythonFileLowerer:
             node,
             scope_id,
             value="try",
-            attributes={"construct": "try", "handlers": len(node.handlers)},
+            attributes={
+                "construct": "try",
+                "handlers": len(node.handlers),
+                "exception_types": [
+                    self._unparse(handler.type) if handler.type is not None else "BaseException"
+                    for handler in node.handlers
+                ],
+            },
         )
         body = self._lower_sequence(node.body, scope_id)
         if body.entry_id is not None:
@@ -297,10 +481,13 @@ class _PythonFileLowerer:
         paths.append(alternate)
 
         final = self._lower_sequence(node.finalbody, scope_id)
+        terminal_ids = [item for fragment in paths for item in fragment.terminal_ids]
         fallthroughs = [pending for fragment in paths for pending in fragment.fallthroughs]
         if final.entry_id is not None:
             for pending in fallthroughs:
                 self._edge(pending.source_id, final.entry_id, pending.kind)
+            for terminal_id in terminal_ids:
+                self._edge(terminal_id, final.entry_id, OperationEdgeKind.NEXT)
             fallthroughs = list(final.fallthroughs)
         else:
             fallthroughs = fallthroughs or list(final.fallthroughs)
@@ -309,6 +496,7 @@ class _PythonFileLowerer:
             fallthroughs=fallthroughs,
             breaks=[item for fragment in paths for item in fragment.breaks],
             continues=[item for fragment in paths for item in fragment.continues],
+            terminal_ids=(terminal_ids if final.entry_id is None else list(final.terminal_ids)),
         )
 
     def _lower_branch(self, node: ast.If, scope_id: str) -> _FlowFragment:
@@ -340,6 +528,7 @@ class _PythonFileLowerer:
             fallthroughs=[*consequence.fallthroughs, *alternative.fallthroughs],
             breaks=[*consequence.breaks, *alternative.breaks],
             continues=[*consequence.continues, *alternative.continues],
+            terminal_ids=[*consequence.terminal_ids, *alternative.terminal_ids],
         )
 
     def _lower_loop(
@@ -380,7 +569,11 @@ class _PythonFileLowerer:
         ]
         if not infinite:
             exits.append(_PendingEdge(loop.id, OperationEdgeKind.FALSE_BRANCH))
-        return _FlowFragment(entry_id=loop.id, fallthroughs=exits)
+        return _FlowFragment(
+            entry_id=loop.id,
+            fallthroughs=exits,
+            terminal_ids=list(body.terminal_ids),
+        )
 
     def _lower_assignment(
         self,
@@ -426,6 +619,9 @@ class _PythonFileLowerer:
         node: ast.Call,
         scope_id: str,
         location_node: ast.AST | None = None,
+        *,
+        result_targets: list[str] | None = None,
+        awaited: bool | None = None,
     ) -> SemanticOperation:
         self._emitted_calls.add(id(node))
         operands: list[str] = []
@@ -447,8 +643,13 @@ class _PythonFileLowerer:
                 "arguments": arguments,
                 "argument_names": argument_names,
                 "receiver": target.rsplit(".", 1)[0] if "." in target else "",
-                "result_targets": self._call_result_targets(node),
+                "result_targets": (
+                    list(result_targets)
+                    if result_targets is not None
+                    else self._call_result_targets(node)
+                ),
                 "host_operation": self._call_hosts.get(id(node), ""),
+                "awaited": self._is_awaited_call(node) if awaited is None else awaited,
             },
         )
 
@@ -511,10 +712,12 @@ class _PythonFileLowerer:
     def _add_fact(self, operation: SemanticOperation) -> None:
         predicates = {
             OperationKind.CALL: FactKind.CALLS,
+            OperationKind.DEFER: FactKind.CALLS,
             OperationKind.ASSIGN: FactKind.WRITES,
             OperationKind.UPDATE: FactKind.WRITES,
             OperationKind.BRANCH: FactKind.CONTROLS,
             OperationKind.RETURN: FactKind.STATE_TRANSITION,
+            OperationKind.RAISE: FactKind.STATE_TRANSITION,
             OperationKind.CONTINUE: FactKind.STATE_TRANSITION,
             OperationKind.BREAK: FactKind.STATE_TRANSITION,
         }
@@ -600,6 +803,9 @@ class _PythonFileLowerer:
         for descendant in ast.walk(node):
             if isinstance(descendant, ast.Call):
                 self._call_hosts[id(descendant)] = host_operation
+
+    def _is_awaited_call(self, node: ast.Call) -> bool:
+        return isinstance(self.parents.get(node), ast.Await)
 
     @staticmethod
     def _assignment_targets(node: ast.AST) -> list[str]:

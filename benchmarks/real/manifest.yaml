@@ -1,5 +1,23 @@
 version: smartbench.benchmarks/v1
 cases:
+  - id: python-context-manager-cleanup
+    language: python
+    state_rules: [python_context_manager_cleanup/rules.yaml]
+    rules: [python-context-manager-close-before-use]
+    metadata:
+      bug_category: resource-lifecycle
+      experiment_scope: semantic-frontend
+      expected_behavior: A Python context manager registers exit cleanup before the managed resource is used.
+      fixture_note: Minimal before/after fixture for Python with lowering.
+    snapshots:
+      - label: before
+        path: python_context_manager_cleanup/before
+        min_findings: 1
+        max_findings: 1
+        expected_rule_ids: [python-context-manager-close-before-use]
+      - label: after
+        path: python_context_manager_cleanup/after
+        max_findings: 0
   - id: requests-proxy-authorization-guard-cve-2023-32681
     language: python
     state_rules: [requests_proxy_authorization_guard/rules.yaml]

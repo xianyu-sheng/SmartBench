@@ -1,0 +1,21 @@
+version: smartbench.state-rules/v1
+rules:
+  - id: python-context-manager-close-before-use
+    name: Python context manager must register exit before use
+    description: A resource returned by open must be protected by a context manager before it is used.
+    severity: error
+    confidence: 1.0
+    languages: [python]
+    message: context-managed resource must register exit before use
+    invariant:
+      scope: intraprocedural
+      kind: require_guard_before_action
+      event:
+        kinds: [assign]
+        contains_all: [open]
+      guard:
+        kinds: [defer]
+        contains_all: [__exit__]
+      action:
+        kinds: [call]
+        contains_all: [handle.read]

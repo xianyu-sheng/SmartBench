@@ -14,7 +14,7 @@ rules:
         kinds: [assign]
         contains_all: [requests.Session]
       guard:
-        kinds: [call]
-        contains_all: [session.close]
+        kinds: [defer]
+        contains_all: [__exit__]
       action:
         kinds: [return]

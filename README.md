@@ -161,7 +161,7 @@ Three caveats matter:
 
 ## Evaluation: what the numbers mean
 
-**Regression corpus — 36/36.** 20 before/after cases (36 minimal snapshots) from public fixes (Requests, FastAPI, Prometheus, Kubernetes, Gin, Terraform) plus SmartBench discoveries (qscan, stunner, sniproxy) and 9 synthetic pattern fixtures. Every buggy snapshot produces the expected rule; every fixed snapshot produces none. This shows expressiveness, not unknown-bug recall.
+**Regression corpus — 50/50.** 25 before/after cases (50 minimal snapshots): public-fix-derived cases (Requests, FastAPI, Prometheus, Kubernetes, Gin, Terraform), SmartBench discoveries (qscan, stunner, sniproxy), a new Python context-manager case, and synthetic pattern fixtures for common defect shapes. Every buggy snapshot produces the expected rule; every fixed snapshot produces none. This shows expressiveness, not unknown-bug recall.
 
 ```bash
 smartbench benchmark run --manifest benchmarks/real/manifest.yaml --output benchmark-report.json
@@ -181,7 +181,7 @@ That last finding drove the type-checker adapter (`tools/typeprobe` + `GoTypeChe
 - Most built-in rules are still source heuristics; declarative state rules and the resource-lifecycle analyzer are the strongest semantic examples.
 - Exception flow, async scheduling, dynamic dispatch, alias analysis, goroutine happens-before, and interprocedural channel aliases are incomplete.
 - The ProjectReader lifecycle analyzer proves normalized defer-style cleanup only.
-- The Python frontend flattens `with`-context cleanup, so context-manager guards cannot yet be distinguished from raw acquire calls in the IR.
+- The Python frontend lowers direct-call `with` and `async with` resources into explicit acquire, binding, and context-exit registration operations; indirect context-manager expressions remain unknown.
 - Large-repository latency and memory use do not have a published budget.
 - Local vector/TF-IDF caches are not portable across every optional-dependency change; delete the repository's `.smartbench/` cache if it was created with scikit-learn and is later opened without it.
 - Repository content sent through `quick` is visible to the configured remote model provider.
@@ -207,13 +207,13 @@ python -m compileall -q smartbench
 python -m build
 ```
 
-CI runs Python 3.10–3.12 tests, parser-adapter checks, the 36-snapshot benchmark, ProjectReader boundary experiments, and a clean-wheel CLI smoke test. Contribution rules (including the required CI-evidence section) are in [CONTRIBUTING.md](CONTRIBUTING.md).
+CI runs Python 3.10–3.12 tests, parser-adapter checks, the 50-snapshot benchmark, ProjectReader boundary experiments, and a clean-wheel CLI smoke test. Contribution rules (including the required CI-evidence section) are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 Docs: [Architecture](docs/ARCHITECTURE.md) · [Usage guide](docs/USAGE_GUIDE.md) · [Real-world cases](REAL_WORLD_CASES.md) · [Historic benchmark corpus](benchmarks/real/README.md) · [Blind ProjectReader experiment](benchmarks/experiments/project_reader_blind/README.md)
 
 ## Project status
 
-SmartBench is suitable for controlled repository experiments, architecture research, and portfolio demonstrations. It has produced runtime-verified bugs in real projects and ships a 20-case benchmark corpus plus language-neutral analyzers for resource lifecycle, state machines and data flow.
+SmartBench is suitable for controlled repository experiments, architecture research, and portfolio demonstrations. It has produced runtime-verified bugs in real projects and ships a 25-case benchmark corpus plus language-neutral analyzers for resource lifecycle, state machines and data flow.
 
 The next useful work is **measurement, not more surface features**:
 

@@ -21,6 +21,7 @@ class OperationKind(str, Enum):
     BRANCH = "branch"
     LOOP = "loop"
     RETURN = "return"
+    RAISE = "raise"
     CONTINUE = "continue"
     BREAK = "break"
     DEFER = "defer"
