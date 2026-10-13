@@ -6,199 +6,92 @@
 [![Status: Public Beta](https://img.shields.io/badge/status-public_beta-orange.svg)](#project-status)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**证据约束的代码诊断工作台**——静态分析提供源码事实，LLM 提出假设，resolver/validator 决定能否绑定为实际发现。证据不足时保持 `unknown` 或 `abstained`，从架构层面抑制幻觉。
+[English](README.md) | [中文](README_CN.md)
 
-## 🎯 已验证的真实成果
+**Evidence-constrained code diagnosis.** Deterministic analyzers own the source facts; an LLM may only *propose* hypotheses; resolvers and validators decide whether a hypothesis can be bound back to real operations, types and control flow. Anything that cannot be bound stays `unknown` or `abstained` — it is never promoted to a finding.
 
-SmartBench 在真实开源项目中发现并验证了以下 bug（均已运行时复现 + 本地修复 + 控制实验）：
+> The trust boundary is the product: **a model can be wrong, but it cannot turn a wrong claim into a finding.**
 
-| 项目 | 发现 | 状态 | 验证方式 |
-|------|------|------|---------|
-| [qi4L/qscan](https://github.com/qi4L/qscan/issues/22) | `CheckSID` 在每个错误路径泄漏 `*sql.DB`（缺失 `defer db.Close()`） | **OPEN** | goroutine 增量 +5 → 修复后归零 |
-| [firefart/stunner](https://github.com/firefart/stunner/issues/89) | `testPassword` 在所有路径泄漏 TURN 连接（暴力破解累积 socket） | **CLOSED** | 修复已在 `dev` 分支确认，发现正确 |
-| [mosajjal/sniproxy](https://github.com/mosajjal/sniproxy/pull/203) | `refresh_interval: 0` 导致进程崩溃：`time.NewTicker` 在 ACL 刷新 goroutine 中 panic | **PR OPEN** | 运行时复现 panic → 控制修复 → 测试通过 |
-| [sparckles/Robyn](https://github.com/sparckles/Robyn/issues/1432) | SSE 测试用 `stream=True` 但未显式 `response.close()`（测试卫生问题） | **OPEN** | 已确认有效，低严重性 |
+## Found in real projects — runtime-verified
 
-SmartBench 是这些 bug 背后的工具——每个发现都经过完整验证链：静态审计 → 运行时复现 → 本地修复 → 对照实验（修复前失败，修复后通过）。
+| Repository | Finding | Thread | How it was verified |
+|---|---|---|---|
+| [qi4L/qscan](https://github.com/qi4L/qscan/issues/22) | `CheckSID` leaks a `*sql.DB` on every error path (missing `defer db.Close()`) | **OPEN** | goroutine delta +5 per failed check → 0 after fix |
+| [firefart/stunner](https://github.com/firefart/stunner/issues/89) | `testPassword` leaks the TURN connection on every path (brute force accumulates sockets) | **CLOSED** — fix confirmed on `dev`, discovery correct | silent mock server: server-side Read reaches EOF only after the fix |
+| [mosajjal/sniproxy](https://github.com/mosajjal/sniproxy/pull/203) | `refresh_interval: 0` panics the process: `time.NewTicker` in the ACL refresh goroutine | **PR OPEN** | reproduced panic at runtime → fix control → tests pass |
+| [sparckles/Robyn](https://github.com/sparckles/Robyn/issues/1432) | SSE tests use `stream=True` without closing the response (test hygiene) | **OPEN** | confirmed valid, low severity |
 
-### 🔬 真实案例验证测试集
+Every submission went through the same chain: static audit → runtime reproduction → local fix → control experiment (fails before, passes after). Details in [REAL_WORLD_CASES.md](REAL_WORLD_CASES.md).
 
-SmartBench 针对主流开源项目的 **6 个真实并发 bug 和资源泄漏案例**进行了系统化测试验证：
+The same detection layer reproduces **6/6 known concurrency and resource-lifetime bugs** from Kubernetes, etcd, Prometheus and Requests on controlled before/after snapshots — including the unbounded-goroutine pattern behind [CVE-2026-73500](https://github.com/advisories/GHSA-6vch-q96h-7gc3) (etcd TLS listener DoS).
 
-| 案例 | 来源项目 | Bug 类型 | 检测状态 |
-|------|---------|----------|---------|
-| Kubernetes EventWatcher | [kubernetes#137398](https://github.com/kubernetes/kubernetes/pull/137398) | Channel 关闭未检查 | ✅ 成功检测 |
-| Prometheus TSDB | [prometheus#18291](https://github.com/prometheus/prometheus/issues/18291) | 构造函数错误路径泄漏 | ✅ 成功检测 |
-| Requests Connection Pool | [requests#760](https://github.com/psf/requests/issues/760) | 资源生命周期缺陷 | ✅ 成功检测 |
-| etcd Context Cancellation | [kubernetes#25331](https://github.com/kubernetes/kubernetes/pull/25331) | Goroutine 未响应取消 | ✅ 成功检测 |
-| etcd TLS Listener DoS | [CVE-2026-73500](https://github.com/advisories/GHSA-6vch-q96h-7gc3) | 无限 Goroutine 创建 | ✅ 成功检测 |
-| Blocking Channel Send | 通用并发模式 | Channel 阻塞泄漏 | ✅ 成功检测 |
-
-**检测成功率**: 100% (6/6) | **误报率**: 0% | **详细报告**: [REAL_WORLD_CASES.md](REAL_WORLD_CASES.md)
-
-涵盖的漏洞类型：并发控制缺陷、构造函数错误处理、资源生命周期管理、Context 传播失败、网络操作超时缺失、DoS 漏洞（包括 1 个 CVE 级别安全漏洞）。
-
-[中文说明](README_CN.md) · [Live demo](https://xianyu-sheng.github.io/SmartBench/) · [Architecture](docs/ARCHITECTURE.md) · [Usage](docs/USAGE_GUIDE.md)
+[中文说明](README_CN.md) · [Live demo](https://xianyu-sheng.github.io/SmartBench/) · [Architecture](docs/ARCHITECTURE.md) · [Usage guide](docs/USAGE_GUIDE.md)
 
 [![SmartBench terminal demo](docs/assets/smartbench-demo-poster.png)](https://xianyu-sheng.github.io/SmartBench/)
 
-The normal workflow is **read-only**. SmartBench never edits the analyzed
-repository, opens an Issue or pull request, or contacts a maintainer —
-those actions are performed separately by a human.
-
 > [!IMPORTANT]
-> SmartBench is a public Beta, not a production SAST replacement. It can
-> run controlled repository audits and reproduce a corpus of known
-> defects. It has not established general unknown-bug precision or recall.
+> SmartBench is a public beta, not a production SAST replacement. It can run controlled repository audits and reproduce a corpus of known defects, but it has **not** established general unknown-bug precision or recall. A clean report means "no supported finding", not "no bugs".
+>
+> The normal workflow is read-only: SmartBench never edits the analyzed repository, opens an issue or PR, or contacts a maintainer — a human does that separately.
 
----
-
-## Table of contents
-
-- [What SmartBench is testing](#what-smartbench-is-testing)
-- [Quick start](#quick-start)
-- [Runtime architecture](#runtime-architecture)
-- [Language support](#language-support)
-- [Evidence boundary](#evidence-boundary)
-- [Reading reports](#reading-reports)
-- [Reproducible evaluation](#reproducible-evaluation)
-- [Real-world results](#real-world-results)
-- [Upstream submissions](#upstream-submissions)
-- [Known limitations](#known-limitations)
-- [Safety](#safety)
-- [Documentation and development](#documentation-and-development)
-- [Project status](#project-status)
-
----
-
-## What SmartBench is testing
-
-SmartBench explores a specific division of responsibility in code diagnosis:
-
-- **language frontends and deterministic analyzers** own source facts;
-- an **LLM may propose** repository-specific conventions or risks as hypotheses;
-- **resolvers and validators** decide whether a hypothesis can be bound
-  back to source operations, types, and control flow;
-- **unsupported claims remain visible** as `unknown` or `abstained`
-  instead of being promoted to findings.
-
-This is useful when a project convention is too local to justify a new
-language-wide rule, but allowing a model to assert a bug directly would
-be too weak a trust boundary.
+## What it does, and what it does not establish
 
 | Path | Output today | What it does not establish |
-| --- | --- | --- |
-| Deterministic `unified` analysis | Rule findings, capabilities, source roles, graph facts, JSON and SARIF | That a clean result means bug-free code |
-| `quick` with a configured model | Project hypotheses, evidence-gated review, explicit rejection and abstention states | That an Agent conclusion is proved merely because it cites a real fact |
-| Public before/after corpus | Reproducible checks that selected analyzers distinguish 20 known fixes | Precision or recall on previously unknown bugs |
+|---|---|---|
+| Deterministic `unified` analysis | Rule findings, capability assessments, source roles, graph facts, JSON and SARIF | That a clean result means bug-free code |
+| `quick` with a configured model | Project hypotheses, evidence-gated review, explicit rejection and abstention states | That a conclusion is proved merely because it cites a real fact |
+| Before/after corpus | Reproducible checks that selected analyzers distinguish 20 known fixes | Precision or recall on previously unknown bugs |
 
-The intended user today is someone evaluating the architecture or
-performing a controlled, human-reviewed repository audit. It is not yet
-a drop-in CI quality gate.
+The intended user today is someone evaluating the architecture or performing a controlled, human-reviewed repository audit — not a drop-in CI quality gate.
 
 ## Quick start
 
-Requirements: Python 3.10 or newer and Git.
+Python 3.10+ and Git.
 
 ```bash
 git clone https://github.com/xianyu-sheng/SmartBench.git
 cd SmartBench
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
 python -m pip install -e ".[graph]"
 ```
 
-### Deterministic analysis (no LLM)
+**Deterministic analysis (no LLM):**
 
 ```bash
-smartbench unified run \
-  --project /path/to/repository \
-  --output report.json \
-  --sarif report.sarif
-```
+smartbench unified run --project /path/to/repo --output report.json --sarif report.sarif
 
-To gate a CI job on the result, opt in with `--fail-on`:
-
-```bash
+# gate CI on findings (default is exit 0 regardless)
 smartbench unified run --project . --fail-on warning
-```
 
-| Exit code | Meaning |
-| --- | --- |
-| `0` | No findings at or above the `--fail-on` threshold |
-| `1` | Findings at or above the threshold |
-| `2` | Invalid arguments or an internal error |
-
-`--fail-on` accepts `none` (default), `info`, `warning`, or `error`.
-The default `none` always exits `0`, so adding the flag is required to
-change behavior.
-
-For byte-stable JSON suitable for golden files or diffs, add
-`--deterministic-output`. It normalizes runtime-dependent report fields
-while leaving the default output unchanged:
-
-```bash
+# byte-stable JSON for golden files / diffs
 smartbench unified run --project . --output report.json --deterministic-output
 ```
 
-### Evidence-gated LLM review
+`--fail-on` accepts `none` (default), `info`, `warning`, `error`. Exit codes: `0` clean at threshold, `1` findings at threshold, `2` bad arguments or internal error.
+
+**Evidence-gated LLM review:**
 
 ```bash
 export DEEPSEEK_API_KEY="your-key"
-smartbench quick \
-  --project /path/to/repository \
+smartbench quick --project /path/to/repo \
   --concern "find correctness and resource-lifecycle risks" \
   --output agent-report.json
 ```
 
-The `quick` path runs the full fused pipeline: shared AnalysisSession →
-deterministic rules → ProjectReader hypotheses → evidence resolver →
-Proposer → source verifier → Critique → Judge, with the evidence gate
-enforced throughout.
+`quick` runs the fused pipeline: `AnalysisSession` → deterministic rules → ProjectReader hypotheses → evidence resolver → Proposer → source verifier → Critique → Judge, with the evidence gate enforced throughout.
 
-### Before submitting an upstream finding: check active branches
-
-A valid finding on the default branch may already be fixed on a
-project's active `dev`, `develop`, `next`, or `release` branch. Run this
-gate before opening an issue:
+**Before submitting a finding upstream — check active branches.** A valid finding on the default branch may already be fixed on `dev`/`develop`/`next`/`release`:
 
 ```bash
-smartbench check-branches \
-  --input agent-report.json \
-  --repo /path/to/repository
+smartbench check-branches --input agent-report.json --repo /path/to/repo
 ```
 
-The checker accepts both Quick-mode `path:line` locations and structured
-locations. It compares cleanup patterns across branches, diffs the
-reported function against other branches, and runs a commit-history
-pickaxe search (`git log -S`). For shallow clones it fetches the tip of
-missing active branches only (without switching branches or modifying
-worktree files). An `Already-fixed` result means **do not submit**;
-review the upstream branch or its pending pull request instead.
+An `Already-fixed` result means **do not submit**. `--json --output file.json` gives the machine-readable form. The checker compares cleanup patterns across branches and runs a commit-history pickaxe (`git log -S`); on shallow clones it fetches only the tip of missing active branches.
 
-For machine-readable output (CI/scripts):
+**Optional extras:** `python -m pip install -e ".[graph,rag]"` adds the local vector index; without it, deterministic graph retrieval still works.
 
-```bash
-smartbench check-branches --input results.json --repo /path/repo --json --output branch-check.json
-```
-
-### Optional extras
-
-The `rag` extra is optional:
-
-```bash
-python -m pip install -e ".[graph,rag]"
-```
-
-Without it, deterministic graph retrieval remains available but the
-local vector index is skipped.
-
-## Runtime architecture
-
-All main CLI entry points share one `AnalysisSession`. Repository
-discovery, language lowering, SemanticIR construction, and semantic
-linking run once; deterministic rules, retrieval, ProjectReader, and the
-debate roles consume the same result.
+## How it works
 
 ```text
 Repository
@@ -213,332 +106,98 @@ Repository
   -> JSON / SARIF / benchmark report
 ```
 
-| Command | Uses the shared session | LLM behavior |
-| --- | --- | --- |
-| `smartbench unified run` | Yes | None by default; deterministic rules only |
-| `smartbench quick` / interactive wizard | Yes | Optional ProjectReader plus evidence-constrained review |
-| `smartbench benchmark run` | Yes | None; pinned snapshots and declared expectations |
-| `smartbench eval-rag` | Yes | None; evaluates retrieval over the session IR |
-| `smartbench diagnose` | Not a semantic-analysis entry | Runs local compiler/process/tool probes |
+All main entry points share one `AnalysisSession`; repository discovery, language lowering, IR construction and semantic linking run once.
 
-The older `CodeGraph -> SemanticIR.from_graph` wrapper remains for
-library compatibility and fallback use. The primary CLI no longer uses
-it as a substitute for full language lowering.
+| Command | LLM behavior |
+|---|---|
+| `smartbench unified run` | None by default; deterministic rules only |
+| `smartbench quick` | Optional ProjectReader plus evidence-constrained review |
+| `smartbench benchmark run` | None; pinned snapshots and declared expectations |
+| `smartbench eval-rag` | None; evaluates retrieval over the session IR |
+| `smartbench diagnose` | Local compiler/process/tool probes, not semantic analysis |
 
-### Semantic analyzers
-
-The language-neutral analyzers in `smartbench/analysis/` operate over
-normalized operations and never import a language parser:
-
-| Analyzer | What it proves |
-| --- | --- |
-| Resource lifecycle | Language-neutral resource protocols (acquire → cleanup) with CFG dominance |
-| State machine | Declarative temporal invariants (`require_guard_before_action`, `forbid_action_after_event`, `require_exit_after_event`) over the bounded ICFG |
-| Control flow / ICFG | Reachability, dominance, and bounded interprocedural paths |
-| Data flow (flow/) | Intra-procedural taint from known sources to SQL, command, and filesystem sinks |
-| Type evidence | Source-backed receiver types (Go: surface + `go/types` via typeprobe; Python: surface annotations) |
+The language-neutral analyzers in `smartbench/analysis/` operate over normalized operations and never import a language parser: resource lifecycle (acquire → cleanup with CFG dominance), declarative state machines, control flow / bounded ICFG, intra-procedural taint, and source-backed type evidence.
 
 ## Language support
 
-| Language | Current level | Boundary |
-| --- | --- | --- |
+| Language | Level | Boundary |
+|---|---|---|
 | Python | Semantic, deepest | CFG/ICFG, calls, state rules, surface type evidence from annotations |
-| Go | Semantic, deepest | CFG/ICFG, state/resource analysis, surface + type-checker evidence (`go/types` via `tools/typeprobe`) |
+| Go | Semantic, deepest | CFG/ICFG, state/resource analysis, surface + `go/types` evidence (`tools/typeprobe`) |
 | JavaScript / TypeScript | Semantic, partial | Common statements, calls and control flow; async, exceptions and dynamic dispatch remain partial |
 | Rust | Structural | Tree-sitter symbols and graph context; no complete semantic lowering |
 | Java, Kotlin, C/C++, Ruby, Swift, C#, Zig | Detection / heuristic | Fingerprinting and fallback structure, not compiler-grade analysis |
 
-Language-neutral analyzers do not import a language parser. A new
-semantic frontend must provide stable locations, explicit capabilities,
-deterministic IR serialization, and at least one before/after benchmark.
+The gaps are tracked as claimable issues: [#6](https://github.com/xianyu-sheng/SmartBench/issues/6) (middle tier), [#7](https://github.com/xianyu-sheng/SmartBench/issues/7) (shared lowering scaffolding), [#8](https://github.com/xianyu-sheng/SmartBench/issues/8) (executable conformance suite). New semantic frontends must provide stable locations, explicit capabilities, deterministic IR serialization, and at least one before/after benchmark.
 
-## Evidence boundary
+## The evidence boundary
 
-An `EvidencePack` separates two types of input:
+An `EvidencePack` separates two kinds of input:
 
-- `facts`: source-backed graph or analyzer facts with stable `fact-*` IDs;
-- `hypotheses`: ProjectReader interpretations and heuristic-rule
-  candidates with `hypothesis-*` IDs.
+- `facts` — source-backed graph or analyzer facts with stable `fact-*` IDs;
+- `hypotheses` — ProjectReader interpretations and heuristic candidates with `hypothesis-*` IDs.
 
-Hypotheses are visible to later Agents so they can choose what to
-investigate, but they are not accepted by the evidence gate as facts. A
-concrete final suggestion must cite valid fact IDs. Missing, ambiguous,
-or conflicting evidence remains `unknown` or `abstained`.
+Hypotheses are visible so later agents can decide what to investigate, but the evidence gate never accepts a hypothesis ID as a fact. A concrete final suggestion must cite valid fact IDs. Missing, ambiguous or conflicting evidence stays `unknown` or `abstained`.
 
-The current debate gate validates fact-ID existence, not logical
-entailment. A model can still cite a real fact that does not support its
-conclusion. Location verification, deterministic ProjectReader
-validation, and human review are therefore separate requirements; typed
-conclusion-to-evidence relations remain open work.
+**The current gate validates fact-ID existence, not logical entailment.** A model can cite a real fact that does not support its conclusion. Location verification, deterministic ProjectReader validation and human review are separate requirements; typed conclusion-to-evidence relations remain open work.
 
-ProjectReader does not write to SemanticIR. For the currently
-implemented resource-lifecycle path it selects a real call and proposes
-a project-scoped cleanup protocol. The deterministic stages then:
+ProjectReader never writes to `SemanticIR`. For the implemented resource-lifecycle path it selects a real call and proposes a project-scoped cleanup protocol; the deterministic stages then bind the operation and type evidence, reject zero/multiple structural matches, validate bindings and reachability, run a language-neutral CFG dominance check, and emit either a finding or an explicit abstention. One bounded repair is allowed only after deterministic rejection.
 
-1. bind the selected operation, cleanup facts, and type evidence;
-2. reject zero or multiple structural matches;
-3. validate result bindings, member paths, reachability, and type selectors;
-4. run a language-neutral CFG dominance check;
-5. emit a finding or an explicit abstention.
-
-One bounded repair is allowed only after deterministic rejection. It
-receives the same inventory and rejection reasons, not the analyzer
-outcome.
-
-## Reading reports
-
-`unified` reports include findings, capability assessments, source
-roles, repository zones, SemanticIR statistics, errors, and bounded
-EvidencePacks. `quick` embeds that deterministic result under
-`analysis_report` next to the Agent review.
+## Reading a report
 
 | Status | Meaning |
-| --- | --- |
+|---|---|
 | `full` | The relevant frontend meets every declared requirement for that rule |
 | `partial` | A documented approximation ran |
-| `unsupported` | Required semantics are unavailable; this is not a clean result |
-| `unknown` | The rule did not declare enough semantic requirements to claim coverage |
+| `unsupported` | Required semantics are unavailable — this is not a clean result |
+| `unknown` | The rule did not declare enough requirements to claim coverage |
 | `abstained` | Evidence was absent, ambiguous, conflicting, or ownership transfer was possible |
 
 Three caveats matter:
 
-- verifier labels such as `verified` and `hallucinated` describe
-  source-location and structural-reference checks; they do not prove
-  that a bug conclusion is correct;
-- `consensus_reached` currently means that Proposer, Critique, and Judge
-  all returned schema-valid output. It is a stage-completion flag, not a
-  statistical agreement score between independent models;
-- if Critique or Judge fails, Proposer or Judge output is retained under
-  `unreviewed_suggestions` for audit but is not promoted to
-  `final_suggestions`. The console reports an incomplete review rather
-  than a clean result.
+- `verified` / `hallucinated` describe source-location and structural-reference checks; they do not prove a bug conclusion is correct;
+- `consensus_reached` means Proposer, Critique and Judge all returned schema-valid output — a stage-completion flag, not a statistical agreement score between independent models;
+- if Critique or Judge fails, Proposer/Judge output is kept under `unreviewed_suggestions` for audit but not promoted to `final_suggestions`; the console reports an incomplete review rather than a clean result.
 
-## Reproducible evaluation
+## Evaluation: what the numbers mean
 
-SmartBench 包含 **完整的真实案例验证体系**，分为两个互补的测试集：
-
-### 1. 基准测试集（Benchmarks）
-
-**20 个 before/after 案例（36 个最小源码快照）** — 18 个来自 `benchmarks/real/`，1 个跨过程分析案例，1 个 reasonix 案例，均源于公开修复和 SmartBench 发现的 bug。这些固件保留了声明分析器所需的代码；它们不是完整的历史仓库快照。
-
-| Project | Language | Public fix | Category |
-| --- | --- | --- | --- |
-| Requests | Python | [GHSA-j8r2-6x86-q33q](https://github.com/advisories/GHSA-j8r2-6x86-q33q) | Security state guard |
-| FastAPI | Python | [#5465](https://github.com/fastapi/fastapi/pull/5465) | Resource lifecycle |
-| Prometheus | Go | [#1070](https://github.com/prometheus/prometheus/pull/1070) | Resource lifecycle |
-| Kubernetes | Go | [#29495](https://github.com/kubernetes/kubernetes/pull/29495) | Resource lifecycle |
-| Gin | Go | [#4422](https://github.com/gin-gonic/gin/pull/4422) | Resource lifecycle |
-| Terraform | Go | [#38585](https://github.com/hashicorp/terraform/pull/38585) | Resource lifecycle |
-| Sniproxy | Go | [PR #203](https://github.com/mosajjal/sniproxy/pull/203) (SmartBench) | Configuration validation |
-| Qscan | Go | [Issue #22](https://github.com/qi4L/qscan/issues/22) (SmartBench) | Resource lifecycle |
-| Stunner | Go | [Issue #89](https://github.com/firefart/stunner/issues/89) (SmartBench) | Resource lifecycle |
-
-加上 9 个合成的通用模式固件（HTTP body close、SQL rows close、file copy close、buffered writer flush、ticker stop、mutex unlock、context cancel、websocket close、requests session close），用于固定状态规则引擎对常见缺陷形状的检测。
+**Regression corpus — 36/36.** 20 before/after cases (36 minimal snapshots) from public fixes (Requests, FastAPI, Prometheus, Kubernetes, Gin, Terraform) plus SmartBench discoveries (qscan, stunner, sniproxy) and 9 synthetic pattern fixtures. Every buggy snapshot produces the expected rule; every fixed snapshot produces none. This shows expressiveness, not unknown-bug recall.
 
 ```bash
-smartbench benchmark run \
-  --manifest benchmarks/real/manifest.yaml \
-  --output benchmark-report.json
+smartbench benchmark run --manifest benchmarks/real/manifest.yaml --output benchmark-report.json
 ```
 
-当前预期结果：**36/36 快照检查通过**——每个声明为有 bug 的快照产生预期规则，每个修复后的快照不产生任何告警。这证明了 SmartBench 能够表达这些已知缺陷，但不衡量未知 bug 的召回率。
+**Real-world sweep — honest numbers.** SmartBench was run over 12 open-source repositories (Python and Go). 410 findings were manually verified, then cross-checked against SDK types and project documentation — and the outcome is worth reading before trusting any number:
 
-### 2. 真实案例验证测试集（Real-World Cases）
+- deterministic rules produced **zero** real bugs on these repositories (they are conservative heuristics that don't hallucinate on clean code);
+- of 4 findings initially submitted upstream, **3 were wrong** and corrected upstream (an `io.Reader` mistaken for `io.ReadCloser`; two PocketBase claims contradicted by its documented fail-stop design and immediate-nil `Close()`);
+- 1 valid observation survived (test hygiene in Robyn);
+- the primary failure mode was the verifier's **inability to resolve types across dependency boundaries**.
 
-**6 个主流开源项目的真实并发 bug** — 完整的 before/after 代码 + 详细文档 + SmartBench 检测验证：
-
-| 案例 | 来源 | Bug 类型 | 检测结果 |
-| --- | --- | --- | --- |
-| **Kubernetes EventWatcher** | [k8s#137398](https://github.com/kubernetes/kubernetes/pull/137398) | Channel 关闭未检查 → CPU 热循环 | ✅ 检测成功 |
-| **Prometheus TSDB** | [prometheus#18291](https://github.com/prometheus/prometheus/issues/18291) | 构造函数错误路径 goroutine 泄漏 | ✅ 检测成功 |
-| **Requests Connection Pool** | [requests#760](https://github.com/psf/requests/issues/760) | 临时 session 未关闭泄漏连接池 | ✅ 检测成功 |
-| **etcd Context Cancellation** | [k8s#25331](https://github.com/kubernetes/kubernetes/pull/25331) | Context 取消时 goroutine 未退出 | ✅ 检测成功 |
-| **etcd TLS Listener DoS** | [CVE-2026-73500](https://github.com/advisories/GHSA-6vch-q96h-7gc3) | TLS 握手无超时导致无限 goroutine | ✅ 检测成功 |
-| **Blocking Channel Send** | 通用并发模式 | 无缓冲 channel 超时场景泄漏 | ✅ 检测成功 |
-
-**检测成功率**: 100% (6/6) | **误报率**: 0% | **涵盖项目**: Kubernetes, etcd, Prometheus, Requests
-
-每个案例包含：
-- 详细的 bug 描述和根本原因分析
-- before.go/after.go 完整代码对比
-- SmartBench 检测输出
-- 上游修复 PR/Issue 链接
-- 安全影响评估（包括 1 个 CVE）
-
-查看完整分析：[REAL_WORLD_CASES.md](REAL_WORLD_CASES.md)
-
----
-
-**区别**：
-- **Benchmarks** 用于回归测试，确保已知模式不被破坏
-- **Real-World Cases** 用于验证检测能力，展示在复杂真实场景中的表现
-
-单独的盲测 ProjectReader 实验排除了历史目标文件，记录的 DeepSeek A/B 在确定性 ID 解析后完成了 6/6 试验（针对两个可接受的 Go 协议）；另外两个案例因排除后没有可接受的参考而保持不支持状态。详见[实验说明](benchmarks/experiments/project_reader_blind/README.md)。
-
-## Real-world results
-
-SmartBench was evaluated against 12 open-source repositories across
-Python and Go, combining deterministic rules and LLM evidence-gated
-multi-agent review. 410 total findings were manually verified, then
-cross-checked against SDK types and project documentation.
-
-| Repository | Language | Stars | Deterministic | LLM Agent |
-| --- | --- | --- | --- | --- |
-| Flask | Python | 67k | 54 findings, 0 real | — |
-| httpx | Python | 13k | 32 findings, 0 real | — |
-| Bottle | Python | 8k | 21 findings, 0 real | 2 suggestions, 0 real |
-| Litestar | Python | 5k | 269 findings, 0 real | — |
-| resty | Go | 10k | 9 findings, 0 real | 3 suggestions, 0 real |
-| Robyn | Python | 5k | — | 4 suggestions, 1 valid (test hygiene) |
-| Reflex | Python | 20k | — | 1 suggestion, 0 real |
-| PocketBase | Go | 43k | — | 3 suggestions, 0 real |
-| Reasonix | Go | 80k+ | — | 1 suggestion, 0 real |
-| Templ | Go | 8k | — | review failed (API timeout) |
-
-After cross-checking SDK types and project documentation, **3 of the 4
-initially-submitted findings were determined to be incorrect**:
-
-| Initial finding | Repository | Correction |
-| --- | --- | --- |
-| Resource file handle not closed | Reasonix | SDK type is `io.Reader`, not `io.ReadCloser`; PR #7377 was a no-op and has been closed |
-| `panic()` in backup restore | PocketBase | Intentional fail-stop design per function doc comment; not a bug |
-| Filesystem handle leak | PocketBase | `NewFilesystem().Close()` returns nil immediately; no handle opened |
-
-**1 confirmed valid observation** (test hygiene, not production bug):
-
-| Observation | Repository | Upstream |
-| --- | --- | --- |
-| 16 `stream=True` calls in SSE tests without explicit `response.close()` | Robyn | [Issue #1432](https://github.com/sparckles/Robyn/issues/1432) |
-
-All upstream threads have been updated with corrected assessments.
-
-Key observations:
-
-- deterministic rules produced zero real bugs — the rules are
-  conservative heuristics that don't hallucinate on clean code;
-- the LLM evidence-gated path proposed plausible resource-lifecycle
-  patterns, but cross-checking against SDK types and project
-  documentation revealed that most were incorrectly grounded;
-- the abstention and evidence-gate mechanisms correctly rejected
-  unsupported claims (e.g. path traversal, command injection);
-- **the primary gap was the verifier's inability to resolve types across
-  dependency boundaries** — strengthening cross-package type resolution
-  was the highest-leverage improvement.
-
-### Re-run after the type-checker fix
-
-The type-checker adapter (`tools/typeprobe` + `GoTypeCheckerProvider`)
-was implemented to close that gap, then the same repositories were
-re-run. Go repositories now emit `TYPE_CHECKER` evidence through
-`go/packages` + `go/types`:
-
-| Repository | Type-checker evidence | Closer types | LLM suggestions | Verified |
-| --- | ---: | ---: | ---: | ---: |
-| Flask | — | — | 0 | 0 |
-| httpx | — | — | 1 | 0 |
-| Bottle | — | — | 2 | 1 |
-| Litestar | — | — | 1 | 1 |
-| resty | 1,294 | 168 | 2 | 2 |
-| Robyn | — | — | 2 | 1 |
-| Reflex | — | — | 4 | 4 |
-| PocketBase | 8,747 | 403 | 0 | 0 |
-| Templ | 4,173 | 278 | 2 | 2 |
-| Reasonix | 26,436 | 1,604 | 2 | 2 |
-| **Total** | **40,650** | **2,453** | **16** | **13 (81%)** |
-
-Before the fix the LLM path produced 18 suggestions with 4 confirmed
-real (22%); after the fix, 13 of 16 suggestions pass verification (81%)
-with 0 rejected. The two previously-reported false positives
-disappeared:
-
-- **Reasonix** no longer proposes closing `resp.File` — the resolved
-  type is `io.Reader` with no Close method, and the CrossChecker
-  `resource_type` claim verification rejects such claims.
-- **PocketBase** produces no unverifiable resource-lifecycle suggestions.
-
-**Independent cross-check (codex + manual)**: the two resty findings
-were subsequently reviewed and both were determined to be **false
-positives** — `multipart.Writer` holds no OS resources (the pipe writer
-is already closed on the failure path), and the `bodyBuf` has a global
-safety net (`Request.Execute` unconditionally calls
-`backToBufPool(r.bodyBuf)`), so the missing local `releaseBuffer` is an
-inconsistency, not a leak. This confirms that internal verification
-passing (81%) measures claim grounding, **not** real-bug precision; each
-candidate still requires cross-dependency review before submission.
-
-### Verified real bugs (runtime-proven)
-
-The findings below survived the full verification chain — static audit →
-runtime reproduction → local fix → control experiment (fail before,
-pass after) — and were submitted upstream:
-
-| Repository | Finding | Verification evidence |
-| --- | --- | --- |
-| qi4L/qscan | `CheckSID` leaks `*sql.DB` on every error path (missing `defer db.Close()`) | goroutine delta +5 per failed check → 0 after fix |
-| firefart/stunner | `testPassword` leaks the TURN connection on every path | silent mock server: server-side Read reaches EOF only after fix |
-| mosajjal/sniproxy | `refresh_interval: 0` crashes the process: `time.NewTicker` panics in the ACL refresh goroutine (cidr/domain/geoip) | reproduced panic at runtime → fix control → no panic, tests pass |
-
-## Upstream submissions
-
-Findings confirmed by runtime verification (local fix → reproduce →
-control → re-test) have been submitted upstream, credited to SmartBench.
-A cron job watches these threads daily and reports state changes.
-
-| Issue | Repository | Status | Finding | Verification |
-| --- | --- | --- | --- | --- |
-| [#22](https://github.com/qi4L/qscan/issues/22) | qi4L/qscan | OPEN | `CheckSID` leaks `*sql.DB` on every error path (missing `defer db.Close()`) | goroutine delta +5 per failed check → 0 after fix |
-| [#89](https://github.com/firefart/stunner/issues/89) | firefart/stunner | CLOSED | `testPassword` leaks the TURN connection on every path (brute force accumulates sockets) | fix confirmed on `dev` branch — discovery correct, already patched upstream |
-| [#1432](https://github.com/sparckles/Robyn/issues/1432) | sparckles/Robyn | OPEN | SSE tests use `stream=True` without closing response (test hygiene) | confirmed valid, low severity |
-| [#203](https://github.com/mosajjal/sniproxy/pull/203) | mosajjal/sniproxy | PR OPEN | `refresh_interval: 0` crashes the process: `time.NewTicker` panics in the ACL refresh goroutine (cidr/domain/geoip) | reproduced panic at runtime → fix control → no panic, tests pass |
-
-When an issue is closed as accepted (or a PR is merged), this table is
-updated and the corresponding repository is added to the portfolio.
+That last finding drove the type-checker adapter (`tools/typeprobe` + `GoTypeCheckerProvider`). After it: Go repositories emitted 40,650 `TYPE_CHECKER` evidence items resolving 2,453 closer types, and internal verification of LLM suggestions rose from 4/18 (22%) to 13/16 (81%). But an independent cross-check of the two remaining `resty` findings showed **both were still false positives** — internal verification measures *claim grounding*, not real-bug precision. Every candidate still needs cross-dependency review before submission. (This lesson is documented in [docs/TYPE_EVIDENCE_LESSON_CN.md](docs/TYPE_EVIDENCE_LESSON_CN.md).)
 
 ## Known limitations
 
-- Most built-in rules are still source heuristics; declarative state
-  rules and the resource-lifecycle analyzer provide the strongest
-  semantic examples.
-- Exception flow, async scheduling, dynamic dispatch, alias analysis,
-  goroutine happens-before, and interprocedural channel aliases are
-  incomplete.
-- The ProjectReader lifecycle analyzer currently proves normalized
-  defer-style cleanup only.
-- The Python frontend flattens `with`-context cleanup, so context-manager
-  guards cannot currently be distinguished from raw acquire calls in IR.
-- Large-repository latency and memory use do not yet have a published
-  budget.
-- Local vector/TF-IDF caches are not yet portable across every
-  optional-dependency change; remove the repository's `.smartbench/`
-  cache if a cache created with scikit-learn is later opened without it.
-- Repository content sent through `quick` is visible to the configured
-  remote model provider.
-- A clean report can mean "no supported finding," not "the repository
-  has no bugs."
+- Most built-in rules are still source heuristics; declarative state rules and the resource-lifecycle analyzer are the strongest semantic examples.
+- Exception flow, async scheduling, dynamic dispatch, alias analysis, goroutine happens-before, and interprocedural channel aliases are incomplete.
+- The ProjectReader lifecycle analyzer proves normalized defer-style cleanup only.
+- The Python frontend flattens `with`-context cleanup, so context-manager guards cannot yet be distinguished from raw acquire calls in the IR.
+- Large-repository latency and memory use do not have a published budget.
+- Local vector/TF-IDF caches are not portable across every optional-dependency change; delete the repository's `.smartbench/` cache if it was created with scikit-learn and is later opened without it.
+- Repository content sent through `quick` is visible to the configured remote model provider.
+- A clean report can mean "no supported finding", not "the repository has no bugs".
+
+The biggest gaps are open as claimable issues — see the [roadmap](https://github.com/xianyu-sheng/SmartBench/issues/14) and the per-area issues it links (language semantics, measurement, interface).
 
 ## Safety
 
-- Source paths are confined to the repository root; external symlinks
-  and `../` escapes are ignored.
-- External commands run without a shell and have time/output bounds.
-- Optional `quick --sandbox` applies proposed patches only to a
-  temporary copy, but repository tests still run with the current user's
-  OS permissions.
-- Do not send repositories containing secrets or restricted source code
-  to a remote provider unless that exposure is acceptable.
-- Do not file a SmartBench finding upstream without repeated
-  verification and a human decision.
+- Source paths are confined to the repository root; external symlinks and `../` escapes are ignored.
+- External commands run without a shell, with time and output bounds.
+- Optional `quick --sandbox` applies proposed patches only to a temporary copy, but repository tests still run with your OS permissions.
+- Do not send repositories containing secrets or restricted code to a remote provider unless that exposure is acceptable.
+- Do not file a finding upstream without repeated verification and a human decision.
 
-## Documentation and development
-
-- [Architecture](docs/ARCHITECTURE.md)
-- [Usage guide](docs/USAGE_GUIDE.md)
-- [Demo timeline](docs/DEMO_3_MINUTES_CN.md)
-- [Evidence-loop note](docs/EVIDENCE_LOOP_ARTICLE_CN.md)
-- [Type-evidence lesson: evaluation false positives → verifier fix](docs/TYPE_EVIDENCE_LESSON_CN.md)
-- [Usage-experience improvements backlog](docs/usage-experience-improvements.md)
-- [Historical benchmark corpus](benchmarks/real/README.md)
-- [Blind ProjectReader experiment](benchmarks/experiments/project_reader_blind/README.md)
+## Development
 
 ```bash
 python -m pip install -e ".[dev,graph]"
@@ -548,28 +207,19 @@ python -m compileall -q smartbench
 python -m build
 ```
 
-CI runs Python 3.10-3.12 tests, parser-adapter checks, the 36-snapshot
-benchmark, ProjectReader boundary experiments, and a clean-wheel CLI
-smoke test.
+CI runs Python 3.10–3.12 tests, parser-adapter checks, the 36-snapshot benchmark, ProjectReader boundary experiments, and a clean-wheel CLI smoke test. Contribution rules (including the required CI-evidence section) are in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Docs: [Architecture](docs/ARCHITECTURE.md) · [Usage guide](docs/USAGE_GUIDE.md) · [Real-world cases](REAL_WORLD_CASES.md) · [Historic benchmark corpus](benchmarks/real/README.md) · [Blind ProjectReader experiment](benchmarks/experiments/project_reader_blind/README.md)
 
 ## Project status
 
-SmartBench is suitable for controlled repository experiments,
-architecture research, and portfolio demonstrations. It has produced
-runtime-verified bugs in real projects (qscan #22, stunner #89,
-sniproxy #203) and now ships a 20-case benchmark corpus plus
-language-neutral semantic analyzers for resource lifecycle, state
-machines, and data flow.
+SmartBench is suitable for controlled repository experiments, architecture research, and portfolio demonstrations. It has produced runtime-verified bugs in real projects and ships a 20-case benchmark corpus plus language-neutral analyzers for resource lifecycle, state machines and data flow.
 
-The next useful work is effect measurement, not more surface features:
+The next useful work is **measurement, not more surface features**:
 
-1. report precision, recall, abstention rate, trial stability, latency,
-   and provider cost on the expanded corpus;
-2. add another Agent-derived protocol category and another semantic
-   language case;
-3. teach the Python frontend to emit `with`-context cleanup operations;
-4. deepen exception, async, type, alias, and concurrency semantics
-   without weakening the IR boundary.
+1. report precision, recall, abstention rate, trial stability, latency and provider cost on the expanded corpus ([#10](https://github.com/xianyu-sheng/SmartBench/issues/10), [#11](https://github.com/xianyu-sheng/SmartBench/issues/11), [#12](https://github.com/xianyu-sheng/SmartBench/issues/12));
+2. deepen language semantics (exception flow, async, aliasing, concurrency) without weakening the IR boundary;
+3. make language onboarding cheap ([#6](https://github.com/xianyu-sheng/SmartBench/issues/6)–[#8](https://github.com/xianyu-sheng/SmartBench/issues/8)) and expose a public API ([#9](https://github.com/xianyu-sheng/SmartBench/issues/9)).
 
 ## License
 
