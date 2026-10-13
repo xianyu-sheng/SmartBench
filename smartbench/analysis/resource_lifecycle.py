@@ -474,6 +474,9 @@ def _uses_resource(
     member_path: str,
 ) -> bool:
     resource = f"{binding}.{member_path}" if member_path else binding
+    receiver = _normalized_receiver(operation)
+    if receiver == resource or receiver.startswith(f"{resource}."):
+        return True
     if any(
         operand == resource or operand.startswith(f"{resource}.")
         for operand in operation.operands

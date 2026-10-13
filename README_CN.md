@@ -161,7 +161,7 @@ ProjectReader 不写 `SemanticIR`。在已实现的资源生命周期路径上�
 
 ## 评测：数字意味着什么
 
-**回归语料 —— 36/36。** 20 个 before/after 案例（36 个最小快照），来自公开修复（Requests、FastAPI、Prometheus、Kubernetes、Gin、Terraform）与 SmartBench 自己的发现（qscan、stunner、sniproxy），外加 9 个合成模式固件。每个"有 bug"快照产生预期规则，每个"已修复"快照不产生告警。这证明的是**表达能力**，不是未知 bug 召回率。
+**回归语料 —— 50/50。** 25 个 before/after 案例（50 个最小快照）：公开修复来源（Requests、FastAPI、Prometheus、Kubernetes、Gin、Terraform）、SmartBench 自己的发现（qscan、stunner、sniproxy）、新增的 Python context-manager 案例，以及覆盖常见缺陷形状的合成模式固件。每个"有 bug"快照产生预期规则，每个"已修复"快照不产生告警。这证明的是**表达能力**，不是未知 bug 召回率。
 
 ```bash
 smartbench benchmark run --manifest benchmarks/real/manifest.yaml --output benchmark-report.json
@@ -181,7 +181,7 @@ smartbench benchmark run --manifest benchmarks/real/manifest.yaml --output bench
 - 多数内置规则仍是源码启发式；声明式状态规则和资源生命周期分析器是最强的语义样例。
 - 异常流、异步调度、动态分派、别名分析、goroutine happens-before、跨函数 channel alias 都不完整。
 - ProjectReader 生命周期分析器目前只证明规范化 defer 风格的清理。
-- Python 前端会扁平化 `with`-context 清理，因此 IR 中暂时无法区分 context-manager guard 与裸 acquire 调用。
+- Python 前端会将直接调用形式的 `with` 和 `async with` 降低为显式的 acquire、结果绑定和 context-exit 注册操作；间接 context-manager 表达式仍保持 unknown。
 - 大仓库的延迟与内存还没有公开预算。
 - 本地向量/TF-IDF 缓存不能跨所有可选依赖变化复用；如果缓存是用 scikit-learn 建的、之后在没装它的环境打开，请删除仓库的 `.smartbench/` 缓存。
 - 通过 `quick` 发送的仓库内容对配置的远端模型提供商可见。
@@ -207,13 +207,13 @@ python -m compileall -q smartbench
 python -m build
 ```
 
-CI 覆盖 Python 3.10–3.12 测试、解析器适配器检查、36 快照基准、ProjectReader 边界实验和 clean-wheel CLI 冒烟。贡献规则（含必填的 CI 证据段）见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+CI 覆盖 Python 3.10–3.12 测试、解析器适配器检查、50 快照基准、ProjectReader 边界实验和 clean-wheel CLI 冒烟。贡献规则（含必填的 CI 证据段）见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 文档：[架构](docs/ARCHITECTURE.md) · [使用指南](docs/USAGE_GUIDE.md) · [真实案例](REAL_WORLD_CASES.md) · [历史基准语料](benchmarks/real/README.md) · [ProjectReader 盲测实验](benchmarks/experiments/project_reader_blind/README.md)
 
 ## 项目状态
 
-SmartBench 适合受控的仓库实验、架构研究和作品集展示。它已在真实项目产出运行时验证的 bug，并交付了 20 案例基准语料和面向资源生命周期、状态机、数据流的语言中立分析器。
+SmartBench 适合受控的仓库实验、架构研究和作品集展示。它已在真实项目产出运行时验证的 bug，并交付了 25 案例基准语料和面向资源生命周期、状态机、数据流的语言中立分析器。
 
 接下来该做的是**度量，而不是更多表面功能**：
 

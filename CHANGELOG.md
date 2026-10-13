@@ -28,6 +28,9 @@ semantic versioning while it remains in beta.
   declarative interprocedural state rules, and TypeEvidence contracts.
 - Six public-fix-derived before/after cases covering 12 bounded source
   snapshots across Python and Go.
+- Python `with` and `async with` lowering into explicit context-manager
+  acquisition, result binding, and `__exit__`/`__aexit__` registration
+  operations, with a before/after benchmark fixture.
 
 ### Changed
 
