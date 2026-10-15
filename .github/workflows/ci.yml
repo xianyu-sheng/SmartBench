@@ -47,6 +47,25 @@ jobs:
         env:
           SMARTBENCH_REQUIRE_TREE_SITTER: "1"
 
+  typeprobe:
+    name: Go type probe
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/typeprobe
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: tools/typeprobe/go.mod
+          cache-dependency-path: tools/typeprobe/go.sum
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+
   benchmark:
     name: Historical effect benchmark
     runs-on: ubuntu-latest
