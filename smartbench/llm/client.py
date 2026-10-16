@@ -3,6 +3,7 @@
 import json
 import logging
 import math
+import os
 import re
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -25,6 +26,44 @@ _DEFAULT_MODELS: Dict[str, str] = {
 }
 
 _RETRYABLE_STATUS = {408, 409, 429, 500, 502, 503, 504}
+
+_DEFAULT_MAX_OUTPUT_TOKENS = 8192
+_MAX_OUTPUT_TOKENS_CAP = 65536
+
+
+class EmptyCompletionError(ValueError):
+    """The API returned a successful response with no text content.
+
+    Reasoning models can consume the whole ``max_tokens`` budget in hidden
+    reasoning tokens and return an empty ``content`` field (typically with
+    ``finish_reason=length``). This is retryable with a larger budget.
+    """
+
+
+def _max_output_tokens() -> int:
+    """Resolve the output-token budget, honoring an explicit override.
+
+    ``SMARTBENCH_LLM_MAX_TOKENS`` sets the initial budget. Reasoning-capable
+    providers may need headroom above the visible answer; the default leaves
+    room for both the reasoning trace and the requested JSON.
+    """
+    raw = os.environ.get("SMARTBENCH_LLM_MAX_TOKENS", "")
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return _DEFAULT_MAX_OUTPUT_TOKENS
+    return max(256, min(value, _MAX_OUTPUT_TOKENS_CAP))
+
+
+def _deepseek_thinking_disabled() -> bool:
+    """Whether DeepSeek hidden reasoning should be explicitly disabled.
+
+    ``SMARTBENCH_DEEPSEEK_DISABLE_THINKING=1`` sends
+    ``thinking: {"type": "disabled"}`` for structured-output calls. The
+    default keeps provider behavior untouched.
+    """
+    raw = os.environ.get("SMARTBENCH_DEEPSEEK_DISABLE_THINKING", "")
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def call_llm(
@@ -121,6 +160,20 @@ def call_llm(
             if 200 <= response.status_code < 300:
                 try:
                     return _extract_content(provider, response.json())
+                except EmptyCompletionError as exc:
+                    # Reasoning models may exhaust the token budget on hidden
+                    # reasoning and return empty content. Retry with a larger
+                    # budget before falling back to another provider.
+                    report_error(f"{provider} empty completion: {exc}")
+                    if attempt < max_retries:
+                        body["max_tokens"] = min(
+                            int(body.get("max_tokens", _DEFAULT_MAX_OUTPUT_TOKENS)) * 2,
+                            _MAX_OUTPUT_TOKENS_CAP,
+                        )
+                        if not _sleep_before_deadline(2 ** attempt, deadline):
+                            return ""
+                        continue
+                    break
                 except (KeyError, IndexError, TypeError, ValueError) as exc:
                     report_error(f"{provider} invalid response: {exc}")
                     break
@@ -220,9 +273,21 @@ def _build_request(
                 "system": system,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.3,
-                "max_tokens": 4096,
+                "max_tokens": _max_output_tokens(),
             },
         )
+
+    body = {
+        "model": model_name,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.3,
+        "max_tokens": _max_output_tokens(),
+    }
+    if provider == "deepseek" and _deepseek_thinking_disabled():
+        body["thinking"] = {"type": "disabled"}
 
     return (
         f"{base_url}/chat/completions",
@@ -230,15 +295,7 @@ def _build_request(
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",
         },
-        {
-            "model": model_name,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.3,
-            "max_tokens": 4096,
-        },
+        body,
     )
 
 
@@ -253,7 +310,7 @@ def _extract_content(provider: str, payload: Dict) -> str:
     else:
         text = payload["choices"][0]["message"]["content"]
     if not isinstance(text, str) or not text.strip():
-        raise ValueError("response contained no text")
+        raise EmptyCompletionError("response contained no text")
     return text
 
 
