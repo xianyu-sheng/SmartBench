@@ -459,8 +459,34 @@ class _GoFileLowerer:
 
     def _lower_loop(self, node: Any, scope_id: str) -> _FlowFragment:
         body = node.child_by_field_name("body")
+        range_clause = next(
+            (child for child in node.named_children if child.type == "range_clause"),
+            None,
+        )
         condition = node.child_by_field_name("condition")
-        range_clause = self._first_descendant(node, "range_clause")
+        if condition is None and range_clause is None:
+            for_clause = next(
+                (child for child in node.named_children if child.type == "for_clause"),
+                None,
+            )
+            if for_clause is not None:
+                # C-style headers carry their condition on the for_clause node.
+                condition = for_clause.child_by_field_name("condition")
+            else:
+                # Condition-only headers (``for ok { ... }``) expose the
+                # expression as an unfielded named child before the body.
+                body_span = (
+                    (body.start_byte, body.end_byte) if body is not None else None
+                )
+                condition = next(
+                    (
+                        child
+                        for child in node.named_children
+                        if child.type not in {"comment", "for_clause"}
+                        and (child.start_byte, child.end_byte) != body_span
+                    ),
+                    None,
+                )
         infinite = condition is None and range_clause is None
         loop = self._operation(
             OperationKind.LOOP,

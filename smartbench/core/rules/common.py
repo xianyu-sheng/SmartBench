@@ -222,6 +222,7 @@ def register_builtin_rules(registry: RuleRegistry) -> None:
     """Register all built-in diagnostic rules with a registry."""
     from smartbench.core.rules.flow import register_flow_rules
     from smartbench.core.rules.quality import register_quality_rules
+    from smartbench.core.rules.retry import RetryWithoutBackoffRule
     from smartbench.core.rules.security import register_security_rules
 
     # Common rules
@@ -236,3 +237,6 @@ def register_builtin_rules(registry: RuleRegistry) -> None:
 
     # Deterministic data-flow security rules
     register_flow_rules(registry)
+
+    # Counterfactual retry-loop analysis (engineering trade-off signal)
+    registry.register(RetryWithoutBackoffRule())
