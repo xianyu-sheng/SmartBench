@@ -20,6 +20,7 @@
 | [firefart/stunner](https://github.com/firefart/stunner/issues/89) | `testPassword` leaks the TURN connection on every path (brute force accumulates sockets) | **CLOSED** — fix confirmed on `dev`, discovery correct | silent mock server: server-side Read reaches EOF only after the fix |
 | [mosajjal/sniproxy](https://github.com/mosajjal/sniproxy/pull/203) | `refresh_interval: 0` panics the process: `time.NewTicker` in the ACL refresh goroutine | **PR OPEN** | reproduced panic at runtime → fix control → tests pass |
 | [sparckles/Robyn](https://github.com/sparckles/Robyn/issues/1432) | SSE tests use `stream=True` without closing the response (test hygiene) | **OPEN** | confirmed valid, low severity |
+| [emersion/go-imap](https://github.com/emersion/go-imap/pull/773) | `handleAppend` returned a nil error variable, so a malformed APPEND literal produced no tagged response and the client waited forever | **MERGED** | end-to-end TCP test against a mock mailbox session: the client timed out before the fix and received `a2 BAD` after |
 
 Every submission went through the same chain: static audit → runtime reproduction → local fix → control experiment (fails before, passes after). Details in [REAL_WORLD_CASES.md](REAL_WORLD_CASES.md).
 
