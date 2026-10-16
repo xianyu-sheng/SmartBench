@@ -124,3 +124,19 @@ def test_sarif_with_evidence():
 
     result = finding_to_sarif_result(finding, 0, Path("/tmp"))
     assert len(result["relatedLocations"]) == 2
+
+
+def test_sarif_result_carries_adjudication_properties(tmp_path: Path):
+    finding = Finding(
+        rule_id="retry_without_backoff",
+        rule_name="Retry without backoff",
+        severity=Severity.WARNING,
+        location=Location(file_path="server.go", line_start=10),
+        message="retry loop",
+        metadata={"adjudication": "design_trade_off", "patch_risk": "regression"},
+    )
+
+    result = finding_to_sarif_result(finding, 0, tmp_path)
+
+    assert result["properties"]["adjudication"] == "design_trade_off"
+    assert result["properties"]["patch_risk"] == "regression"

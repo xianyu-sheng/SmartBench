@@ -7,6 +7,7 @@ import pytest
 from smartbench.analysis.adjudication import (
     Adjudication,
     Adjudicator,
+    MemoryEntry,
     MemoryStore,
     apply_adjudications,
 )
@@ -231,3 +232,205 @@ def test_engine_marks_documented_fail_stop_as_intentional(tmp_path: Path, monkey
 
     assert len(result.findings) == 1
     assert result.findings[0].metadata["adjudication"] == "intentional"
+
+
+def test_memory_store_roundtrip_and_deduplication(tmp_path: Path):
+    target = tmp_path / "intent.yaml"
+    store = MemoryStore.empty()
+    entry = MemoryEntry(
+        label=Adjudication.DESIGN_TRADE_OFF,
+        reason="maintainers accepted fail-stop",
+        source="https://example.invalid/1",
+        path="server.go",
+        rule_id="retry_without_backoff",
+    )
+
+    store = store.with_entry(entry)
+    store = store.with_entry(entry)
+    saved = store.save(target)
+
+    assert saved == target
+    loaded = MemoryStore.load(target)
+    assert len(loaded.entries) == 1
+    assert loaded.entries[0].label is Adjudication.DESIGN_TRADE_OFF
+    assert loaded.entries[0].source == "https://example.invalid/1"
+
+
+def test_validate_document_reports_schema_problems():
+    from smartbench.analysis.adjudication import validate_document
+
+    assert validate_document({"version": "smartbench.intent/v1", "entries": []}) == []
+    errors = validate_document(
+        {
+            "version": "nope",
+            "entries": [{"label": "bad"}, {"label": "intentional", "extra": 1}],
+        }
+    )
+    assert any("version" in error for error in errors)
+    assert any("label" in error for error in errors)
+    assert any("unknown fields" in error for error in errors)
+    assert validate_document(None) == ["document must be a mapping"]
+
+
+def test_adjudicate_suggestions_uses_intent_and_memory(tmp_path: Path):
+    from smartbench.analysis.adjudication import adjudicate_suggestions
+
+    (tmp_path / "server.go").write_text(
+        "package sample\n\n" + FAIL_STOP_COMMENT + "func serve() {}\n",
+        encoding="utf-8",
+    )
+    intent = IntentScanner().scan(tmp_path)
+    suggestions = [
+        {"title": "patch accept loop", "location": "server.go:12"},
+        {"title": "unrelated", "location": "other.go:3"},
+    ]
+
+    memory = MemoryStore.from_document(
+        {
+            "version": "smartbench.intent/v1",
+            "entries": [
+                {"path": "other.go", "label": "out_of_scope", "reason": "n/a"}
+            ],
+        }
+    )
+    decisions = adjudicate_suggestions(tmp_path, suggestions, memory=memory, intent_pack=intent)
+
+    assert [decision.label for decision in decisions] == [
+        Adjudication.INTENTIONAL,
+        Adjudication.OUT_OF_SCOPE,
+    ]
+    assert suggestions[0]["adjudication"] == "intentional"
+    assert suggestions[0]["adjudication_basis"]
+    assert suggestions[1]["adjudication"] == "out_of_scope"
+
+
+def test_intent_cli_add_list_and_validate(tmp_path: Path):
+    import json
+
+    from typer.testing import CliRunner
+
+    from smartbench.cli.main import app
+
+    target = tmp_path / "intent.yaml"
+    runner = CliRunner()
+
+    added = runner.invoke(
+        app,
+        [
+            "intent",
+            "add",
+            "--label",
+            "design_trade_off",
+            "--path",
+            "server.go",
+            "--rule-id",
+            "retry_without_backoff",
+            "--reason",
+            "maintainers kept fail-stop",
+            "--source",
+            "https://example.invalid/2",
+            "--file",
+            str(target),
+        ],
+    )
+    assert added.exit_code == 0, added.output
+
+    listed = runner.invoke(app, ["intent", "list", "--file", str(target)])
+    assert listed.exit_code == 0
+    assert "server.go" in listed.output
+    assert "retry_withou" in listed.output
+
+    validated = runner.invoke(app, ["intent", "validate", "--file", str(target)])
+    assert validated.exit_code == 0
+    assert "OK" in validated.output
+
+    target.write_text("version: nope\nentries: []\n", encoding="utf-8")
+    invalid = runner.invoke(app, ["intent", "validate", "--file", str(target)])
+    assert invalid.exit_code == 1
+    assert "version" in invalid.output
+    assert json.dumps(listed.output)
+
+
+def test_check_upstream_record_writes_memory(tmp_path: Path, monkeypatch):
+    import json
+
+    from typer.testing import CliRunner
+
+    from smartbench.cli.main import app
+    from smartbench.frontends.upstream_checker import (
+        GitHubUpstreamChecker,
+        UpstreamCheckResult,
+        UpstreamMatch,
+    )
+
+    report = tmp_path / "report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "findings": [
+                    {
+                        "rule_id": "retry_without_backoff",
+                        "location": {"file_path": "server.go", "line_start": 10},
+                        "metadata": {},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    memory = tmp_path / "intent.yaml"
+    monkeypatch.setenv("SMARTBENCH_INTENT_FILE", str(memory))
+
+    def fake_check(self, findings):
+        return [
+            UpstreamCheckResult(
+                rule_id="retry_without_backoff",
+                file_path="server.go",
+                line_start=10,
+                query="repo:owner/repo Accept",
+                status="discussed",
+                matches=[
+                    UpstreamMatch(
+                        url="https://example.invalid/3",
+                        title="retry loop is by design",
+                        state="closed",
+                        is_pull_request=True,
+                        intent_hint="by design",
+                    )
+                ],
+            )
+        ]
+
+    monkeypatch.setattr(GitHubUpstreamChecker, "check", fake_check)
+    runner = CliRunner()
+
+    first = runner.invoke(
+        app,
+        [
+            "check-upstream",
+            "--input",
+            str(report),
+            "--repo",
+            "owner/repo",
+            "--record",
+        ],
+    )
+    assert first.exit_code == 0, first.output
+    loaded = MemoryStore.load(memory)
+    assert len(loaded.entries) == 1
+    assert loaded.entries[0].label is Adjudication.INTENTIONAL
+    assert loaded.entries[0].path == "server.go"
+
+    second = runner.invoke(
+        app,
+        [
+            "check-upstream",
+            "--input",
+            str(report),
+            "--repo",
+            "owner/repo",
+            "--record",
+        ],
+    )
+    assert second.exit_code == 0
+    assert len(MemoryStore.load(memory).entries) == 1

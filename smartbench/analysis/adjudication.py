@@ -120,6 +120,42 @@ class MemoryStore:
             return cls.empty()
         return cls.from_document(document)
 
+    def with_entry(self, entry: MemoryEntry) -> "MemoryStore":
+        """Return a store with one entry appended, skipping duplicates."""
+        for existing in self.entries:
+            if (
+                existing.label is entry.label
+                and existing.path == entry.path
+                and existing.rule_id == entry.rule_id
+                and existing.source == entry.source
+            ):
+                return self
+        return MemoryStore(entries=(*self.entries, entry))
+
+    def to_document(self) -> dict[str, object]:
+        entries: list[dict[str, str]] = []
+        for entry in self.entries:
+            item: dict[str, str] = {"label": entry.label.value}
+            if entry.path:
+                item["path"] = entry.path
+            if entry.rule_id:
+                item["rule_id"] = entry.rule_id
+            if entry.reason:
+                item["reason"] = entry.reason
+            if entry.source:
+                item["source"] = entry.source
+            entries.append(item)
+        return {"version": MEMORY_SCHEMA_VERSION, "entries": entries}
+
+    def save(self, path: Path | None = None) -> Path:
+        target = Path(path).expanduser() if path is not None else self.default_path()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            yaml.safe_dump(self.to_document(), allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+        return target
+
     @classmethod
     def from_document(cls, document: object) -> "MemoryStore":
         if not isinstance(document, Mapping):
@@ -308,3 +344,113 @@ def adjudication_counts(decisions: Iterable[AdjudicationDecision]) -> dict[str, 
     for decision in decisions:
         counts[decision.label.value] = counts.get(decision.label.value, 0) + 1
     return counts
+
+
+def validate_document(document: object) -> list[str]:
+    """Return human-readable problems with an intent memory document."""
+    errors: list[str] = []
+    if not isinstance(document, Mapping):
+        return ["document must be a mapping"]
+    if document.get("version") != MEMORY_SCHEMA_VERSION:
+        errors.append(
+            f"version must be {MEMORY_SCHEMA_VERSION!r}, got {document.get('version')!r}"
+        )
+    entries = document.get("entries")
+    if not isinstance(entries, list):
+        errors.append("entries must be a list")
+        return errors
+    allowed = {"label", "path", "rule_id", "reason", "source"}
+    for index, entry in enumerate(entries):
+        prefix = f"entries[{index}]"
+        if not isinstance(entry, Mapping):
+            errors.append(f"{prefix} must be a mapping")
+            continue
+        unknown = sorted(set(entry) - allowed)
+        if unknown:
+            errors.append(f"{prefix} has unknown fields: {', '.join(unknown)}")
+        try:
+            Adjudication(str(entry.get("label", "")))
+        except ValueError:
+            errors.append(
+                f"{prefix}.label must be one of "
+                f"{', '.join(label.value for label in Adjudication)}"
+            )
+    return errors
+
+
+@dataclass(frozen=True)
+class _SuggestionView:
+    """Adapter that lets agent suggestions use the finding adjudicator."""
+
+    rule_id: str
+    location: Any
+    metadata: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _SuggestionLocation:
+    file_path: str
+    line_start: int
+
+
+def _suggestion_view(suggestion: Mapping[str, object]) -> _SuggestionView:
+    location = suggestion.get("location")
+    file_path = ""
+    line_start = 0
+    if isinstance(location, Mapping):
+        file_path = str(location.get("file_path") or location.get("file") or "")
+        try:
+            line_start = int(location.get("line_start") or location.get("line") or 0)
+        except (TypeError, ValueError):
+            line_start = 0
+    elif isinstance(location, str) and ":" in location:
+        path, _, number = location.rpartition(":")
+        file_path = path
+        try:
+            line_start = int(number)
+        except ValueError:
+            line_start = 0
+    return _SuggestionView(
+        rule_id=str(suggestion.get("rule_id", "") or ""),
+        location=_SuggestionLocation(file_path=file_path, line_start=line_start),
+        metadata={},
+    )
+
+
+def adjudicate_suggestions(
+    project_path: Path,
+    suggestions: Sequence[Any],
+    *,
+    memory: MemoryStore | None = None,
+    intent_pack: IntentPack | None = None,
+) -> list[AdjudicationDecision]:
+    """Attach adjudication metadata to agent suggestions in place.
+
+    Suggestions use ``file:line`` location strings and carry no rule-declared
+    patch risk, so the decision comes from documented intent and user memory;
+    everything else stays ``actionable``.
+    """
+    from smartbench.analysis.intent import IntentScanner
+
+    views: list[_SuggestionView] = []
+    for suggestion in suggestions:
+        if isinstance(suggestion, Mapping):
+            views.append(_suggestion_view(suggestion))
+    if not views:
+        return []
+    if intent_pack is None:
+        intent_pack = IntentScanner().scan(project_path)
+    if memory is None:
+        memory = MemoryStore.load()
+    decisions = Adjudicator().adjudicate(views, intent_pack, memory)
+    for suggestion, decision in zip(suggestions, decisions):
+        if not isinstance(suggestion, dict):
+            continue
+        suggestion["adjudication"] = decision.label.value
+        if decision.reasons:
+            suggestion["adjudication_reasons"] = list(decision.reasons)
+        if decision.basis:
+            suggestion["adjudication_basis"] = [
+                reference.to_dict() for reference in decision.basis
+            ]
+    return decisions
