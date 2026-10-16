@@ -455,7 +455,11 @@ def check_upstream(
     output_file: str = typer.Option("", "--output", "-o", help="Write JSON result to this file (requires --json)"),
     max_findings: int = typer.Option(10, "--max-findings", help="Maximum findings to look up"),
     token_env: str = typer.Option("GITHUB_TOKEN", "--token-env", help="Environment variable holding a GitHub token"),
-    record: bool = typer.Option(False, "--record", help="Append discussed results to the user intent memory file"),
+    record: bool = typer.Option(
+        True,
+        "--record/--no-record",
+        help="Record discussed upstream results in the user intent memory",
+    ),
     memory_file: str = typer.Option("", "--memory-file", help="Intent memory file (default: ~/.smartbench/intent.yaml)"),
 ):
     """Check whether findings were already raised or declined upstream.
@@ -468,6 +472,7 @@ def check_upstream(
     from smartbench.frontends.upstream_checker import (
         GitHubUpstreamChecker,
         extract_findings,
+        record_discussed,
     )
 
     input_path = Path(input_file)
@@ -495,45 +500,25 @@ def check_upstream(
     finally:
         checker.close()
 
+    memory_record: dict[str, object] = {}
     if record:
-        from smartbench.analysis import Adjudication, MemoryEntry, MemoryStore
-
-        target = Path(memory_file) if memory_file else None
-        store = MemoryStore.load(target)
-        added = 0
-        for result in results:
-            if result.status != "discussed":
-                continue
-            match = next(
-                (item for item in result.matches if item.intent_hint),
-                result.matches[0] if result.matches else None,
-            )
-            if match is None:
-                continue
-            hint = match.intent_hint
-            label = (
-                Adjudication.INTENTIONAL
-                if hint in {"by design", "intentional", "intentionally", "working as intended"}
-                else Adjudication.DESIGN_TRADE_OFF
-            )
-            before = len(store.entries)
-            store = store.with_entry(
-                MemoryEntry(
-                    label=label,
-                    reason=f"upstream discussed: {match.title}",
-                    source=match.url,
-                    path=result.file_path,
-                    rule_id=result.rule_id,
-                )
-            )
-            added += len(store.entries) - before
-        saved = store.save(target)
-        console.print(
-            f"[green]Intent memory saved to {safe_terminal_text(str(saved))}[/green] "
-            f"({added} new entries, {len(store.entries)} total)"
+        added, total, saved = record_discussed(
+            results,
+            Path(memory_file) if memory_file else None,
         )
+        memory_record = {"added": added, "total": total, "saved": saved}
+        if not json_output:
+            if added:
+                console.print(
+                    f"[green]Intent memory saved to {safe_terminal_text(saved)}[/green] "
+                    f"({added} new entries, {total} total)"
+                )
+            else:
+                console.print("[dim]No new upstream discussions to record.[/dim]")
 
     payload = GitHubUpstreamChecker.format_report(results)
+    if memory_record:
+        payload["memory"] = memory_record
     if json_output:
         text = json.dumps(payload, indent=2, ensure_ascii=False)
         if output_file:
@@ -565,6 +550,178 @@ def check_upstream(
     )
     console.print(
         "[dim]* = explicit intent markers (wontfix / by design / trade-off)[/dim]"
+    )
+
+
+@app.command("preflight")
+def preflight(
+    input_file: str = typer.Option(..., "--input", "-i", help="Unified or quick report JSON file"),
+    repo: str = typer.Option("", "--repo", "-r", help="Local git repository for branch/history checks"),
+    upstream: str = typer.Option("", "--upstream", help="Upstream owner/name for the online issue check"),
+    json_output: bool = typer.Option(False, "--json", help="Output machine-readable JSON instead of a table"),
+    output_file: str = typer.Option("", "--output", "-o", help="Write JSON result to this file (requires --json)"),
+    max_findings: int = typer.Option(10, "--max-findings", help="Maximum findings to look up upstream"),
+    token_env: str = typer.Option("GITHUB_TOKEN", "--token-env", help="Environment variable holding a GitHub token"),
+    memory_file: str = typer.Option("", "--memory-file", help="Intent memory file (default: ~/.smartbench/intent.yaml)"),
+    branches: bool = typer.Option(True, "--branches/--no-branches", help="Run the local branch/history check"),
+    record: bool = typer.Option(
+        True,
+        "--record/--no-record",
+        help="Record discussed upstream results in the user intent memory",
+    ),
+):
+    """Unified pre-submission check: branches, declared intent and upstream history.
+
+    Each finding gets one verdict:
+
+    - ``already_fixed`` — the fix exists on another branch or in history;
+    - ``declared`` — the user intent memory declares the pattern intentional,
+      an accepted trade-off or out of scope;
+    - ``discussed`` — a closed upstream issue/PR explains the behaviour;
+    - ``mentioned`` — an open upstream issue/PR already exists;
+    - ``submit`` — nothing blocks submission.
+    """
+    from smartbench.analysis import MemoryStore, memory_entry_for
+    from smartbench.frontends.upstream_checker import (
+        GitHubUpstreamChecker,
+        extract_findings,
+        record_discussed,
+    )
+
+    input_path = Path(input_file)
+    if not input_path.exists():
+        console.print(f"[red]Input file not found: {input_file}[/red]")
+        raise typer.Exit(1)
+    try:
+        document = json.loads(input_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        console.print(f"[red]Invalid JSON: {safe_terminal_text(exc)}[/red]")
+        raise typer.Exit(1) from exc
+    findings = extract_findings(document)
+    if not findings:
+        console.print("[yellow]No findings found in input file.[/yellow]")
+        return
+
+    memory = MemoryStore.load(Path(memory_file) if memory_file else None)
+
+    branch_by_key: dict[tuple[str, int], object] = {}
+    if branches and repo:
+        from smartbench.frontends.git_branch_checker import GitBranchChecker
+
+        repo_path = Path(repo).resolve()
+        if not (repo_path / ".git").exists():
+            console.print(f"[red]Not a git repository: {repo}[/red]")
+            raise typer.Exit(1)
+        try:
+            branch_checker = GitBranchChecker(repo_path)
+        except Exception as exc:
+            console.print(
+                f"[red]Failed to init branch checker: {safe_terminal_text(str(exc))}[/red]"
+            )
+            raise typer.Exit(1) from exc
+        branch_input = [
+            {
+                "location": {
+                    "file_path": finding["file_path"],
+                    "line_start": finding["line_start"],
+                }
+            }
+            for finding in findings
+            if finding.get("file_path") and finding.get("line_start")
+        ]
+        for result in branch_checker.check_findings(branch_input):
+            branch_by_key[(result.file_path, result.line_start)] = result
+
+    upstream_results: list = []
+    if upstream:
+        token = os.environ.get(token_env, "").strip()
+        try:
+            upstream_checker = GitHubUpstreamChecker(
+                upstream, token=token, max_findings=max_findings
+            )
+        except ValueError as exc:
+            console.print(f"[red]{safe_terminal_text(str(exc))}[/red]")
+            raise typer.Exit(1) from exc
+        try:
+            upstream_results = upstream_checker.check(findings)
+        finally:
+            upstream_checker.close()
+        if record:
+            added, total, saved = record_discussed(
+                upstream_results,
+                Path(memory_file) if memory_file else None,
+            )
+            if added and not json_output:
+                console.print(
+                    f"[green]Intent memory saved to {safe_terminal_text(saved)}[/green] "
+                    f"({added} new entries, {total} total)"
+                )
+
+    rows: list[dict[str, object]] = []
+    for index, finding in enumerate(findings):
+        branch = branch_by_key.get((finding["file_path"], finding["line_start"]))
+        entry = memory_entry_for(
+            memory,
+            str(finding.get("rule_id", "")),
+            str(finding.get("file_path", "")),
+        )
+        upstream_result = upstream_results[index] if index < len(upstream_results) else None
+        if branch is not None and getattr(branch, "already_fixed_on", None):
+            verdict = "already_fixed"
+            detail = "fixed on: " + ", ".join(branch.already_fixed_on)
+        elif entry is not None:
+            verdict = "declared"
+            detail = f"intent memory: {entry.label.value} — {entry.reason}"
+        elif upstream_result is not None and upstream_result.status == "discussed":
+            verdict = "discussed"
+            detail = upstream_result.matches[0].url if upstream_result.matches else ""
+        elif upstream_result is not None and upstream_result.status == "mentioned":
+            verdict = "mentioned"
+            detail = upstream_result.matches[0].url if upstream_result.matches else ""
+        else:
+            verdict = "submit"
+            detail = ""
+        rows.append(
+            {
+                "rule_id": finding["rule_id"],
+                "file_path": finding["file_path"],
+                "line_start": finding["line_start"],
+                "verdict": verdict,
+                "detail": detail,
+            }
+        )
+
+    counts: dict[str, int] = {}
+    for row in rows:
+        counts[row["verdict"]] = counts.get(row["verdict"], 0) + 1
+    payload = {"findings": rows, "summary": {"total": len(rows), **counts}}
+
+    if json_output:
+        text = json.dumps(payload, indent=2, ensure_ascii=False)
+        if output_file:
+            Path(output_file).write_text(text, encoding="utf-8")
+            console.print(f"[green]JSON written to {output_file}[/green]")
+        else:
+            console.print(text, soft_wrap=True)
+        return
+
+    table = Table("Finding", "Verdict", "Detail")
+    for row in rows:
+        table.add_row(
+            safe_terminal_text(f"{row['rule_id']} @ {row['file_path']}:{row['line_start']}"),
+            row["verdict"],
+            safe_terminal_text(str(row["detail"])[:120]),
+        )
+    console.print(table)
+    console.print(
+        f"\n[green]submit:[/green] {counts.get('submit', 0)} "
+        f"| [cyan]already_fixed:[/cyan] {counts.get('already_fixed', 0)} "
+        f"| [magenta]declared:[/magenta] {counts.get('declared', 0)} "
+        f"| [yellow]discussed:[/yellow] {counts.get('discussed', 0)} "
+        f"| [blue]mentioned:[/blue] {counts.get('mentioned', 0)}"
+    )
+    console.print(
+        "[dim]Check every 'submit' verdict by hand before filing upstream.[/dim]"
     )
 
 

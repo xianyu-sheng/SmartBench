@@ -23,6 +23,7 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 import httpx
@@ -328,3 +329,50 @@ class GitHubUpstreamChecker:
             "results": [result.to_dict() for result in results],
             "summary": {"total": len(results), **counts},
         }
+
+
+def record_discussed(
+    results: Sequence[UpstreamCheckResult],
+    memory_path: Path | None = None,
+) -> tuple[int, int, str]:
+    """Append ``discussed`` upstream results to the user intent memory.
+
+    Repeated entries are skipped. Returns ``(entries_added, entries_total,
+    saved_path)``; nothing is written when no entry was added, so a read-only
+    check does not create an empty memory file.
+    """
+    from smartbench.analysis.adjudication import (
+        Adjudication,
+        MemoryEntry,
+        MemoryStore,
+    )
+
+    store = MemoryStore.load(memory_path)
+    added = 0
+    for result in results:
+        if result.status != "discussed":
+            continue
+        match = next(
+            (item for item in result.matches if item.intent_hint),
+            result.matches[0] if result.matches else None,
+        )
+        if match is None:
+            continue
+        label = (
+            Adjudication.INTENTIONAL
+            if match.intent_hint in {"by design", "intentional", "intentionally", "working as intended"}
+            else Adjudication.DESIGN_TRADE_OFF
+        )
+        before = len(store.entries)
+        store = store.with_entry(
+            MemoryEntry(
+                label=label,
+                reason=f"upstream discussed: {match.title}",
+                source=match.url,
+                path=result.file_path,
+                rule_id=result.rule_id,
+            )
+        )
+        added += len(store.entries) - before
+    saved = str(store.save(memory_path)) if added else ""
+    return added, len(store.entries), saved
