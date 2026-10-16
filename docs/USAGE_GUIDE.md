@@ -131,6 +131,25 @@ GitHub 搜索索引对新创建的 issue/PR 有延迟，`none` 不代表一定�
 
 加 `--record` 时，`discussed` 的结果会写入用户侧意图记忆（`--memory-file` 或
 `SMARTBENCH_INTENT_FILE`），下次扫描同类 finding 直接标注为 `intentional` / `design_trade_off`。
+**该行为默认开启**，可用 `--no-record` 关闭；没有新条目时不会写文件（不会创建空记忆）。
+
+### `smartbench preflight`
+
+统一的提交前检查：把分支/历史检查、意图记忆与上游 issue 历史合并成每条 finding 的单一结论：
+
+- `already_fixed`：修复已存在于其他分支或提交历史（复用 check-branches 能力）；
+- `declared`：用户意图记忆声明为 intentional / design_trade_off / out_of_scope；
+- `discussed`：上游已有 closed 且解释过的 issue/PR；
+- `mentioned`：上游已有 open issue/PR；
+- `submit`：无阻断，可以提交。
+
+```bash
+smartbench preflight --input report.json --repo /path/to/git/repo \
+  --upstream owner/name [--json] [--no-record] [--no-branches]
+```
+
+不传 `--repo` 跳过分支检查；不传 `--upstream` 跳过联网检查（纯本地 + 记忆）；
+上游 `discussed` 结果的记忆回写同样默认开启。
 
 记忆文件可以用子命令管理：
 

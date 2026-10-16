@@ -11,6 +11,7 @@ from smartbench.analysis.adjudication import (
     adjudicate_suggestions,
     adjudication_counts,
     apply_adjudications,
+    memory_entry_for,
     validate_document,
 )
 from smartbench.analysis.control_flow import (
@@ -111,6 +112,7 @@ __all__ = [
     "adjudicate_suggestions",
     "adjudication_counts",
     "apply_adjudications",
+    "memory_entry_for",
     "validate_document",
     "ICFGArc",
     "ICFGArcKind",

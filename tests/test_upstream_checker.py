@@ -227,9 +227,185 @@ def test_cli_json_output_is_valid(tmp_path, monkeypatch):
             "--repo",
             "owner/repo",
             "--json",
+            "--no-record",
         ],
     )
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert payload["summary"] == {"total": 1, "discussed": 1}
+
+
+def test_check_upstream_records_by_default(tmp_path, monkeypatch):
+    import json
+
+    from typer.testing import CliRunner
+
+    from smartbench.analysis.adjudication import MemoryStore
+    from smartbench.cli.main import app
+    from smartbench.frontends.upstream_checker import UpstreamCheckResult, UpstreamMatch
+
+    report = tmp_path / "report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "findings": [
+                    {
+                        "rule_id": "retry_without_backoff",
+                        "location": {"file_path": "server.go", "line_start": 10},
+                        "metadata": {},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    memory = tmp_path / "intent.yaml"
+    monkeypatch.setenv("SMARTBENCH_INTENT_FILE", str(memory))
+
+    def fake_check(self, findings):
+        return [
+            UpstreamCheckResult(
+                rule_id="retry_without_backoff",
+                file_path="server.go",
+                line_start=10,
+                status="discussed",
+                matches=[
+                    UpstreamMatch(
+                        url="https://example.invalid/4",
+                        title="by design",
+                        state="closed",
+                        is_pull_request=True,
+                        intent_hint="by design",
+                    )
+                ],
+            )
+        ]
+
+    monkeypatch.setattr(GitHubUpstreamChecker, "check", fake_check)
+
+    result = CliRunner().invoke(
+        app,
+        ["check-upstream", "--input", str(report), "--repo", "owner/repo"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(MemoryStore.load(memory).entries) == 1
+
+
+def test_check_upstream_no_record_writes_nothing(tmp_path, monkeypatch):
+    import json
+
+    from typer.testing import CliRunner
+
+    from smartbench.cli.main import app
+    from smartbench.frontends.upstream_checker import UpstreamCheckResult, UpstreamMatch
+
+    report = tmp_path / "report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "findings": [
+                    {
+                        "rule_id": "retry_without_backoff",
+                        "location": {"file_path": "server.go", "line_start": 10},
+                        "metadata": {},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    memory = tmp_path / "intent.yaml"
+    monkeypatch.setenv("SMARTBENCH_INTENT_FILE", str(memory))
+
+    def fake_check(self, findings):
+        return [
+            UpstreamCheckResult(
+                rule_id="retry_without_backoff",
+                file_path="server.go",
+                line_start=10,
+                status="discussed",
+                matches=[
+                    UpstreamMatch(
+                        url="https://example.invalid/5",
+                        title="by design",
+                        state="closed",
+                        is_pull_request=True,
+                        intent_hint="by design",
+                    )
+                ],
+            )
+        ]
+
+    monkeypatch.setattr(GitHubUpstreamChecker, "check", fake_check)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "check-upstream",
+            "--input",
+            str(report),
+            "--repo",
+            "owner/repo",
+            "--no-record",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert not memory.exists()
+
+
+def test_check_upstream_does_not_create_empty_memory(tmp_path, monkeypatch):
+    import json
+
+    from typer.testing import CliRunner
+
+    from smartbench.cli.main import app
+    from smartbench.frontends.upstream_checker import UpstreamCheckResult, UpstreamMatch
+
+    report = tmp_path / "report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "findings": [
+                    {
+                        "rule_id": "retry_without_backoff",
+                        "location": {"file_path": "server.go", "line_start": 10},
+                        "metadata": {},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    memory = tmp_path / "intent.yaml"
+    monkeypatch.setenv("SMARTBENCH_INTENT_FILE", str(memory))
+
+    def fake_check(self, findings):
+        return [
+            UpstreamCheckResult(
+                rule_id="retry_without_backoff",
+                file_path="server.go",
+                line_start=10,
+                status="mentioned",
+                matches=[
+                    UpstreamMatch(
+                        url="https://example.invalid/6",
+                        title="open issue",
+                        state="open",
+                        is_pull_request=False,
+                    )
+                ],
+            )
+        ]
+
+    monkeypatch.setattr(GitHubUpstreamChecker, "check", fake_check)
+
+    result = CliRunner().invoke(
+        app,
+        ["check-upstream", "--input", str(report), "--repo", "owner/repo"],
+    )
+
+    assert result.exit_code == 0
+    assert not memory.exists()
