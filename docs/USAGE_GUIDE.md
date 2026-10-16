@@ -115,6 +115,20 @@ ProjectReader 接受的 CFG finding 会写入 `analysis_report`，而不是另�
 `--state-rules` 选项加载。`scope: interprocedural` 规则使用有界跨函数路径；无法证明
 调用者守卫确实控制动作时会保持 unknown，而不是直接产生误报。
 
+### `smartbench check-upstream`
+
+提交 finding 之前，联网查询上游仓库是否已有同类 issue/PR（GitHub 搜索 API；需 `GITHUB_TOKEN`
+或 `gh auth token`，未设置 token 时使用未认证的保守请求间隔）：
+
+```bash
+smartbench check-upstream --input report.json --repo owner/name --json --output upstream.json
+```
+
+状态含义：`none`（未找到）、`mentioned`（有 open 条目）、`discussed`（closed 条目且文本带有
+wontfix / by design / trade-off 等意图标记——不要重复提交）、`closed`（closed 但无意图标记）、
+`rate_limited` / `error`（查询未完成）。查询从“精确关键词”自动放宽到“主关键词”最多一次；
+GitHub 搜索索引对新创建的 issue/PR 有延迟，`none` 不代表一定无人提过。
+
 ### `smartbench benchmark run`
 
 基准运行器对声明的 before/after 仓库快照执行同一套统一引擎，并检查发现数量和规则 ID：
@@ -185,6 +199,37 @@ Critique 或 Judge 失败时，结构化 hypothesis 只保存在 `unreviewed_sug
 
 EvidencePack 中的 `facts` 才能被最终建议引用；`hypotheses` 保存 ProjectReader 解释和
 启发式规则候选，只用于决定后续调查方向，不能通过 fact-ID gate。
+
+## 工程权衡裁决（Decision）
+
+除证据状态外，每条 finding 还会带一个 `adjudication` 标签（JSON 中位于
+`metadata.adjudication`，CLI 以 `⚖️ Decision` 展示）：
+
+- `actionable`：证据成立且未发现冲突，适合进一步验证与提交；
+- `design_trade_off`：修复在触发缺陷的同一条件下改变了行为（例如把 fail-stop
+  换成无 backoff 的立即重试），或仓库文本明确记录为接受的权衡；
+- `intentional`：注释/文档把该行为描述为有意设计（fail-stop、by design）；
+- `out_of_scope`：文档明确不支持该行为；
+- `theoretical`：触发条件在正常使用中可达性低；
+- `unknown`：缺少依据。
+
+标签只是提交前的提示，不会抑制 finding。判定优先级：用户记忆 > 仓库意图文本 >
+规则声明的 patch risk > 可达性。
+
+### 用户侧意图记忆
+
+判读规则可以记在用户自己的 `~/.smartbench/intent.yaml`（可用环境变量
+`SMARTBENCH_INTENT_FILE` 覆盖），不会写入被扫描的仓库：
+
+```yaml
+version: smartbench.intent/v1
+entries:
+  - path: "server.go"              # 相对路径 glob，可省略
+    rule_id: retry_without_backoff # 可省略
+    label: design_trade_off
+    reason: "维护者确认保留 fail-stop（见 gokcehan/lf#2712）"
+    source: "https://github.com/gokcehan/lf/pull/2712"
+```
 
 ## 本地产物
 
