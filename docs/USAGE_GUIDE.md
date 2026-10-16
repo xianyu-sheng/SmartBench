@@ -129,6 +129,18 @@ wontfix / by design / trade-off 等意图标记——不要重复提交）、`cl
 `rate_limited` / `error`（查询未完成）。查询从“精确关键词”自动放宽到“主关键词”最多一次；
 GitHub 搜索索引对新创建的 issue/PR 有延迟，`none` 不代表一定无人提过。
 
+加 `--record` 时，`discussed` 的结果会写入用户侧意图记忆（`--memory-file` 或
+`SMARTBENCH_INTENT_FILE`），下次扫描同类 finding 直接标注为 `intentional` / `design_trade_off`。
+
+记忆文件可以用子命令管理：
+
+```bash
+smartbench intent list [--file ...]
+smartbench intent validate [--file ...]
+smartbench intent add --label design_trade_off --path "server.go" --rule-id retry_without_backoff \
+  --reason "维护者确认保留 fail-stop" --source "https://github.com/owner/repo/pull/123"
+```
+
 ### `smartbench benchmark run`
 
 基准运行器对声明的 before/after 仓库快照执行同一套统一引擎，并检查发现数量和规则 ID：

@@ -357,6 +357,96 @@ def check_branches(
         console.print("[dim]No findings with location data to check.[/dim]")
 
 
+intent_app = typer.Typer(name="intent", help="Manage the user-side intent memory file")
+app.add_typer(intent_app, name="intent")
+
+
+@intent_app.command("list")
+def intent_list(
+    memory_file: str = typer.Option("", "--file", help="Intent memory file (default: ~/.smartbench/intent.yaml)"),
+):
+    """List the declared intent-memory entries."""
+    from smartbench.analysis import MemoryStore
+
+    store = MemoryStore.load(Path(memory_file) if memory_file else None)
+    if not store.entries:
+        console.print("[yellow]No intent memory entries.[/yellow]")
+        return
+    table = Table("Label", "Path", "Rule", "Reason", "Source")
+    for entry in store.entries:
+        table.add_row(
+            entry.label.value,
+            safe_terminal_text(entry.path or "*"),
+            safe_terminal_text(entry.rule_id or "*"),
+            safe_terminal_text(entry.reason),
+            safe_terminal_text(entry.source),
+        )
+    console.print(table)
+
+
+@intent_app.command("validate")
+def intent_validate(
+    memory_file: str = typer.Option("", "--file", help="Intent memory file (default: ~/.smartbench/intent.yaml)"),
+):
+    """Validate the intent memory file schema."""
+    import yaml as _yaml
+
+    from smartbench.analysis import MemoryStore, validate_document
+
+    target = Path(memory_file) if memory_file else MemoryStore.default_path()
+    if not target.is_file():
+        console.print(f"[red]File not found: {safe_terminal_text(str(target))}[/red]")
+        raise typer.Exit(1)
+    try:
+        document = _yaml.safe_load(target.read_text(encoding="utf-8"))
+    except _yaml.YAMLError as exc:
+        console.print(f"[red]Invalid YAML: {safe_terminal_text(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    errors = validate_document(document)
+    if errors:
+        for error in errors:
+            console.print(f"[red]- {safe_terminal_text(error)}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]OK: {safe_terminal_text(str(target))}[/green]")
+
+
+@intent_app.command("add")
+def intent_add(
+    label: str = typer.Option(..., "--label", help="adjudication label for matching findings"),
+    path: str = typer.Option("", "--path", help="Relative path glob (optional)"),
+    rule_id: str = typer.Option("", "--rule-id", help="Rule id to match (optional)"),
+    reason: str = typer.Option("", "--reason", help="Why this decision applies"),
+    source: str = typer.Option("", "--source", help="URL or reference for the decision"),
+    memory_file: str = typer.Option("", "--file", help="Intent memory file (default: ~/.smartbench/intent.yaml)"),
+):
+    """Append one entry to the intent memory file."""
+    from smartbench.analysis import Adjudication, MemoryEntry, MemoryStore
+
+    try:
+        parsed_label = Adjudication(label)
+    except ValueError as exc:
+        allowed = ", ".join(item.value for item in Adjudication)
+        console.print(f"[red]--label must be one of: {allowed}[/red]")
+        raise typer.Exit(1) from exc
+    target = Path(memory_file) if memory_file else None
+    store = MemoryStore.load(target)
+    before = len(store.entries)
+    store = store.with_entry(
+        MemoryEntry(
+            label=parsed_label,
+            reason=reason,
+            source=source,
+            path=path,
+            rule_id=rule_id,
+        )
+    )
+    saved = store.save(target)
+    console.print(
+        f"[green]Intent memory saved to {safe_terminal_text(str(saved))}[/green] "
+        f"({len(store.entries) - before} new entries, {len(store.entries)} total)"
+    )
+
+
 @app.command("check-upstream")
 def check_upstream(
     input_file: str = typer.Option(..., "--input", "-i", help="Unified or quick report JSON file"),
@@ -365,6 +455,8 @@ def check_upstream(
     output_file: str = typer.Option("", "--output", "-o", help="Write JSON result to this file (requires --json)"),
     max_findings: int = typer.Option(10, "--max-findings", help="Maximum findings to look up"),
     token_env: str = typer.Option("GITHUB_TOKEN", "--token-env", help="Environment variable holding a GitHub token"),
+    record: bool = typer.Option(False, "--record", help="Append discussed results to the user intent memory file"),
+    memory_file: str = typer.Option("", "--memory-file", help="Intent memory file (default: ~/.smartbench/intent.yaml)"),
 ):
     """Check whether findings were already raised or declined upstream.
 
@@ -402,6 +494,44 @@ def check_upstream(
         results = checker.check(findings)
     finally:
         checker.close()
+
+    if record:
+        from smartbench.analysis import Adjudication, MemoryEntry, MemoryStore
+
+        target = Path(memory_file) if memory_file else None
+        store = MemoryStore.load(target)
+        added = 0
+        for result in results:
+            if result.status != "discussed":
+                continue
+            match = next(
+                (item for item in result.matches if item.intent_hint),
+                result.matches[0] if result.matches else None,
+            )
+            if match is None:
+                continue
+            hint = match.intent_hint
+            label = (
+                Adjudication.INTENTIONAL
+                if hint in {"by design", "intentional", "intentionally", "working as intended"}
+                else Adjudication.DESIGN_TRADE_OFF
+            )
+            before = len(store.entries)
+            store = store.with_entry(
+                MemoryEntry(
+                    label=label,
+                    reason=f"upstream discussed: {match.title}",
+                    source=match.url,
+                    path=result.file_path,
+                    rule_id=result.rule_id,
+                )
+            )
+            added += len(store.entries) - before
+        saved = store.save(target)
+        console.print(
+            f"[green]Intent memory saved to {safe_terminal_text(str(saved))}[/green] "
+            f"({added} new entries, {len(store.entries)} total)"
+        )
 
     payload = GitHubUpstreamChecker.format_report(results)
     if json_output:
