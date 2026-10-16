@@ -25,6 +25,11 @@ from smartbench.analysis.resource_lifecycle import (
     ResourceProtocol,
     ResourceProtocolMiner,
 )
+from smartbench.analysis.retry_loops import (
+    RetryLoopAnalyzer,
+    RetryLoopResult,
+    RetryLoopViolation,
+)
 from smartbench.analysis.spec import (
     STATE_RULE_SCHEMA_VERSION,
     StateRuleConfigError,
@@ -70,6 +75,9 @@ __all__ = [
     "ResourceLifecycleResult",
     "ResourceProtocol",
     "ResourceProtocolMiner",
+    "RetryLoopAnalyzer",
+    "RetryLoopResult",
+    "RetryLoopViolation",
     "ICFGArc",
     "ICFGArcKind",
     "ICFGPath",

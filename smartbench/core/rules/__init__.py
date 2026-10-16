@@ -27,6 +27,7 @@ from smartbench.core.rules.quality import (
     UnusedImportRule,
     register_quality_rules,
 )
+from smartbench.core.rules.retry import RetryWithoutBackoffRule
 from smartbench.core.rules.security import (
     CommandInjectionRule,
     HardcodedSecretRule,
@@ -58,4 +59,5 @@ __all__ = [
     "UnusedImportRule",
     "register_quality_rules",
     "DeclarativeStateRule",
+    "RetryWithoutBackoffRule",
 ]
