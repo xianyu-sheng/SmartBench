@@ -8,8 +8,10 @@ from smartbench.analysis.adjudication import (
     Adjudicator,
     MemoryEntry,
     MemoryStore,
+    adjudicate_suggestions,
     adjudication_counts,
     apply_adjudications,
+    validate_document,
 )
 from smartbench.analysis.control_flow import (
     CONTROL_FLOW_EDGE_KINDS,
@@ -106,8 +108,10 @@ __all__ = [
     "IntentScanner",
     "MEMORY_ENV_VAR",
     "MEMORY_SCHEMA_VERSION",
+    "adjudicate_suggestions",
     "adjudication_counts",
     "apply_adjudications",
+    "validate_document",
     "ICFGArc",
     "ICFGArcKind",
     "ICFGPath",

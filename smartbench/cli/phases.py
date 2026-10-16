@@ -522,6 +522,18 @@ def run_diagnosis_with_graph(
         strategy=selected,
         evidence_pack=evidence_pack,
     )
+
+    # Adjudicate agent suggestions against documented intent and user memory.
+    if result.final_suggestions:
+        try:
+            from smartbench.analysis.adjudication import adjudicate_suggestions
+
+            adjudicate_suggestions(Path(project_path), result.final_suggestions)
+        except Exception as exc:  # adjudication is advisory
+            console.print(
+                f"  [dim]adjudication skipped: {safe_terminal_text(str(exc))}[/dim]"
+            )
+
     if analysis_session is not None:
         result.analysis_report = analysis_session.report_dict()
 
