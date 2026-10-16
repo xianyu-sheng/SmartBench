@@ -1,0 +1,30 @@
+version: smartbench.benchmarks/v1
+cases:
+  - id: lf-accept-error-retry-without-backoff
+    language: go
+    metadata:
+      repository: gokcehan/lf
+      source_url: https://github.com/gokcehan/lf/pull/2712
+      bug_category: engineering-trade-off
+      expected_behavior: >
+        An error path that immediately retries a persistent-failure-prone
+        operation without backoff or a bounded exit is surfaced as a patch
+        risk; the same retry with a backoff or attempt bound is not reported.
+      fixture_note: >
+        Minimal excerpt of lf's server listen() loop. The rejected upstream
+        patch replaced a fail-stop crash with an immediate accept retry.
+    rules: [retry_without_backoff]
+    snapshots:
+      - label: before
+        path: lf_accept_retry/before
+        min_findings: 0
+        max_findings: 0
+      - label: busy_loop
+        path: lf_accept_retry/busy_loop
+        min_findings: 1
+        max_findings: 1
+        expected_rule_ids: [retry_without_backoff]
+      - label: with_backoff
+        path: lf_accept_retry/with_backoff
+        min_findings: 0
+        max_findings: 0

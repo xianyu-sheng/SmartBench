@@ -112,3 +112,41 @@ def test_go_lowering_is_deterministic_and_graph_rag_can_retrieve_events(tmp_path
         for fact in operation_facts
     )
     assert any(ref.source == "go_frontend" for ref in pack.evidence)
+
+
+LOOP_SHAPES_SOURCE = """
+package sample
+
+func loops(xs []int, ok bool) {
+	for {
+		break
+	}
+	for i := 0; i != 3; i = i + 1 {
+		_ = i
+	}
+	for _, x := range xs {
+		_ = x
+	}
+	for ok {
+		break
+	}
+}
+""".strip()
+
+
+def test_go_frontend_marks_only_unbounded_loops_infinite(tmp_path: Path):
+    (tmp_path / "loops.go").write_text(LOOP_SHAPES_SOURCE, encoding="utf-8")
+    ir = GoAdapter().parse_semantic_project(tmp_path)
+
+    loops = sorted(
+        (operation for operation in ir.operations if operation.kind == OperationKind.LOOP),
+        key=lambda operation: operation.location.line_start,
+    )
+
+    assert [loop.attributes.get("infinite") for loop in loops] == [
+        True,
+        False,
+        False,
+        False,
+    ]
+    assert loops[1].value == "i != 3"
