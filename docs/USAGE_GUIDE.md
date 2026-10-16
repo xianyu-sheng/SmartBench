@@ -115,6 +115,20 @@ ProjectReader 接受的 CFG finding 会写入 `analysis_report`，而不是另�
 `--state-rules` 选项加载。`scope: interprocedural` 规则使用有界跨函数路径；无法证明
 调用者守卫确实控制动作时会保持 unknown，而不是直接产生误报。
 
+### `smartbench check-upstream`
+
+提交 finding 之前，联网查询上游仓库是否已有同类 issue/PR（GitHub 搜索 API；需 `GITHUB_TOKEN`
+或 `gh auth token`，未设置 token 时使用未认证的保守请求间隔）：
+
+```bash
+smartbench check-upstream --input report.json --repo owner/name --json --output upstream.json
+```
+
+状态含义：`none`（未找到）、`mentioned`（有 open 条目）、`discussed`（closed 条目且文本带有
+wontfix / by design / trade-off 等意图标记——不要重复提交）、`closed`（closed 但无意图标记）、
+`rate_limited` / `error`（查询未完成）。查询从“精确关键词”自动放宽到“主关键词”最多一次；
+GitHub 搜索索引对新创建的 issue/PR 有延迟，`none` 不代表一定无人提过。
+
 ### `smartbench benchmark run`
 
 基准运行器对声明的 before/after 仓库快照执行同一套统一引擎，并检查发现数量和规则 ID：
