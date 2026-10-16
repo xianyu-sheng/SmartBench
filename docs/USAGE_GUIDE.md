@@ -186,6 +186,37 @@ Critique 或 Judge 失败时，结构化 hypothesis 只保存在 `unreviewed_sug
 EvidencePack 中的 `facts` 才能被最终建议引用；`hypotheses` 保存 ProjectReader 解释和
 启发式规则候选，只用于决定后续调查方向，不能通过 fact-ID gate。
 
+## 工程权衡裁决（Decision）
+
+除证据状态外，每条 finding 还会带一个 `adjudication` 标签（JSON 中位于
+`metadata.adjudication`，CLI 以 `⚖️ Decision` 展示）：
+
+- `actionable`：证据成立且未发现冲突，适合进一步验证与提交；
+- `design_trade_off`：修复在触发缺陷的同一条件下改变了行为（例如把 fail-stop
+  换成无 backoff 的立即重试），或仓库文本明确记录为接受的权衡；
+- `intentional`：注释/文档把该行为描述为有意设计（fail-stop、by design）；
+- `out_of_scope`：文档明确不支持该行为；
+- `theoretical`：触发条件在正常使用中可达性低；
+- `unknown`：缺少依据。
+
+标签只是提交前的提示，不会抑制 finding。判定优先级：用户记忆 > 仓库意图文本 >
+规则声明的 patch risk > 可达性。
+
+### 用户侧意图记忆
+
+判读规则可以记在用户自己的 `~/.smartbench/intent.yaml`（可用环境变量
+`SMARTBENCH_INTENT_FILE` 覆盖），不会写入被扫描的仓库：
+
+```yaml
+version: smartbench.intent/v1
+entries:
+  - path: "server.go"              # 相对路径 glob，可省略
+    rule_id: retry_without_backoff # 可省略
+    label: design_trade_off
+    reason: "维护者确认保留 fail-stop（见 gokcehan/lf#2712）"
+    source: "https://github.com/gokcehan/lf/pull/2712"
+```
+
 ## 本地产物
 
 启用 RAG 时，SmartBench 会在目标仓库创建 `.smartbench/vector_store/`。常规流程不会编辑源文件，但建议将 `.smartbench/` 加入目标仓库的 `.gitignore`。扫描、检索和证据验证只读取项目根目录内的常规文件，指向仓库外部的符号链接与 `../` 越界路径会被忽略。
