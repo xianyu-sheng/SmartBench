@@ -346,6 +346,22 @@ def adjudication_counts(decisions: Iterable[AdjudicationDecision]) -> dict[str, 
     return counts
 
 
+def memory_entry_for(
+    memory: MemoryStore,
+    rule_id: str,
+    file_path: str,
+) -> MemoryEntry | None:
+    """Return the first declared memory entry matching a finding location."""
+    normalized = str(file_path).replace("\\", "/").lstrip("./")
+    for entry in memory.entries:
+        if entry.rule_id and entry.rule_id != rule_id:
+            continue
+        if entry.path and not fnmatch.fnmatch(normalized, entry.path):
+            continue
+        return entry
+    return None
+
+
 def validate_document(document: object) -> list[str]:
     """Return human-readable problems with an intent memory document."""
     errors: list[str] = []
