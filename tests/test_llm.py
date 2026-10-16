@@ -347,3 +347,59 @@ def test_masked_input_does_not_echo_any_key_fragment(monkeypatch):
     assert "[link=https://evil.example]click[/link]" in output
     assert "hidden" in output
     assert "\x1b" not in output
+
+
+def test_empty_completion_retries_with_larger_budget(monkeypatch):
+    """Reasoning models can spend the whole budget on hidden reasoning."""
+    bodies = []
+    responses = [
+        FakeResponse(200, {
+            "choices": [{
+                "finish_reason": "length",
+                "message": {"content": ""},
+            }]
+        }),
+        FakeResponse(200, {"choices": [{"message": {"content": "done"}}]}),
+    ]
+
+    def fake_post(url, **kwargs):
+        bodies.append(dict(kwargs["json"]))
+        return responses.pop(0)
+
+    monkeypatch.setattr("smartbench.llm.client.httpx.post", fake_post)
+    monkeypatch.setattr("smartbench.llm.client.time.sleep", lambda *_: None)
+
+    assert call_llm(_config(), "hello", max_retries=1) == "done"
+    assert bodies[1]["max_tokens"] == bodies[0]["max_tokens"] * 2
+
+
+def test_max_output_tokens_honors_environment_override(monkeypatch):
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured.update(kwargs["json"])
+        return FakeResponse(200, {"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr("smartbench.llm.client.httpx.post", fake_post)
+    monkeypatch.setenv("SMARTBENCH_LLM_MAX_TOKENS", "2048")
+
+    assert call_llm(_config(), "hello") == "ok"
+    assert captured["max_tokens"] == 2048
+
+
+def test_deepseek_thinking_can_be_disabled(monkeypatch):
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured.update(kwargs["json"])
+        return FakeResponse(200, {"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr("smartbench.llm.client.httpx.post", fake_post)
+    monkeypatch.setenv("SMARTBENCH_DEEPSEEK_DISABLE_THINKING", "1")
+
+    assert call_llm(_config(provider="deepseek"), "hello") == "ok"
+    assert captured["thinking"] == {"type": "disabled"}
+
+    captured.clear()
+    assert call_llm(_config(provider="openai"), "hello") == "ok"
+    assert "thinking" not in captured
