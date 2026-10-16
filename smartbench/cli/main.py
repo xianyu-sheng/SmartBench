@@ -357,6 +357,87 @@ def check_branches(
         console.print("[dim]No findings with location data to check.[/dim]")
 
 
+@app.command("check-upstream")
+def check_upstream(
+    input_file: str = typer.Option(..., "--input", "-i", help="Unified or quick report JSON file"),
+    repo: str = typer.Option(..., "--repo", "-r", help="Upstream repository in owner/name form"),
+    json_output: bool = typer.Option(False, "--json", help="Output machine-readable JSON instead of a table"),
+    output_file: str = typer.Option("", "--output", "-o", help="Write JSON result to this file (requires --json)"),
+    max_findings: int = typer.Option(10, "--max-findings", help="Maximum findings to look up"),
+    token_env: str = typer.Option("GITHUB_TOKEN", "--token-env", help="Environment variable holding a GitHub token"),
+):
+    """Check whether findings were already raised or declined upstream.
+
+    Searches the upstream repository's issues and pull requests for each
+    finding. A closed item with explicit intent markers (wontfix, by design,
+    trade-off) is reported as ``discussed`` — do not re-file it without new
+    evidence.
+    """
+    from smartbench.frontends.upstream_checker import (
+        GitHubUpstreamChecker,
+        extract_findings,
+    )
+
+    input_path = Path(input_file)
+    if not input_path.exists():
+        console.print(f"[red]Input file not found: {input_file}[/red]")
+        raise typer.Exit(1)
+    try:
+        document = json.loads(input_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        console.print(f"[red]Invalid JSON: {safe_terminal_text(exc)}[/red]")
+        raise typer.Exit(1) from exc
+    findings = extract_findings(document)
+    if not findings:
+        console.print("[yellow]No findings found in input file.[/yellow]")
+        return
+
+    token = os.environ.get(token_env, "").strip()
+    try:
+        checker = GitHubUpstreamChecker(repo, token=token, max_findings=max_findings)
+    except ValueError as exc:
+        console.print(f"[red]{safe_terminal_text(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    try:
+        results = checker.check(findings)
+    finally:
+        checker.close()
+
+    payload = GitHubUpstreamChecker.format_report(results)
+    if json_output:
+        text = json.dumps(payload, indent=2, ensure_ascii=False)
+        if output_file:
+            Path(output_file).write_text(text, encoding="utf-8")
+            console.print(f"[green]JSON written to {output_file}[/green]")
+        else:
+            console.print(text, soft_wrap=True)
+        return
+
+    table = Table("Finding", "Status", "Matches")
+    for result in results:
+        label = f"{result.rule_id} @ {result.file_path}:{result.line_start}"
+        detail = "; ".join(
+            f"{match.state}{'*' if match.intent_hint else ''} {match.url}"
+            for match in result.matches[:2]
+        ) or result.error
+        table.add_row(
+            safe_terminal_text(label),
+            result.status,
+            safe_terminal_text(detail),
+        )
+    console.print(table)
+    summary = payload["summary"]
+    console.print(
+        f"\n[green]none:[/green] {summary.get('none', 0)} "
+        f"| [yellow]mentioned:[/yellow] {summary.get('mentioned', 0)} "
+        f"| [magenta]discussed:[/magenta] {summary.get('discussed', 0)} "
+        f"| [dim]closed:[/dim] {summary.get('closed', 0)}"
+    )
+    console.print(
+        "[dim]* = explicit intent markers (wontfix / by design / trade-off)[/dim]"
+    )
+
+
 @app.command()
 def check():
     """Check tool availability for the current system."""

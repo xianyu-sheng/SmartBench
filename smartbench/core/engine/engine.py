@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 from smartbench.analysis import SemanticLinker, StateRuleConfigError, load_state_rule_file
+from smartbench.analysis.adjudication import adjudication_counts, apply_adjudications
 from smartbench.core.adapters.base import AdapterRegistry
 from smartbench.core.rules.base import DiagnosticRule, Finding, RuleRegistry
 from smartbench.core.rules.state_machine import DeclarativeStateRule
@@ -72,6 +73,7 @@ class UnifiedDiagnosticConfig:
     evidence_hops: int = 2
     evidence_nodes: int = 8
     state_rule_paths: Optional[List[Path]] = None
+    adjudicate: bool = True
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.min_confidence <= 1.0:
@@ -234,6 +236,15 @@ class UnifiedDiagnosticEngine:
 
             # Step 4: Compute stats
             result.stats = self._compute_stats(result, detected_langs)
+
+            # Step 5: Adjudicate grounded findings (intent, patch risk,
+            # reachability).  Labels are advisory metadata; no finding is
+            # suppressed here.
+            if config.adjudicate and result.findings:
+                decisions = apply_adjudications(Path(project_path), result.findings)
+                result.stats["adjudications_total"] = len(decisions)
+                for label, count in adjudication_counts(decisions).items():
+                    result.stats[f"adjudication_{label}"] = count
 
         except Exception as e:
             result.errors.append(f"Diagnostic failed: {e}")
