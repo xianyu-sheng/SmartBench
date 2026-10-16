@@ -16,6 +16,7 @@ from smartbench.core import (
     UnifiedDiagnosticConfig,
     UnifiedDiagnosticEngine,
     register_all_adapters,
+    register_builtin_rules,
 )
 from smartbench.path_safety import read_text_bounded
 
@@ -126,7 +127,9 @@ class BenchmarkRunner:
     def __init__(self) -> None:
         adapters = AdapterRegistry()
         register_all_adapters(adapters)
-        self.engine = UnifiedDiagnosticEngine(adapters, RuleRegistry())
+        rules = RuleRegistry()
+        register_builtin_rules(rules)
+        self.engine = UnifiedDiagnosticEngine(adapters, rules)
 
     def run(self, cases: list[BenchmarkCase]) -> BenchmarkReport:
         report = BenchmarkReport()
@@ -142,7 +145,10 @@ class BenchmarkRunner:
     ) -> BenchmarkSnapshotResult:
         start = time.time()
         config = UnifiedDiagnosticConfig(
-            use_static_rules=False,
+            # Built-in rules are available to cases that select them explicitly
+            # through ``rules``; the rule_id filter keeps the previous behaviour
+            # for cases that only reference declarative state rules.
+            use_static_rules=bool(case.rule_ids),
             languages=[case.language],
             rule_ids=list(case.rule_ids) or None,
             state_rule_paths=list(case.state_rule_paths),
