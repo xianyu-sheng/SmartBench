@@ -1,5 +1,16 @@
 """Language-neutral deterministic analyzers over SemanticIR."""
 
+from smartbench.analysis.adjudication import (
+    MEMORY_ENV_VAR,
+    MEMORY_SCHEMA_VERSION,
+    Adjudication,
+    AdjudicationDecision,
+    Adjudicator,
+    MemoryEntry,
+    MemoryStore,
+    adjudication_counts,
+    apply_adjudications,
+)
 from smartbench.analysis.control_flow import (
     CONTROL_FLOW_EDGE_KINDS,
     ControlFlowArc,
@@ -10,6 +21,12 @@ from smartbench.analysis.icfg import (
     ICFGArcKind,
     ICFGPath,
     InterproceduralControlFlowGraph,
+)
+from smartbench.analysis.intent import (
+    IntentFact,
+    IntentKind,
+    IntentPack,
+    IntentScanner,
 )
 from smartbench.analysis.interprocedural import (
     InterproceduralGraph,
@@ -78,6 +95,19 @@ __all__ = [
     "RetryLoopAnalyzer",
     "RetryLoopResult",
     "RetryLoopViolation",
+    "Adjudication",
+    "AdjudicationDecision",
+    "Adjudicator",
+    "MemoryEntry",
+    "MemoryStore",
+    "IntentFact",
+    "IntentKind",
+    "IntentPack",
+    "IntentScanner",
+    "MEMORY_ENV_VAR",
+    "MEMORY_SCHEMA_VERSION",
+    "adjudication_counts",
+    "apply_adjudications",
     "ICFGArc",
     "ICFGArcKind",
     "ICFGPath",

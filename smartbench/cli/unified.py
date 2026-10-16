@@ -116,6 +116,12 @@ def print_findings_detail(
             leaf.add(f"📝 {safe_terminal_text(f.message)}")
             if f.confidence < 1.0:
                 leaf.add(f"🎯 Confidence: {f.confidence:.0%}")
+            adjudication = str(f.metadata.get("adjudication", ""))
+            if adjudication and adjudication != "actionable":
+                leaf.add(f"⚖️ Decision: {safe_terminal_text(adjudication)}")
+                reasons = f.metadata.get("adjudication_reasons") or []
+                if reasons:
+                    leaf.add(f"   {safe_terminal_text(str(reasons[0])[:140])}")
         if len(findings) > max_per_rule:
             tree.add(f"... and {len(findings) - max_per_rule} more")
         console.print(tree)
