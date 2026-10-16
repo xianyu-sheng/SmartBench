@@ -151,3 +151,35 @@ def test_malformed_verification_payload_does_not_break_rendering():
     output = stream.getvalue()
     assert "unsafe [bold]title[/bold]" in output
     assert "得分: 0%" in output
+
+
+def test_suggestion_decision_is_rendered_when_not_actionable():
+    console, stream = _console()
+    fingerprint = ProjectFingerprint(project_path=Path("/tmp/project"))
+    result = DebateResult(final_suggestions=[{
+        "title": "patch accept loop",
+        "description": "description",
+        "implementation": "implementation",
+        "adjudication": "design_trade_off",
+        "adjudication_reasons": ["the change retries under the same failure"],
+    }])
+
+    display_diagnosis_results(console, result, fingerprint)
+
+    output = stream.getvalue()
+    assert "design_trade_off" in output
+    assert "retries under the same failure" in output
+
+
+def test_actionable_decision_is_not_noise():
+    console, stream = _console()
+    fingerprint = ProjectFingerprint(project_path=Path("/tmp/project"))
+    result = DebateResult(final_suggestions=[{
+        "title": "patch accept loop",
+        "adjudication": "actionable",
+        "adjudication_reasons": [],
+    }])
+
+    display_diagnosis_results(console, result, fingerprint)
+
+    assert "⚖️" not in stream.getvalue()

@@ -332,13 +332,24 @@ def display_diagnosis_results(
         risk = _safe(sug.get("risk_level", "medium"))
         location = _safe(sug.get("location", ""))
         consensus = _safe(sug.get("consensus", "unknown"))
+        adjudication = _safe(str(sug.get("adjudication", "") or ""))
+        adjudication_reasons = sug.get("adjudication_reasons") or []
 
         color = prio_colors.get(priority, "white")
         loc_line = f"[bold]Location:[/bold] {location}" if location else ""
+        decision_line = ""
+        if adjudication and adjudication != "actionable":
+            decision_line = f"\n⚖️ Decision: {adjudication}"
+            if adjudication_reasons:
+                decision_line += (
+                    f"\n   {_safe(str(adjudication_reasons[0])[:160])}"
+                )
 
         console.print(Panel(
-            f"[bold]{title}[/bold]\n\n{desc}\n\n"
-            f"[bold]Fix:[/bold] {impl}\n{loc_line}".strip(),
+            (
+                f"[bold]{title}[/bold]\n\n{desc}\n\n"
+                f"[bold]Fix:[/bold] {impl}\n{loc_line}{decision_line}"
+            ).strip(),
             title=(
                 f"#{i} [{color}]Priority {priority}[/{color}] | "
                 f"Risk: {risk} | Consensus: {consensus}"
