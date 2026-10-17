@@ -73,6 +73,41 @@ def _count_findings_at_or_above(result, level: str) -> int:
             count += 1
     return count
 
+def _count_unresolved_at_or_above(results, level: str) -> int:
+    """Count findings that still need action at or above ``level``.
+
+    ``check-branches`` mirrors ``unified --fail-on`` (issue #24/#27), with one
+    extra rule: findings already fixed on another branch or in history are
+    informational, so only *unresolved* findings can fail the gate.  Errors are
+    reported separately and never gate.  ``level="none"`` (the default) always
+    returns 0 and preserves the historical exit-code-0 behavior.
+    """
+    if level == "none":
+        return 0
+    threshold = _SEVERITY_RANK[level]
+    count = 0
+    for result in results:
+        if result.already_fixed_on or result.error:
+            continue
+        severity = str(getattr(result, "severity", "info")).strip().lower()
+        if _SEVERITY_RANK.get(severity, 0) >= threshold:
+            count += 1
+    return count
+
+
+def _enforce_branch_gate(gating: int, level: str) -> None:
+    """Exit 1 when ``check-branches --fail-on`` gating is tripped.
+
+    The notice goes to stderr so ``--json`` output on stdout stays valid JSON.
+    """
+    if not gating:
+        return
+    Console(stderr=True).print(
+        f"--fail-on {level}: {gating} unresolved finding(s) at or above '{level}'."
+    )
+    raise typer.Exit(1)
+
+
 benchmark_app = typer.Typer(
     name="benchmark",
     help="Reproducible pre-fix/post-fix benchmark execution",
@@ -261,6 +296,15 @@ def check_branches(
     repo: str = typer.Option(..., "--repo", "-r", help="Path to the git repository that was scanned"),
     json_output: bool = typer.Option(False, "--json", help="Output machine-readable JSON instead of rich tables"),
     output_file: str = typer.Option("", "--output", "-o", help="Write JSON result to this file (requires --json)"),
+    fail_on: str = typer.Option(
+        "none",
+        "--fail-on",
+        help=(
+            "Exit 1 when at least one unresolved (not already-fixed) finding is "
+            "at or above this severity [none|info|warning|error]. "
+            "Same gate as 'unified run'; default 'none' always exits 0."
+        ),
+    ),
 ):
     """Check whether quick-mode findings are already fixed on other branches.
 
@@ -270,12 +314,23 @@ def check_branches(
     patterns on another branch, or whose cleanup pattern was introduced by a
     prior commit, are reported as "already-fixed" — they should NOT be
     submitted as a new issue.
+
+    Exit codes: 0 = success, 1 = ``--fail-on`` gate tripped, 2 = invalid
+    ``--fail-on`` value.
     """
     import json
 
     from rich.table import Table
 
     from smartbench.frontends.git_branch_checker import GitBranchChecker
+
+    fail_on_normalized = fail_on.strip().lower()
+    if fail_on_normalized not in _FAIL_ON_LEVELS:
+        console.print(
+            f"[red]Invalid --fail-on value: {safe_terminal_text(fail_on)}. "
+            f"Expected one of: {', '.join(_FAIL_ON_LEVELS)}[/red]"
+        )
+        raise typer.Exit(2)
 
     input_path = Path(input_file)
     if not input_path.exists():
@@ -314,6 +369,7 @@ def check_branches(
 
     results = checker.check_findings(findings)
     already, clean = GitBranchChecker.format_report(results)
+    gating = _count_unresolved_at_or_above(results, fail_on_normalized)
 
     # ── JSON mode ──────────────────────────────────────────────────
     if json_output:
@@ -326,6 +382,8 @@ def check_branches(
                 "already_fixed": len(already),
                 "clean": len(clean),
                 "errors": sum(1 for r in results if r.error),
+                "fail_on": fail_on_normalized,
+                "unresolved_at_or_above": gating,
             },
         }
         text = json.dumps(payload, indent=2, ensure_ascii=False)
@@ -334,6 +392,7 @@ def check_branches(
             console.print(f"[green]JSON written to {output_file}[/green]")
         else:
             console.print(text)
+        _enforce_branch_gate(gating, fail_on_normalized)
         return
 
     # ── Rich table mode ────────────────────────────────────────────
@@ -355,6 +414,8 @@ def check_branches(
     )
     if not already and not clean:
         console.print("[dim]No findings with location data to check.[/dim]")
+
+    _enforce_branch_gate(gating, fail_on_normalized)
 
 
 intent_app = typer.Typer(name="intent", help="Manage the user-side intent memory file")

@@ -43,6 +43,7 @@ class BranchCheckResult:
     fixed_by_commit: Optional[str] = None
     fix_evidence: Optional[str] = None
     error: Optional[str] = None
+    severity: str = "info"
 
     def to_dict(self) -> dict:
         """Serialise for JSON output."""
@@ -56,6 +57,7 @@ class BranchCheckResult:
             "fixed_by_commit": self.fixed_by_commit,
             "fix_evidence": self.fix_evidence,
             "error": self.error,
+            "severity": self.severity,
         }
 
 
@@ -479,8 +481,10 @@ class GitBranchChecker:
             path, start, end = GitBranchChecker._parse_location(loc)
             if not path or start == 0:
                 continue
+            severity = str(f.get("severity") or "info").strip().lower()
             try:
                 r = self.check(path, start, end)
+                r.severity = severity
                 results.append(r)
             except Exception as exc:
                 results.append(BranchCheckResult(
@@ -488,6 +492,7 @@ class GitBranchChecker:
                     line_start=start,
                     line_end=end,
                     error=str(exc),
+                    severity=severity,
                 ))
         return results
 

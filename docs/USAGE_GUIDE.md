@@ -2,7 +2,8 @@
 
 [返回 README](../README_CN.md)
 
-本文档对应当前 `smartbench` CLI。`legacy/` 中的旧 Raft 压测命令不属于当前命令行入口。
+本文档对应当前 `smartbench` CLI。早期版本的 `legacy/` 目录（旧 Raft 压测命令）已在
+`c30b446` 中删除，历史记录见 [CHANGELOG](../CHANGELOG.md)。
 
 ## 安装
 
@@ -188,6 +189,33 @@ smartbench eval-rag \
 加上 `--graph-only` 可只评测结构检索。查询文件是 JSON 数组，每项至少包含
 `query` 和目录明确的 `expected_file`；同名但位于其他目录的文件不会被误算为命中。
 
+### `smartbench check-branches`
+
+读取 `quick`/`unified` 生成的报告，判断其中的发现是否已在其他分支或历史提交中修好：
+
+```bash
+smartbench check-branches --input report.json --repo ./my-project
+smartbench check-branches --input report.json --repo ./my-project --json --fail-on warning
+```
+
+`--fail-on [none|info|warning|error]` 与 `unified run` 使用同一套严重度门禁，
+但只统计**尚未修复**的发现（`already_fixed` 属于信息性结果，不会让 CI 失败）。
+`--json` 模式下门禁信息写入 `summary.fail_on` / `summary.unresolved_at_or_above`，
+失败提示输出到 stderr，stdout 仍是可直接解析的 JSON。
+
+## 退出码与 CI 门禁
+
+三条命令共享同一组退出码语义，便于在 CI 里直接使用：
+
+| 命令 | 退出码 0 | 退出码 1 | 退出码 2 |
+| --- | --- | --- | --- |
+| `smartbench unified run` | 分析完成；`--fail-on` 未触发 | `--fail-on` 触发（存在达到阈值的发现） | `--fail-on` 取值非法；分析过程异常 |
+| `smartbench quick` | 分析完成（**即使发现问题也返回 0**；该命令没有 `--fail-on`） | 项目路径不可访问等致命输入错误 | 未使用 |
+| `smartbench check-branches` | 检查完成；`--fail-on` 未触发 | `--fail-on` 触发（存在达到阈值且尚未修复的发现） | `--fail-on` 取值非法 |
+
+需要“有发现就让流水线失败”时，用 `unified run --fail-on <level>`（或在提交前用
+`check-branches --fail-on <level>` 过滤已修复项）；`quick` 仅用于人工查看结果。
+
 ## 模型凭证
 
 快速模式当前支持以下凭证：
@@ -215,6 +243,11 @@ smartbench eval-rag \
 `analysis_report.project_reader.status` 可能为 `not_run`、`unsupported`、`unavailable`、
 `abstained`、`supported_no_finding` 或 `findings`。网络/API 失败使用 `unavailable`，不会被
 伪装成干净结果。
+
+`analysis_report.ir_source_units.<file>` 对前端解析到的每个文件报告 `line_count` 与
+`content_hash`（`sha256:<hex>`，算法前缀自描述），Go 与其余语言一致。文件不可读或超过
+8 MiB 时这两个字段为占位值 `0` / `""`，此时 `metadata_status` 为
+`unavailable:<原因>`；只有 `metadata_status == "ok"` 表示数值是真实测量结果。
 
 ## 如何解读证据状态
 

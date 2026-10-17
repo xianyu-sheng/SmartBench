@@ -14,6 +14,13 @@ semantic versioning while it remains in beta.
 
 ### Added
 
+- `check-branches --fail-on [none|info|warning|error]`, mirroring
+  `unified run`'s severity gate. Only unresolved findings can fail the gate;
+  `--json` mode reports it via `summary.fail_on` /
+  `summary.unresolved_at_or_above` and writes the notice to stderr (#27).
+- `analysis_report.ir_source_units.<file>` now carries measured `line_count`
+  and `sha256:` `content_hash` for every frontend, plus a `metadata_status`
+  discriminator so placeholder values cannot be mistaken for real data (#27).
 - `AnalysisSession`, a shared runtime boundary for repository discovery,
   complete SemanticIR lowering, semantic linking, rules, retrieval, and Agents.
 - A ProjectReader stage in `quick` and the interactive wizard: untrusted
