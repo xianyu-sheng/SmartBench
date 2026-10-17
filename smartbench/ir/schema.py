@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,6 +22,38 @@ from smartbench.provenance import (
     classify_source_role,
 )
 
+#: Largest file SmartBench will hash/measure for ``SourceUnit`` metadata.
+#: Files above this bound are reported with ``metadata_status="unavailable:file-too-large"``
+#: instead of silently publishing ``line_count=0`` / ``content_hash=""``.
+SOURCE_UNIT_METADATA_MAX_BYTES = 8 * 1024 * 1024
+
+
+def measure_source_unit(file_path: Path | None) -> tuple[int, str, str]:
+    """Return ``(line_count, content_hash, metadata_status)`` for one source file.
+
+    ``line_count`` is the logical number of lines (a trailing newline does not
+    add an extra line).  ``content_hash`` is ``sha256:<hex>`` over the raw
+    bytes, so the algorithm is self-describing for downstream consumers.
+
+    ``metadata_status`` is ``"ok"`` when both values were measured, otherwise
+    ``"unavailable:<reason>"``.  Callers must not mistake the zero values for
+    real measurements — the status string is the discriminator.
+    """
+    if file_path is None:
+        return 0, "", "unavailable:unreadable"
+    try:
+        payload = Path(file_path).read_bytes()
+    except OSError:
+        return 0, "", "unavailable:unreadable"
+    if len(payload) > SOURCE_UNIT_METADATA_MAX_BYTES:
+        return 0, "", "unavailable:file-too-large"
+
+    line_count = payload.count(b"\n")
+    if payload and not payload.endswith(b"\n"):
+        line_count += 1
+    digest = hashlib.sha256(payload).hexdigest()
+    return line_count, f"sha256:{digest}", "ok"
+
 
 @dataclass(frozen=True)
 class SourceUnit:
@@ -34,6 +67,7 @@ class SourceUnit:
     role_reason: str = "default source path"
     repository_zone: RepositoryZone = RepositoryZone.FIRST_PARTY
     repository_zone_reason: str = "default repository ownership"
+    metadata_status: str = "unavailable:unknown"
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -45,6 +79,7 @@ class SourceUnit:
             "role_reason": self.role_reason,
             "repository_zone": self.repository_zone.value,
             "repository_zone_reason": self.repository_zone_reason,
+            "metadata_status": self.metadata_status,
         }
 
 
@@ -105,6 +140,7 @@ class SemanticIR:
         for node in graph.nodes.values():
             if not node.file_path or node.file_path in units:
                 continue
+            resolved: Path | None = None
             prefix = None
             if root:
                 resolved = resolve_project_file(Path(root).resolve(), node.file_path)
@@ -112,13 +148,17 @@ class SemanticIR:
                     prefix = read_text_prefix(resolved, 4 * 1024)
             role, role_reason = classify_source_role(node.file_path, prefix)
             zone, zone_reason = classify_repository_zone(node.file_path, prefix, role)
+            line_count, content_hash, metadata_status = measure_source_unit(resolved)
             units[node.file_path] = SourceUnit(
                 file_path=node.file_path,
                 language=node.language or language or "unknown",
+                line_count=line_count,
+                content_hash=content_hash,
                 role=role,
                 role_reason=role_reason,
                 repository_zone=zone,
                 repository_zone_reason=zone_reason,
+                metadata_status=metadata_status,
             )
         capability_map = dict(capabilities and {capabilities.language: capabilities} or {})
         for detected in languages:
