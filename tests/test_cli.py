@@ -52,6 +52,7 @@ class TestCLIHelp:
         output = plain_output(result)
         assert "--project" in output
         assert "--sandbox" in output
+        assert "--json" in output
 
     def test_diagnose_help(self, runner):
         result = runner.invoke(app, ["diagnose", "--help"])
@@ -117,6 +118,38 @@ class TestCLIQuick:
         assert result.exit_code == 1
         assert "Cannot access" in result.output
 
+    def test_quick_json_without_project_exits_cleanly(self, runner):
+        result = runner.invoke(app, ["quick", "--json"])
+        assert result.exit_code == 1
+        assert "--json requires --project" in result.output
+
+    def test_quick_json_emits_only_json(self, runner, monkeypatch):
+        """--json must forward json_mode and keep stdout machine-readable."""
+        from smartbench.cli import main as cli_main
+
+        captured = {}
+
+        def fake_run_quick(console, **kwargs):
+            captured["json_mode"] = kwargs.get("json_mode")
+            captured["console_stderr"] = getattr(console, "stderr", False)
+            return DebateResult(final_suggestions=[{"title": "Fix"}])
+
+        monkeypatch.setattr(cli_main, "run_quick_mode", fake_run_quick)
+
+        result = runner.invoke(app, ["quick", "--project", ".", "--json"])
+
+        assert result.exit_code == 0, result.output
+        assert captured == {"json_mode": True, "console_stderr": True}
+        payload = json.loads(result.stdout)
+        assert payload["final_suggestions"] == [{"title": "Fix"}]
+        # Progress/human output must not leak into the JSON stream.
+        assert "SmartBench Quick Mode" not in result.stdout
+
+    def test_main_json_requires_quick(self, runner):
+        result = runner.invoke(app, ["--json"])
+        assert result.exit_code == 1
+        assert "--json requires --quick" in result.output
+
 
 class TestCLIDiagnose:
     """Test the 'diagnose' command."""
@@ -158,6 +191,25 @@ class TestCLIMain:
         """--quick flag should trigger quick mode."""
         result = runner.invoke(app, ["--quick"])
         assert result.exit_code in (0, 1, 2)
+
+    def test_main_quick_json_emits_only_json(self, runner, monkeypatch):
+        from smartbench.cli import main as cli_main
+
+        captured = {}
+
+        def fake_run_quick(console, **kwargs):
+            captured["json_mode"] = kwargs.get("json_mode")
+            return DebateResult(final_suggestions=[{"title": "Fix"}])
+
+        monkeypatch.setattr(cli_main, "run_quick_mode", fake_run_quick)
+
+        result = runner.invoke(
+            app, ["--quick", "--project", ".", "--json"]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert captured["json_mode"] is True
+        assert json.loads(result.stdout)["final_suggestions"] == [{"title": "Fix"}]
 
 
 class TestReportOutput:

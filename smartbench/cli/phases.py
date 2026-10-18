@@ -790,6 +790,9 @@ def run_quick_mode(
     ))
 
     if not project:
+        if json_mode:
+            console.print("[red]--json requires --project[/red]")
+            raise typer.Exit(1)
         project = Prompt.ask("Project path/URL").strip()
 
     project_path = resolve_project_path(console, project)

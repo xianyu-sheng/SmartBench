@@ -148,19 +148,32 @@ def main(
         "--sandbox",
         help="Apply proposed patches and run tests in a temp copy (trusted repos only)",
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit machine-readable JSON on stdout (requires --quick)",
+    ),
 ):
     """SmartBench — AI-powered universal code diagnosis tool."""
     if ctx.invoked_subcommand is None:
+        if json_output and not quick:
+            console.print("[red]--json requires --quick[/red]")
+            raise typer.Exit(1)
+        run_console = Console(stderr=True) if json_output else console
         if quick:
             result = run_quick_mode(
-                console,
+                run_console,
                 project=project,
                 concern=concern,
                 enable_sandbox=sandbox,
+                json_mode=json_output,
             )
         else:
-            result = run_interactive_wizard(console, enable_sandbox=sandbox)
-        _maybe_save_output(result, output)
+            result = run_interactive_wizard(run_console, enable_sandbox=sandbox)
+        if json_output:
+            _emit_json_output(result)
+        else:
+            _maybe_save_output(result, output, message_console=run_console)
 
 
 @app.command()
@@ -175,15 +188,25 @@ def quick(
         "--sandbox",
         help="Apply proposed patches and run tests in a temp copy (trusted repos only)",
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit machine-readable JSON on stdout (progress goes to stderr)",
+    ),
 ):
     """Quick diagnosis — auto-detect everything, minimal prompts."""
+    run_console = Console(stderr=True) if json_output else console
     result = run_quick_mode(
-        console,
+        run_console,
         project=project,
         concern=concern,
         enable_sandbox=sandbox,
+        json_mode=json_output,
     )
-    _maybe_save_output(result, output)
+    if json_output:
+        _emit_json_output(result)
+    else:
+        _maybe_save_output(result, output, message_console=run_console)
 
 
 @app.command()
@@ -201,16 +224,25 @@ def diagnose(
     output: Optional[str] = typer.Option(
         None, "--output", "-o", help="Save report to file (JSON)"
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit machine-readable JSON on stdout (human output goes to stderr)",
+    ),
 ):
     """Run diagnosis only (no benchmarking)."""
+    run_console = Console(stderr=True) if json_output else console
     result = run_diagnose_mode(
-        console,
+        run_console,
         project=project,
         symptoms=symptoms,
         performance=performance,
         system_probes=system_probes,
     )
-    _maybe_save_output(result, output)
+    if json_output:
+        _emit_json_output(result)
+    else:
+        _maybe_save_output(result, output, message_console=run_console)
 
 
 @app.command("eval-rag")
@@ -873,23 +905,38 @@ def unified_languages():
 # =============================================================================
 
 
-def _maybe_save_output(result, output_path: Optional[str]) -> None:
+def _result_data(result):
+    """Convert a CLI result into JSON-serializable data."""
+    from dataclasses import asdict, is_dataclass
+
+    if result is None:
+        return None
+    if hasattr(result, "to_dict") and callable(result.to_dict):
+        return result.to_dict()
+    return asdict(result) if is_dataclass(result) else result
+
+
+def _emit_json_output(result) -> None:
+    """Write only machine-readable JSON to stdout."""
+    typer.echo(json.dumps(_result_data(result), ensure_ascii=False, indent=2))
+
+
+def _maybe_save_output(
+    result,
+    output_path: Optional[str],
+    *,
+    message_console: Optional[Console] = None,
+) -> None:
     """Atomically save JSON output and fail the command on write errors."""
     if not output_path or result is None:
         return
 
-    import json as _json
     import tempfile
-    from dataclasses import asdict, is_dataclass
     from pathlib import Path
 
     temporary_path = None
     try:
-        if hasattr(result, "to_dict") and callable(result.to_dict):
-            data = result.to_dict()
-        else:
-            data = asdict(result) if is_dataclass(result) else result
-        payload = _json.dumps(data, ensure_ascii=False, indent=2)
+        payload = json.dumps(_result_data(result), ensure_ascii=False, indent=2)
         destination = Path(output_path).expanduser()
         parent = destination.parent
         if not parent.is_dir():
@@ -905,11 +952,11 @@ def _maybe_save_output(result, output_path: Optional[str]) -> None:
             handle.write("\n")
         os.replace(temporary_path, destination)
         temporary_path = None
-        console.print(
+        (message_console or console).print(
             f"[green]Report saved to: {safe_terminal_text(destination)}[/green]"
         )
     except Exception as e:
-        console.print(
+        (message_console or console).print(
             f"[red]Failed to save output: {safe_terminal_text(e)}[/red]"
         )
         raise typer.Exit(1) from e
