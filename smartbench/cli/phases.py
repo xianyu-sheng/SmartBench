@@ -320,6 +320,7 @@ def run_diagnosis_with_graph(
     enable_verify: bool = True,
     enable_sandbox: bool = False,
     analysis_session: Optional[AnalysisSession] = None,
+    progress: Optional[object] = None,
 ) -> Optional[object]:
     """Run the full graph-enhanced diagnosis pipeline with RAG + verification.
 
@@ -517,11 +518,20 @@ def run_diagnosis_with_graph(
     def on_progress(role: str, parsed_json, raw_text: str) -> None:
         show_debate_round(console, role, parsed_json, raw_text)
 
-    result = debate_engine.debate(
-        analysis_context, target=concern, on_progress=on_progress,
-        strategy=selected,
-        evidence_pack=evidence_pack,
-    )
+    # Single-line live status for interactive terminals (issue #21); silent
+    # for --json / non-TTY output so machine-readable streams stay clean.
+    from smartbench.cli.progress import build_progress_reporter
+
+    reporter = progress if progress is not None else build_progress_reporter(console)
+    try:
+        result = debate_engine.debate(
+            analysis_context, target=concern, on_progress=on_progress,
+            strategy=selected,
+            evidence_pack=evidence_pack,
+            progress=reporter,
+        )
+    finally:
+        reporter.finish()
 
     # Adjudicate agent suggestions against documented intent and user memory.
     if result.final_suggestions:
@@ -592,6 +602,7 @@ def run_diagnosis_with_session(
     *,
     enable_verify: bool = True,
     enable_sandbox: bool = False,
+    progress: Optional[object] = None,
 ) -> Optional[object]:
     """Run retrieval and Agent review over an existing full analysis session."""
     fingerprint = session.fingerprint
@@ -636,6 +647,7 @@ def run_diagnosis_with_session(
         enable_verify=enable_verify,
         enable_sandbox=enable_sandbox,
         analysis_session=session,
+        progress=progress,
     )
 
 
@@ -766,6 +778,7 @@ def run_quick_mode(
     project: Optional[str] = None,
     concern: Optional[str] = None,
     enable_sandbox: bool = False,
+    json_mode: bool = False,
 ) -> Optional[object]:
     """Minimal-interaction quick mode — auto-detect everything.
 
@@ -800,12 +813,16 @@ def run_quick_mode(
     if not concern:
         concern = "analyze the project for potential issues"
 
+    from smartbench.cli.progress import build_progress_reporter
+
+    progress = build_progress_reporter(console, json_mode=json_mode)
     result = run_diagnosis_with_session(
         console,
         session,
         api_config,
         concern,
         enable_sandbox=enable_sandbox,
+        progress=progress,
     )
 
     console.print("\n[bold green]Done![/bold green]\n")

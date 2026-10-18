@@ -894,3 +894,123 @@ class TestDebateEdgeCases:
                 assert len(entry["output"]) <= 500
             if "input" in entry:
                 assert len(entry["input"]) <= 500
+
+
+# ===========================================================================
+# Progress reporting integration (issue #21)
+# ===========================================================================
+
+
+class RecordingProgress:
+    """Minimal stand-in for smartbench.cli.progress.ProgressReporter."""
+
+    enabled = True
+
+    def __init__(self):
+        self.events = []
+        self.finished = 0
+
+    def report(self, phase, **kwargs):
+        self.events.append((phase, kwargs))
+
+    def finish(self):
+        self.finished += 1
+
+    def close(self):
+        pass
+
+
+class TestProgressReporting:
+    def test_progress_receives_each_phase_with_round_numbers(
+        self, sample_factory, sample_analysis_context, mock_llm
+    ):
+        llm = mock_llm([
+            json.dumps(PROPOSER_RESPONSE, ensure_ascii=False),
+            json.dumps(CRITIQUE_RESPONSE, ensure_ascii=False),
+            json.dumps(JUDGE_RESPONSE, ensure_ascii=False),
+        ])
+        progress = RecordingProgress()
+        engine = DebateEngine(llm_call_fn=llm, prompt_factory=sample_factory)
+        engine.debate(sample_analysis_context, progress=progress)
+
+        phases = [phase for phase, _ in progress.events]
+        assert phases == ["proposer", "critique", "judge"]
+        assert [kw["round_index"] for _, kw in progress.events] == [1, 2, 3]
+        assert {kw["round_total"] for _, kw in progress.events} == {3}
+        # token estimates are forwarded and never negative
+        assert all(kw["tokens_used"] >= 0 for _, kw in progress.events)
+
+    def test_verifier_phase_counts_against_four_role_rounds(
+        self, sample_factory, sample_analysis_context, mock_llm
+    ):
+        llm = mock_llm([
+            json.dumps(PROPOSER_RESPONSE, ensure_ascii=False),
+            json.dumps(CRITIQUE_RESPONSE, ensure_ascii=False),
+            json.dumps(JUDGE_RESPONSE, ensure_ascii=False),
+        ])
+
+        class MockVerifier:
+            def verify_proposals(self, proposals):
+                return proposals
+
+            def build_summary(self, proposals):
+                return "ok"
+
+            def verify_critique(self, critique_json, proposals):
+                return critique_json
+
+        progress = RecordingProgress()
+        engine = DebateEngine(
+            llm_call_fn=llm,
+            prompt_factory=sample_factory,
+            verifier=MockVerifier(),
+        )
+        engine.debate(sample_analysis_context, progress=progress)
+
+        phases = [phase for phase, _ in progress.events]
+        assert phases == ["proposer", "verifier", "critique", "judge"]
+        assert {kw["round_total"] for _, kw in progress.events} == {4}
+
+    def test_broken_progress_reporter_does_not_abort_the_debate(
+        self, sample_factory, sample_analysis_context, mock_llm
+    ):
+        llm = mock_llm([
+            json.dumps(PROPOSER_RESPONSE, ensure_ascii=False),
+            json.dumps(CRITIQUE_RESPONSE, ensure_ascii=False),
+            json.dumps(JUDGE_RESPONSE, ensure_ascii=False),
+        ])
+
+        class ExplodingProgress:
+            enabled = True
+
+            def report(self, *args, **kwargs):
+                raise RuntimeError("progress exploded")
+
+            def finish(self):
+                raise RuntimeError("finish exploded")
+
+            def close(self):
+                raise RuntimeError("close exploded")
+
+        engine = DebateEngine(llm_call_fn=llm, prompt_factory=sample_factory)
+        result = engine.debate(
+            sample_analysis_context, progress=ExplodingProgress()
+        )
+
+        assert result.consensus_reached is True
+        assert result.final_suggestions
+
+    def test_debate_without_progress_reporter_is_unchanged(
+        self, sample_factory, sample_analysis_context, mock_llm
+    ):
+        llm = mock_llm([
+            json.dumps(PROPOSER_RESPONSE, ensure_ascii=False),
+            json.dumps(CRITIQUE_RESPONSE, ensure_ascii=False),
+            json.dumps(JUDGE_RESPONSE, ensure_ascii=False),
+        ])
+        engine = DebateEngine(llm_call_fn=llm, prompt_factory=sample_factory)
+        result = engine.debate(sample_analysis_context)
+
+        assert engine._progress_state is not None
+        assert engine._progress_state["reporter"] is None
+        assert result.consensus_reached is True

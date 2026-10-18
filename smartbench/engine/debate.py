@@ -101,6 +101,8 @@ class DebateEngine:
         self.verifier = verifier  # NEW: evidence verification layer
         self.evidence_policy = EvidencePolicy(evidence_policy)
         self._last_call_error: Optional[str] = None
+        # Presentation-only progress hook state, reset on every debate().
+        self._progress_state: Optional[Dict[str, Any]] = None
 
     def debate(
         self,
@@ -108,6 +110,7 @@ class DebateEngine:
         target: str = "Identify and fix the most impactful issues",
         model_name: str = "default",
         on_progress: callable = None,
+        progress: Optional[Any] = None,
         strategy: str = "",
         evidence_pack: Optional[EvidencePack] = None,
     ) -> DebateResult:
@@ -119,6 +122,9 @@ class DebateEngine:
             target: What we're trying to achieve
             model_name: Name of the model being used (for logging)
             on_progress: Optional callback(role, parsed_json, raw_text) after each round
+            progress: Optional CLI progress reporter (``ProgressReporter``).
+                Presentation only: phase/round/token events are emitted into it
+                and reporter failures never abort the debate.
             evidence_pack: Optional deterministic evidence retrieved from the
                 SemanticIR.  The pack is injected as bounded, source-backed
                 context; agents must not treat unsupported claims as facts.
@@ -133,6 +139,14 @@ class DebateEngine:
         start_time = time.time()
         log: List[Dict[str, Any]] = []
         total_chars = 0  # approximate token count: chars / 3
+
+        # Progress reporting is presentation only: one event per role call.
+        self._progress_state = {
+            "reporter": progress,
+            "phase_index": 0,
+            "phase_total": 4 if self.verifier else 3,
+            "tokens_used": lambda: total_chars // 3,
+        }
 
         if evidence_pack is None and self.evidence_policy != EvidencePolicy.OPTIONAL:
             raise ValueError(
@@ -494,8 +508,28 @@ class DebateEngine:
         message = str(exc).replace("\n", " ")[:300]
         return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
 
-    @staticmethod
+    def _report_phase(self, role: str) -> None:
+        """Forward a phase transition to the optional CLI progress reporter."""
+        state = self._progress_state
+        if not state or state.get("reporter") is None:
+            return
+        if role not in ("proposer", "verifier", "critique", "judge"):
+            return
+        state["phase_index"] += 1
+        tokens_getter = state.get("tokens_used")
+        tokens_used = tokens_getter() if callable(tokens_getter) else 0
+        try:
+            state["reporter"].report(
+                role,
+                round_index=state["phase_index"],
+                round_total=state["phase_total"],
+                tokens_used=tokens_used,
+            )
+        except Exception:  # progress must never break a diagnosis
+            return
+
     def _emit_progress(
+        self,
         callback,
         role: str,
         parsed_json: Optional[Dict],
@@ -503,6 +537,7 @@ class DebateEngine:
         log: List[Dict[str, Any]],
     ) -> None:
         """Keep presentation callback failures from aborting the diagnosis."""
+        self._report_phase(role)
         if callback is None:
             return
         try:
