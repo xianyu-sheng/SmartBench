@@ -28,6 +28,10 @@ jobs:
         run: ruff check smartbench tests
       - name: Compile
         run: python -m compileall -q smartbench
+      # issue #22 item 4: the committed sample report must match the renderer
+      # output byte-for-byte, so review artefacts can never go stale.
+      - name: Check sample HTML report is current
+        run: python scripts/generate_sample_report.py --check
       - name: Test
         run: pytest -q
 

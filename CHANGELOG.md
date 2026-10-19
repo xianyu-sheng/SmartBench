@@ -31,6 +31,12 @@ semantic versioning while it remains in beta.
 - Python `with` and `async with` lowering into explicit context-manager
   acquisition, result binding, and `__exit__`/`__aexit__` registration
   operations, with a before/after benchmark fixture.
+- Single-file HTML reports: `--html <path>` on the CLI and
+  `smartbench.reporting.html.render_report` produce a self-contained,
+  dependency-free document. Every finding carries evidence source anchors
+  (path, line range, snippet) that link back to the originating location;
+  anchors that cannot be resolved degrade to plain text instead of failing
+  the render.
 
 ### Changed
 
