@@ -25,6 +25,7 @@ from smartbench.core import (
     register_builtin_rules,
 )
 from smartbench.core.sarif import save_sarif_log
+from smartbench.reporting import HTMLReportOptions, write_html_report
 from smartbench.terminal import safe_terminal_text
 
 
@@ -210,6 +211,7 @@ def run_unified_diagnosis(
     project: str,
     output: Optional[str] = None,
     output_sarif: Optional[str] = None,
+    output_html: Optional[str] = None,
     rules: Optional[List[str]] = None,
     languages: Optional[List[str]] = None,
     use_llm: bool = False,
@@ -235,6 +237,8 @@ def run_unified_diagnosis(
         max_evidence_packs: Maximum number of finding evidence packs
         state_rule_paths: Versioned YAML state-rule files to evaluate
         deterministic_output: Normalize runtime-dependent fields in JSON output
+
+        output_html: Optional self-contained HTML report path
 
     Returns:
         (result, sarif_path) tuple
@@ -298,5 +302,17 @@ def run_unified_diagnosis(
                 payload = _deterministic_report_payload(payload)
             json.dump(payload, f, ensure_ascii=False, indent=2)
         console.print(f"💾 JSON report saved to: [cyan]{safe_terminal_text(output_path)}[/cyan]")
+
+    if output_html:
+        # Issue #22: one self-contained HTML document whose evidence
+        # references resolve to in-document file:line anchors.
+        html_path = write_html_report(
+            output_html,
+            result.findings,
+            options=HTMLReportOptions(project_root=project_path),
+        )
+        console.print(
+            f"💾 HTML report saved to: [cyan]{safe_terminal_text(html_path)}[/cyan]"
+        )
 
     return result, sarif_path
