@@ -100,8 +100,17 @@ smartbench unified run \
   --language python \
   --rule null_dereference \
   --sarif report.sarif \
-  --output report.json
+  --output report.json \
+  --html report.html
 ```
+
+`--html` 会在 `--output`/`--sarif` 之外额外写出一份 HTML 报告（示例见
+[`docs/sample_report.html`](./sample_report.html)），并保证以下两点：
+
+- **单文件自包含**：CSS 内联在 `<style>` 中，不生成 `<script>`、`<link>` 或任何外链资源，
+  文件可直接离线打开、作为构建产物归档或用邮件转发。
+- **不可解析位置降级为纯文本**：当 finding 的证据位置无法解析为 `path:line`
+  （例如只有符号名，或该语言不提供行号）时，渲染为纯文本而不是锚点链接，避免产生死链。
 
 Python 和 Go 会降低到共同的语义操作模型，支持保守的跨函数调用/返回、数据流、有限
 ICFG 和声明式状态规则。JavaScript/TypeScript 也提供公共 statement/call/control-flow
