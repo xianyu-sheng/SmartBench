@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SmartBench diagnosis report - sample</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --fg: #1f2328;
+  --muted: #59636e;
+  --border: #d1d9e0;
+  --surface: #f6f8fa;
+  --error: #cf222e;
+  --warning: #9a6700;
+  --info: #0969da;
+  --link: #0969da;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e6edf3;
+    --muted: #9198a1;
+    --border: #3d444d;
+    --surface: #161b22;
+    --error: #ff7b72;
+    --warning: #d29922;
+    --info: #4493f8;
+    --link: #4493f8;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0 auto;
+  max-width: 980px;
+  padding: 32px 20px 64px;
+  background: Canvas;
+  color: var(--fg);
+  font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+h1 { font-size: 1.6rem; margin: 0 0 4px; }
+h2 {
+  font-size: 1.2rem;
+  margin: 40px 0 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+h3 { font-size: 1rem; margin: 0 0 8px; }
+code, pre {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.86rem;
+}
+.report-meta, .report-counts, .meta-line { color: var(--muted); margin: 4px 0; }
+.sep { margin: 0 6px; }
+.finding {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--muted);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin: 12px 0;
+}
+.finding--error { border-left-color: var(--error); }
+.finding--warning { border-left-color: var(--warning); }
+.finding--info { border-left-color: var(--info); }
+.badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.badge--error { color: var(--error); }
+.badge--warning { color: var(--warning); }
+.badge--info { color: var(--info); }
+.rule-id { color: var(--muted); }
+.message { margin: 6px 0; }
+.evidence-list { margin: 8px 0 4px; padding-left: 20px; }
+.evidence-list li { margin: 2px 0; }
+.ev-ref { color: var(--link); text-decoration: none; border-bottom: 1px dotted currentColor; }
+.ev-ref:hover { text-decoration: underline; }
+.ev-ref--unresolved { color: var(--muted); border-bottom-style: dashed; cursor: help; }
+.evidence-item { margin: 14px 0 20px; }
+.permalink { color: inherit; text-decoration: none; }
+.snippet {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.snippet .ln {
+  display: inline-block;
+  width: 4ch;
+  margin-right: 12px;
+  text-align: right;
+  color: var(--muted);
+  user-select: none;
+}
+.snippet .src { white-space: pre; }
+.snippet-missing { color: var(--muted); font-style: italic; }
+.fact-item { margin: 6px 0; }
+.fact-ref { color: var(--link); text-decoration: none; }
+.fact-ref--unlinked { color: var(--muted); }
+.empty { color: var(--muted); }
+.report-footer {
+  margin-top: 48px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+</style>
+</head>
+<body>
+<header class="report-header">
+  <h1>SmartBench diagnosis report - sample</h1>
+  <p class="report-meta">Project <code>SmartBench</code><span class="sep">·</span>generated <time datetime="2026-01-01T00:00:00Z">2026-01-01T00:00:00Z</time></p>
+  <p class="report-counts">3 finding(s) <span class="count count--error">1 error</span> <span class="count count--warning">1 warning</span> <span class="count count--info">1 info</span></p>
+</header>
+<main>
+<section class="findings">
+  <h2 id="findings">Findings</h2>
+  <article class="finding finding--error" id="finding-1" data-rule-id="go-channel-close" data-severity="error">
+    <h3><span class="badge badge--error">ERROR</span> Channel returned without close <code class="rule-id">go-channel-close</code></h3>
+    <p class="message">BatchSend returns a buffered channel that is never closed; any `for v := range ch` receiver blocks forever.</p>
+    <p class="meta-line">at <a class="ev-ref" href="#evidence-8eb5c99865d0" data-source-path="benchmarks/real/channel_close_guard/before/main.go" data-line-start="8" data-line-end="17" title="benchmarks/real/channel_close_guard/before/main.go:8-17 - jump to embedded source">benchmarks/real/channel_close_guard/before/main.go:8-17</a> <span class="sep">·</span> confidence <span class="confidence">0.92</span></p>
+    <ul class="evidence-list">
+      <li><a class="ev-ref" href="#evidence-af9220110a71" data-source-path="benchmarks/real/channel_close_guard/before/main.go" data-line-start="14" data-line-end="16" title="benchmarks/real/channel_close_guard/before/main.go:14-16 - jump to embedded source">benchmarks/real/channel_close_guard/before/main.go:14-16</a></li>
+      <li><a class="ev-ref" href="#evidence-c8006c2f7ebb" data-source-path="benchmarks/real/channel_close_guard/before/main.go" data-line-start="21" data-line-end="23" title="benchmarks/real/channel_close_guard/before/main.go:21-23 - jump to embedded source">benchmarks/real/channel_close_guard/before/main.go:21-23</a></li>
+    </ul>
+    <p class="fact-line">evidence facts: <a class="fact-ref" href="#fact-channel-close-guard" title="jump to fact anchor">fact-channel-close-guard</a></p>
+  </article>
+  <article class="finding finding--warning" id="finding-2" data-rule-id="go-bufio-flush" data-severity="warning">
+    <h3><span class="badge badge--warning">WARNING</span> Buffered writer never flushed <code class="rule-id">go-bufio-flush</code></h3>
+    <p class="message">writeLog returns without calling w.Flush(), so buffered log lines are lost.</p>
+    <p class="meta-line">at <a class="ev-ref" href="#evidence-713bc8434f77" data-source-path="benchmarks/real/go_bufio_flush_guard/before/main.go" data-line-start="8" data-line-end="18" title="benchmarks/real/go_bufio_flush_guard/before/main.go:8-18 - jump to embedded source">benchmarks/real/go_bufio_flush_guard/before/main.go:8-18</a> <span class="sep">·</span> confidence <span class="confidence">0.88</span></p>
+    <ul class="evidence-list">
+      <li><a class="ev-ref" href="#evidence-536286e1bef4" data-source-path="benchmarks/real/go_bufio_flush_guard/before/main.go" data-line-start="15" data-line-end="17" title="benchmarks/real/go_bufio_flush_guard/before/main.go:15-17 - jump to embedded source">benchmarks/real/go_bufio_flush_guard/before/main.go:15-17</a></li>
+    </ul>
+  </article>
+  <article class="finding finding--info" id="finding-3" data-rule-id="js-heuristic-sink" data-severity="info">
+    <h3><span class="badge badge--info">INFO</span> Unresolved heuristic claim <code class="rule-id">js-heuristic-sink</code></h3>
+    <p class="message">A detector claim carried no file:line location; it degrades to plain text instead of a broken link.</p>
+    <p class="meta-line">at <span class="ev-ref ev-ref--unresolved" data-reason="missing-path" title="no source path was recorded for this location">(location unavailable)</span> <span class="sep">·</span> confidence <span class="confidence">0.40</span></p>
+  </article>
+</section>
+<section class="facts">
+  <h2 id="facts">Facts</h2>
+  <ul class="fact-list">
+    <li id="fact-channel-close-guard" class="fact-item">
+      <code class="fact-id">fact-channel-close-guard</code>
+      <span class="fact-statement">BatchSend produces a channel with no dominating close.</span>
+      <span class="fact-evidence"><a class="ev-ref" href="#evidence-af9220110a71" data-source-path="benchmarks/real/channel_close_guard/before/main.go" data-line-start="14" data-line-end="16" title="benchmarks/real/channel_close_guard/before/main.go:14-16 - jump to embedded source">benchmarks/real/channel_close_guard/before/main.go:14-16</a></span>
+    </li>
+  </ul>
+</section>
+<section class="evidence">
+  <h2 id="evidence">Evidence sources</h2>
+  <article class="evidence-item" id="evidence-8eb5c99865d0">
+    <h3><a class="permalink" href="#evidence-8eb5c99865d0">benchmarks/real/channel_close_guard/before/main.go:8-17</a></h3>
+    <pre class="snippet"><code>
+<span class="ln" id="evidence-8eb5c99865d0-L8">    8</span><span class="src">func BatchSend(items []int) chan int {</span>
+<span class="ln" id="evidence-8eb5c99865d0-L9">    9</span><span class="src">	ch := make(chan int, len(items))</span>
+<span class="ln" id="evidence-8eb5c99865d0-L10">   10</span><span class="src">	for _, item := range items {</span>
+<span class="ln" id="evidence-8eb5c99865d0-L11">   11</span><span class="src">		ch &lt;- item</span>
+<span class="ln" id="evidence-8eb5c99865d0-L12">   12</span><span class="src">	}</span>
+<span class="ln" id="evidence-8eb5c99865d0-L13">   13</span><span class="src">	// BUG: ch is never closed.</span>
+<span class="ln" id="evidence-8eb5c99865d0-L14">   14</span><span class="src">	// Any receiver doing `for v := range ch` will block waiting for more</span>
+<span class="ln" id="evidence-8eb5c99865d0-L15">   15</span><span class="src">	// values that will never arrive.</span>
+<span class="ln" id="evidence-8eb5c99865d0-L16">   16</span><span class="src">	return ch</span>
+<span class="ln" id="evidence-8eb5c99865d0-L17">   17</span><span class="src">}</span>
+</code></pre>
+  </article>
+  <article class="evidence-item" id="evidence-af9220110a71">
+    <h3><a class="permalink" href="#evidence-af9220110a71">benchmarks/real/channel_close_guard/before/main.go:14-16</a></h3>
+    <pre class="snippet"><code>
+<span class="ln" id="evidence-af9220110a71-L14">   14</span><span class="src">	// Any receiver doing `for v := range ch` will block waiting for more</span>
+<span class="ln" id="evidence-af9220110a71-L15">   15</span><span class="src">	// values that will never arrive.</span>
+<span class="ln" id="evidence-af9220110a71-L16">   16</span><span class="src">	return ch</span>
+</code></pre>
+  </article>
+  <article class="evidence-item" id="evidence-c8006c2f7ebb">
+    <h3><a class="permalink" href="#evidence-c8006c2f7ebb">benchmarks/real/channel_close_guard/before/main.go:21-23</a></h3>
+    <pre class="snippet"><code>
+<span class="ln" id="evidence-c8006c2f7ebb-L21">   21</span><span class="src">	// This loop blocks forever because BatchSend never closes ch.</span>
+<span class="ln" id="evidence-c8006c2f7ebb-L22">   22</span><span class="src">	for v := range ch {</span>
+<span class="ln" id="evidence-c8006c2f7ebb-L23">   23</span><span class="src">		fmt.Println(v)</span>
+</code></pre>
+  </article>
+  <article class="evidence-item" id="evidence-713bc8434f77">
+    <h3><a class="permalink" href="#evidence-713bc8434f77">benchmarks/real/go_bufio_flush_guard/before/main.go:8-18</a></h3>
+    <pre class="snippet"><code>
+<span class="ln" id="evidence-713bc8434f77-L8">    8</span><span class="src">func writeLog(path, line string) error {</span>
+<span class="ln" id="evidence-713bc8434f77-L9">    9</span><span class="src">	f, err := os.Create(path)</span>
+<span class="ln" id="evidence-713bc8434f77-L10">   10</span><span class="src">	if err != nil {</span>
+<span class="ln" id="evidence-713bc8434f77-L11">   11</span><span class="src">		return err</span>
+<span class="ln" id="evidence-713bc8434f77-L12">   12</span><span class="src">	}</span>
+<span class="ln" id="evidence-713bc8434f77-L13">   13</span><span class="src">	w := bufio.NewWriter(f)</span>
+<span class="ln" id="evidence-713bc8434f77-L14">   14</span><span class="src">	_, err = w.WriteString(line)</span>
+<span class="ln" id="evidence-713bc8434f77-L15">   15</span><span class="src">	if err != nil {</span>
+<span class="ln" id="evidence-713bc8434f77-L16">   16</span><span class="src">		return err</span>
+<span class="ln" id="evidence-713bc8434f77-L17">   17</span><span class="src">	}</span>
+<span class="ln" id="evidence-713bc8434f77-L18">   18</span><span class="src">	return nil</span>
+</code></pre>
+  </article>
+  <article class="evidence-item" id="evidence-536286e1bef4">
+    <h3><a class="permalink" href="#evidence-536286e1bef4">benchmarks/real/go_bufio_flush_guard/before/main.go:15-17</a></h3>
+    <pre class="snippet"><code>
+<span class="ln" id="evidence-536286e1bef4-L15">   15</span><span class="src">	if err != nil {</span>
+<span class="ln" id="evidence-536286e1bef4-L16">   16</span><span class="src">		return err</span>
+<span class="ln" id="evidence-536286e1bef4-L17">   17</span><span class="src">	}</span>
+</code></pre>
+  </article>
+</section>
+</main>
+<footer class="report-footer">Single-file report: no external JavaScript, CSS or fonts. Evidence anchors are generated from recorded file:line data.</footer>
+</body>
+</html>
