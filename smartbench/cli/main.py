@@ -769,6 +769,14 @@ def unified_run(
     output_sarif: Optional[str] = typer.Option(
         None, "--sarif", help="Save SARIF report to file"
     ),
+    output_html: Optional[str] = typer.Option(
+        None,
+        "--html",
+        help=(
+            "Save a single self-contained HTML report whose evidence "
+            "references link to in-document file:line anchors"
+        ),
+    ),
     rule: Optional[List[str]] = typer.Option(
         None, "--rule", "-r", help="Run specific rule(s) only"
     ),
@@ -830,6 +838,7 @@ def unified_run(
             project=project,
             output=output,
             output_sarif=output_sarif,
+            output_html=output_html,
             rules=rule,
             languages=language,
             use_llm=use_llm,
