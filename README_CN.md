@@ -5,6 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/xianyu-sheng/SmartBench?label=release&color=4C1)](https://github.com/xianyu-sheng/SmartBench/releases)
 [![Status: Public Beta](https://img.shields.io/badge/status-public_beta-orange.svg)](#项目状态)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Listed in Awesome Testing](https://awesome.re/mentioned-badge-flat.svg)](https://github.com/TheJambo/awesome-testing#static-analysis)
 
 [English](README.md) | 中文
 
@@ -220,6 +221,10 @@ SmartBench 适合受控的仓库实验、架构研究和作品集展示。它已
 1. 在扩展语料上公开 precision、recall、弃权率、试验稳定性、延迟与成本（[#10](https://github.com/xianyu-sheng/SmartBench/issues/10)、[#11](https://github.com/xianyu-sheng/SmartBench/issues/11)、[#12](https://github.com/xianyu-sheng/SmartBench/issues/12)）；
 2. 在不削弱 IR 边界的前提下加深语言语义（异常流、异步、别名、并发）；
 3. 降低语言接入成本（[#6](https://github.com/xianyu-sheng/SmartBench/issues/6)–[#8](https://github.com/xianyu-sheng/SmartBench/issues/8)）并暴露公共 API（[#9](https://github.com/xianyu-sheng/SmartBench/issues/9)）。
+
+## 收录与认可
+
+- [Awesome Testing](https://github.com/TheJambo/awesome-testing#static-analysis) — 收录于 **Static Analysis（静态分析）** 分类（[PR #305](https://github.com/TheJambo/awesome-testing/pull/305)，2026-10-19 合并）。
 
 ## License
 
