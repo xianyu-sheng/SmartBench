@@ -5,6 +5,7 @@
 [![Release](https://img.shields.io/github/v/release/xianyu-sheng/SmartBench?label=release&color=4C1)](https://github.com/xianyu-sheng/SmartBench/releases)
 [![Status: Public Beta](https://img.shields.io/badge/status-public_beta-orange.svg)](#project-status)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Listed in Awesome Testing](https://awesome.re/mentioned-badge-flat.svg)](https://github.com/TheJambo/awesome-testing#static-analysis)
 
 [English](README.md) | [中文](README_CN.md)
 
@@ -221,6 +222,10 @@ The next useful work is **measurement, not more surface features**:
 1. report precision, recall, abstention rate, trial stability, latency and provider cost on the expanded corpus ([#10](https://github.com/xianyu-sheng/SmartBench/issues/10), [#11](https://github.com/xianyu-sheng/SmartBench/issues/11), [#12](https://github.com/xianyu-sheng/SmartBench/issues/12));
 2. deepen language semantics (exception flow, async, aliasing, concurrency) without weakening the IR boundary;
 3. make language onboarding cheap ([#6](https://github.com/xianyu-sheng/SmartBench/issues/6)–[#8](https://github.com/xianyu-sheng/SmartBench/issues/8)) and expose a public API ([#9](https://github.com/xianyu-sheng/SmartBench/issues/9)).
+
+## Recognition
+
+- [Awesome Testing](https://github.com/TheJambo/awesome-testing#static-analysis) — listed under **Static Analysis** ([PR #305](https://github.com/TheJambo/awesome-testing/pull/305), merged 2026-10-19).
 
 ## License
 
