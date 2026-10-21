@@ -294,7 +294,7 @@ SmartBench 适合受控的仓库实验、架构研究和作品集展示。它已
 
 - [x] **公示可发现的 Bug 类别**（见上方表格），并把四个后审计方向登记为可认领 issue（[#45](https://github.com/xianyu-sheng/SmartBench/issues/45)–[#48](https://github.com/xianyu-sheng/SmartBench/issues/48)）。
 - [x] **度量** —— 负语料（[#11](https://github.com/xianyu-sheng/SmartBench/issues/11)）、诚实的 precision / recall / 弃权率 / 成本（[#10](https://github.com/xianyu-sheng/SmartBench/issues/10)、[#12](https://github.com/xianyu-sheng/SmartBench/issues/12)），以及下方的评测矩阵。
-- [ ] **轨迹 schema** —— 每次 `quick`/`unified` 运行记录为 `smartbench.trajectory/v1`，支持离线回放（[#46](https://github.com/xianyu-sheng/SmartBench/issues/46)）。这是数据资产的起点。
+- [x] **轨迹 schema** —— 每次 `quick`/`unified` 运行都可记录为 `smartbench.trajectory/v1`，含脱敏、本地存储、导出与确定性回放（[#46](https://github.com/xianyu-sheng/SmartBench/issues/46)）。这是数据资产的起点。
 - [ ] **反馈事件** —— 人工确认/驳回持久化为 `smartbench.feedback/v1`；先做离线排序/阈值策略，不做训练（[#45](https://github.com/xianyu-sheng/SmartBench/issues/45) 第一阶段）。
 - [ ] **发布 Audit Trajectories v0** —— 3–5 个已披露真实案例 + 25 案例语料 + 负样本（被驳回/弃权），附 dataset card、许可证、脱敏与 takedown 政策。
 - [ ] **容器沙箱** —— 面向动态验证的 rootless 容器后端（[#47](https://github.com/xianyu-sheng/SmartBench/issues/47)）；工程量小、风险低，直接提升「已验证」的可信度。
