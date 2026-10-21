@@ -43,6 +43,7 @@ from smartbench.detector.scanner import ProjectScanner
 from smartbench.diagnostics.registry import DiagnosticRegistry
 from smartbench.diagnostics.tools import ALL_TOOLS
 from smartbench.terminal import safe_terminal_text
+from smartbench.trajectory import TrajectoryStore, replay_document
 
 app = typer.Typer(
     name="smartbench",
@@ -84,6 +85,12 @@ benchmark_app = typer.Typer(
     help="Reproducible pre-fix/post-fix benchmark execution",
 )
 app.add_typer(benchmark_app, name="benchmark")
+
+trajectory_app = typer.Typer(
+    name="trajectory",
+    help="Audit-trajectory utilities: list, show, export, replay",
+)
+app.add_typer(trajectory_app, name="trajectory")
 
 
 def _version_callback(value: bool) -> None:
@@ -206,6 +213,151 @@ def _metric_cells(entry: dict[str, object]) -> tuple[str, ...]:
     )
 
 
+@trajectory_app.command("list")
+def trajectory_list(
+    directory: Optional[str] = typer.Option(None, "--dir", help="Trajectory directory"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+):
+    """List recorded audit trajectories."""
+    entries = TrajectoryStore(directory or None).list()
+    if json_output:
+        console.print(
+            json.dumps(entries, ensure_ascii=False, indent=2, sort_keys=True),
+            soft_wrap=True,
+        )
+        return
+    if not entries:
+        console.print("[yellow]No trajectories recorded yet.[/yellow]")
+        return
+    table = Table("ID", "Recorded", "Project", "Findings", "Schema")
+    for entry in entries:
+        table.add_row(
+            safe_terminal_text(str(entry.get("trajectory_id", ""))),
+            safe_terminal_text(str(entry.get("recorded_at", ""))),
+            safe_terminal_text(str(entry.get("project", ""))),
+            str(entry.get("findings", 0)),
+            safe_terminal_text(str(entry.get("schema_version", ""))),
+        )
+    console.print(table)
+
+
+@trajectory_app.command("show")
+def trajectory_show(
+    trajectory_id: str = typer.Argument(..., help="Trajectory id"),
+    directory: Optional[str] = typer.Option(None, "--dir", help="Trajectory directory"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+):
+    """Show one recorded trajectory."""
+    document = TrajectoryStore(directory or None).load(trajectory_id)
+    if document is None:
+        console.print(
+            f"[red]Trajectory not found: {safe_terminal_text(trajectory_id)}[/red]"
+        )
+        raise typer.Exit(1)
+    if json_output:
+        console.print(
+            json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True),
+            soft_wrap=True,
+        )
+        return
+    project = document.get("project") or {}
+    usage = document.get("usage") or {}
+    table = Table("Field", "Value")
+    table.add_row("id", safe_terminal_text(str(document.get("trajectory_id", ""))))
+    table.add_row("recorded_at", safe_terminal_text(str(document.get("recorded_at", ""))))
+    table.add_row("schema", safe_terminal_text(str(document.get("schema_version", ""))))
+    table.add_row("project", safe_terminal_text(str(project.get("name", ""))))
+    table.add_row(
+        "languages",
+        safe_terminal_text(", ".join(project.get("languages") or [])),
+    )
+    table.add_row("findings", str(len(document.get("findings") or [])))
+    table.add_row(
+        "review_status",
+        safe_terminal_text(str(document.get("review_status", ""))),
+    )
+    table.add_row(
+        "signature",
+        safe_terminal_text(str(document.get("finding_signature", ""))),
+    )
+    if usage:
+        table.add_row(
+            "usage",
+            safe_terminal_text(json.dumps(usage, ensure_ascii=False)[:200]),
+        )
+    console.print(table)
+
+
+@trajectory_app.command("export")
+def trajectory_export(
+    output: str = typer.Argument(..., help="Output JSONL path"),
+    directory: Optional[str] = typer.Option(None, "--dir", help="Trajectory directory"),
+    format: str = typer.Option("jsonl", "--format", help="Export format (jsonl)"),
+):
+    """Export all recorded trajectories into one dataset file."""
+    try:
+        count = TrajectoryStore(directory or None).export(output, format=format)
+    except (OSError, ValueError) as exc:
+        console.print(f"[red]Export failed: {safe_terminal_text(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(
+        f"[green]Exported {count} trajectories to "
+        f"{safe_terminal_text(output)}[/green]"
+    )
+
+
+@trajectory_app.command("replay")
+def trajectory_replay(
+    trajectory_id: str = typer.Argument(..., help="Trajectory id"),
+    directory: Optional[str] = typer.Option(None, "--dir", help="Trajectory directory"),
+    project: Optional[str] = typer.Option(
+        None,
+        "--project",
+        help="Checkout to re-run the deterministic stage against (LLM stages are skipped)",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+):
+    """Replay a trajectory: schema check plus an offline deterministic comparison."""
+    document = TrajectoryStore(directory or None).load(trajectory_id)
+    if document is None:
+        console.print(
+            f"[red]Trajectory not found: {safe_terminal_text(trajectory_id)}[/red]"
+        )
+        raise typer.Exit(1)
+    result = replay_document(document, project_path=project)
+    if json_output:
+        console.print(
+            json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True),
+            soft_wrap=True,
+        )
+    else:
+        table = Table("Check", "Value")
+        for key in (
+            "ok",
+            "reproduced",
+            "trajectory_id",
+            "stored_deterministic_findings",
+            "replayed_deterministic_findings",
+            "matched",
+            "llm",
+        ):
+            if key in result:
+                table.add_row(key, safe_terminal_text(str(result[key])))
+        if result.get("only_recorded"):
+            table.add_row(
+                "only_recorded",
+                safe_terminal_text(str(result["only_recorded"])[:300]),
+            )
+        if result.get("only_replayed"):
+            table.add_row(
+                "only_replayed",
+                safe_terminal_text(str(result["only_replayed"])[:300]),
+            )
+        console.print(table)
+    if not result.get("ok"):
+        raise typer.Exit(1)
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -277,6 +429,16 @@ def quick(
         "--seed",
         help="LLM sampling seed when the provider supports it",
     ),
+    trajectory: bool = typer.Option(
+        False,
+        "--trajectory",
+        help="Record a redacted audit trajectory for this run",
+    ),
+    trajectory_dir: Optional[str] = typer.Option(
+        None,
+        "--trajectory-dir",
+        help="Trajectory directory (default: ~/.smartbench/trajectories)",
+    ),
 ):
     """Quick diagnosis — auto-detect everything, minimal prompts."""
     result = run_quick_mode(
@@ -287,6 +449,8 @@ def quick(
         trials=trials,
         temperature=temperature,
         seed=seed,
+        save_trajectory=trajectory,
+        trajectory_dir=trajectory_dir,
     )
     _maybe_save_output(result, output)
 
@@ -927,6 +1091,16 @@ def unified_run(
         "--deterministic-output",
         help="Normalize runtime-dependent fields in the JSON report",
     ),
+    trajectory: bool = typer.Option(
+        False,
+        "--trajectory",
+        help="Record a redacted audit trajectory for this run",
+    ),
+    trajectory_dir: Optional[str] = typer.Option(
+        None,
+        "--trajectory-dir",
+        help="Trajectory directory (default: ~/.smartbench/trajectories)",
+    ),
 ):
     """Run unified multi-language diagnosis."""
     fail_on_normalized = fail_on.strip().lower()
@@ -952,6 +1126,8 @@ def unified_run(
             max_evidence_packs=max_evidence_packs,
             state_rule_paths=state_rules,
             deterministic_output=deterministic_output,
+            record_trajectory=trajectory,
+            trajectory_dir=trajectory_dir,
         )
     except SystemExit:
         raise

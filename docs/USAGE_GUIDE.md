@@ -60,6 +60,26 @@ smartbench quick --project ./my-project --trials 3 \
 smartbench --quick --project ./my-project --concern "检查安全风险"
 ```
 
+### 轨迹记录与导出（`--trajectory`）
+
+`quick` / `unified run` 可以记录一条脱敏的审计轨迹（默认关闭）：
+
+```bash
+smartbench quick --project ./my-project --trials 3 --trajectory
+smartbench unified run --project ./my-project --trajectory --trajectory-dir ./.trajectories
+```
+
+默认目录是 `~/.smartbench/trajectories`（或 `SMARTBENCH_TRAJECTORY_DIR`）。每次运行生成一个 `<id>.json`，索引追加到 `index.jsonl`；轨迹保存失败只会警告，不影响审计结果。
+
+```bash
+smartbench trajectory list --dir ./.trajectories
+smartbench trajectory show <id> --dir ./.trajectories
+smartbench trajectory export dataset.jsonl --dir ./.trajectories
+smartbench trajectory replay <id> --dir ./.trajectories --project ./my-project
+```
+
+轨迹记录规则/证据引用、裁决和 usage，不保存原始 prompt/响应；项目绝对路径替换为 `<project>`，密钥样式字符串会被掩码。`export` 同时写出 `<output>.manifest.json`。`replay` 只做 schema 校验 + 确定性分析复跑，LLM 阶段明确跳过，不会假装复现模型结论。
+
 如需验证 Judge 给出的机器可应用补丁，可以仅对可信仓库显式开启：
 
 ```bash
