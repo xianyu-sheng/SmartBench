@@ -130,6 +130,12 @@ class ResourceLeakRule(DiagnosticRule):
       - open() without corresponding close()
       - File handles that go out of scope
       - Missing with/try/use blocks for resources
+
+    It is a heuristic line scanner, not the project-level lifecycle analyzer.
+    A bounded lookahead (25 lines) suppresses the common false positives where
+    the handle is released through ``try/finally``, ``defer`` or ownership
+    transfer; the deterministic ``project_resource_lifecycle`` analyzer remains
+    the authoritative check for defer-style cleanup in Go.
     """
 
     analysis_method = AnalysisMethod.HEURISTIC
@@ -201,6 +207,13 @@ class ResourceLeakRule(DiagnosticRule):
             for match in re.finditer(pattern, source, re.MULTILINE):
                 line_no = source[:match.start()].count("\n") + 1
 
+                variable = match.group(2)
+                lookahead = "".join(
+                    source[match.end():].splitlines(keepends=True)[:25]
+                )
+                if self._has_cleanup(lookahead, variable, language):
+                    continue
+
                 finding = Finding(
                     rule_id=self.rule_id,
                     rule_name=self.rule_name,
@@ -216,6 +229,30 @@ class ResourceLeakRule(DiagnosticRule):
                 findings.append(finding)
 
         return findings
+
+    @staticmethod
+    def _has_cleanup(lookahead: str, variable: str, language: str) -> bool:
+        """Return True when the next 25 lines release or transfer the handle."""
+        name = re.escape(variable)
+        if language == "python":
+            if re.search(rf"\b{name}\.close\s*\(", lookahead) and "finally" in lookahead:
+                return True
+            return (
+                re.search(rf"^\s*return\s+{name}\s*(?:,|$)", lookahead, re.MULTILINE)
+                is not None
+            )
+        if language == "go":
+            if re.search(rf"defer\s+{name}\.Close\s*\(", lookahead):
+                return True
+            return (
+                re.search(
+                    rf"^\s*return\s+[^\n,]*\b{name}\s*(?:,|$)",
+                    lookahead,
+                    re.MULTILINE,
+                )
+                is not None
+            )
+        return False
 
 
 def register_builtin_rules(registry: RuleRegistry) -> None:

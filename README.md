@@ -198,6 +198,12 @@ Three caveats matter:
 smartbench benchmark run --manifest benchmarks/real/manifest.yaml --output benchmark-report.json
 ```
 
+**Negative corpus — 14 clean fixtures.** `benchmarks/negative/` holds ordinary clean code that superficially resembles the bug patterns: context managers, `try/finally`, `defer`, ownership transfer, placeholder secrets, constant commands and guard clauses. CI asserts zero findings at the default confidence threshold (0.7); any finding is a false positive. See [benchmarks/negative/README.md](benchmarks/negative/README.md) for the sampling rules.
+
+```bash
+smartbench benchmark run --manifest benchmarks/negative/manifest.yaml --output negative-report.json
+```
+
 **Real-world sweep — honest numbers.** SmartBench was run over 12 open-source repositories (Python and Go). 410 findings were manually verified, then cross-checked against SDK types and project documentation — and the outcome is worth reading before trusting any number:
 
 - deterministic rules produced **zero** real bugs on these repositories (they are conservative heuristics that don't hallucinate on clean code);
