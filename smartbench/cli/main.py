@@ -19,7 +19,13 @@ from rich.console import Console
 from rich.table import Table
 
 from smartbench import __version__
-from smartbench.benchmarks import BenchmarkConfigError, BenchmarkRunner, load_benchmark_manifest
+from smartbench.benchmarks import (
+    BenchmarkConfigError,
+    BenchmarkRunner,
+    collect_runs,
+    compute_metrics,
+    load_benchmark_manifest,
+)
 from smartbench.cli.phases import (
     build_session_retrieval,
     resolve_project_path,
@@ -119,6 +125,85 @@ def benchmark_run(
         console.print(f"💾 Benchmark report saved to: [cyan]{safe_terminal_text(destination)}[/cyan]")
     if not report.passed:
         raise typer.Exit(1)
+
+
+@benchmark_app.command("metrics")
+def benchmark_metrics(
+    manifest: str = typer.Option(..., "--manifest", "-m", help="Positive benchmark manifest"),
+    negative: Optional[str] = typer.Option(
+        None, "--negative", help="Negative-corpus manifest (counts toward FPR)"
+    ),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Write the metrics JSON"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+):
+    """Compute precision, recall, false-positive rate and latency from the corpora.
+
+    Metrics are case-level and scoped to each case's declared target rules;
+    findings outside those rules are ignored. Counts are deterministic; the
+    latency block is a measurement and may vary between runs.
+    """
+    try:
+        positive_cases = load_benchmark_manifest(Path(manifest).expanduser().resolve())
+        positive_runs = collect_runs(
+            positive_cases, BenchmarkRunner().run(positive_cases)
+        )
+        negative_runs = []
+        if negative:
+            negative_cases = load_benchmark_manifest(
+                Path(negative).expanduser().resolve()
+            )
+            negative_runs = collect_runs(
+                negative_cases, BenchmarkRunner().run(negative_cases)
+            )
+        metrics = compute_metrics(positive_runs, negative_runs)
+    except (BenchmarkConfigError, OSError, ValueError) as exc:
+        console.print(f"[red]Metrics failed: {safe_terminal_text(exc)}[/red]")
+        raise typer.Exit(1) from exc
+
+    text = json.dumps(metrics, ensure_ascii=False, indent=2, sort_keys=True)
+    if output:
+        destination = Path(output).expanduser().resolve()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(text, encoding="utf-8")
+    if json_output:
+        console.print(text, soft_wrap=True)
+        return
+
+    overall = metrics["overall"]
+    table = Table(
+        "Scope", "TP", "FP", "FN", "TN", "Precision", "Recall", "F1", "FPR"
+    )
+    table.add_row("overall", *(_metric_cells(overall)))
+    for rule, entry in metrics["by_rule"].items():
+        table.add_row(safe_terminal_text(rule), *(_metric_cells(entry)))
+    console.print(table)
+    latency = overall["latency_ms"]
+    console.print(
+        f"\n[dim]latency p50 {latency['p50']} ms · p95 {latency['p95']} ms · "
+        f"max {latency['max']} ms · abstention: {metrics['abstention_rate']}[/dim]"
+    )
+    if output:
+        console.print(
+            f"💾 Metrics report saved to: [cyan]{safe_terminal_text(str(Path(output).expanduser().resolve()))}[/cyan]"
+        )
+
+
+def _metric_cells(entry: dict[str, object]) -> tuple[str, ...]:
+    """Format one metrics row for the human table."""
+    def number(key: str) -> str:
+        value = entry.get(key)
+        return "-" if value is None else f"{value:.3f}"
+
+    return (
+        str(entry.get("tp", 0)),
+        str(entry.get("fp", 0)),
+        str(entry.get("fn", 0)),
+        str(entry.get("tn", 0)),
+        number("precision"),
+        number("recall"),
+        number("f1"),
+        number("false_positive_rate"),
+    )
 
 
 @app.callback(invoke_without_command=True)

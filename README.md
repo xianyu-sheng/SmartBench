@@ -204,6 +204,21 @@ smartbench benchmark run --manifest benchmarks/real/manifest.yaml --output bench
 smartbench benchmark run --manifest benchmarks/negative/manifest.yaml --output negative-report.json
 ```
 
+**Computed metrics — [`benchmarks/metrics.json`](benchmarks/metrics.json).** `smartbench benchmark metrics` regenerates every number below from the manifests (case-level, scoped to each case's target rules; findings outside those rules are ignored):
+
+| Scope | TP | FP | FN | TN | Precision | Recall | F1 | FPR |
+|---|---|---|---|---|---|---|---|---|
+| overall (positive + negative) | 26 | 0 | 0 | 40 | 1.000 | 1.000 | 1.000 | 0.000 |
+
+Latency on the deterministic path: p50 **114 ms**, p95 **436 ms**, max 763 ms over 64 snapshots. Abstention and provider cost only exist on the LLM path; they are reported as `null` / opt-in rather than invented. Per-rule, per-language and per-category breakdowns are in the JSON report.
+
+```bash
+smartbench benchmark metrics \
+  --manifest benchmarks/real/manifest.yaml \
+  --negative benchmarks/negative/manifest.yaml \
+  --output benchmarks/metrics.json
+```
+
 **Real-world sweep — honest numbers.** SmartBench was run over 12 open-source repositories (Python and Go). 410 findings were manually verified, then cross-checked against SDK types and project documentation — and the outcome is worth reading before trusting any number:
 
 - deterministic rules produced **zero** real bugs on these repositories (they are conservative heuristics that don't hallucinate on clean code);
@@ -257,6 +272,8 @@ The next useful work is **measurement, not more surface features**:
 1. report precision, recall, abstention rate, trial stability, latency and provider cost on the expanded corpus ([#10](https://github.com/xianyu-sheng/SmartBench/issues/10), [#11](https://github.com/xianyu-sheng/SmartBench/issues/11), [#12](https://github.com/xianyu-sheng/SmartBench/issues/12));
 2. deepen language semantics (exception flow, async, aliasing, concurrency) without weakening the IR boundary;
 3. make language onboarding cheap ([#6](https://github.com/xianyu-sheng/SmartBench/issues/6)–[#8](https://github.com/xianyu-sheng/SmartBench/issues/8)) and expose a public API ([#9](https://github.com/xianyu-sheng/SmartBench/issues/9)).
+
+Every corpus number is regenerable with `smartbench benchmark metrics`; the committed sample is [benchmarks/metrics.json](benchmarks/metrics.json).
 
 ## Roadmap: from findings to verifiable audit trajectories
 
