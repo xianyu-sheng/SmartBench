@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from smartbench.benchmarks.runner import BenchmarkRunner, load_benchmark_manifest
+from smartbench.graph.tree_parser import get_parser
 
 MANIFEST = (
     Path(__file__).resolve().parent.parent
@@ -12,10 +13,18 @@ MANIFEST = (
 )
 
 
+def _runnable_cases():
+    """Drop Go cases when the tree-sitter Go parser is not installed."""
+    cases = load_benchmark_manifest(MANIFEST)
+    if get_parser("go") is None:
+        cases = [case for case in cases if case.language != "go"]
+    return cases
+
+
 def test_negative_corpus_is_false_positive_free():
-    report = BenchmarkRunner().run(load_benchmark_manifest(MANIFEST))
+    report = BenchmarkRunner().run(_runnable_cases())
     failures = [
-        (result.case_id, result.label, result.finding_rule_ids)
+        (result.case_id, result.label, result.finding_rule_ids, result.errors)
         for result in report.results
         if not result.passed
     ]
