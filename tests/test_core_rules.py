@@ -203,6 +203,45 @@ class TestBuiltinRules:
         assert rule.rule_id == "resource_leak"
         assert rule.severity == Severity.WARNING
 
+    def test_resource_leak_skips_try_finally_cleanup(self):
+        source = (
+            "def read(path):\n"
+            "    handle = open(path)\n"
+            "    try:\n"
+            "        return handle.read()\n"
+            "    finally:\n"
+            "        handle.close()\n"
+        )
+        findings = ResourceLeakRule()._find_leak_patterns(source, "main.py", "python")
+        assert findings == []
+
+    def test_resource_leak_skips_go_defer_cleanup(self):
+        source = (
+            "f, err := os.Open(path)\n"
+            "if err != nil {\n"
+            "    return nil, err\n"
+            "}\n"
+            "defer f.Close()\n"
+        )
+        findings = ResourceLeakRule()._find_leak_patterns(source, "main.go", "go")
+        assert findings == []
+
+    def test_resource_leak_skips_go_ownership_transfer(self):
+        source = (
+            "f, err := os.Open(path)\n"
+            "if err != nil {\n"
+            "    return nil, err\n"
+            "}\n"
+            "return f, nil\n"
+        )
+        findings = ResourceLeakRule()._find_leak_patterns(source, "main.go", "go")
+        assert findings == []
+
+    def test_resource_leak_still_flags_unclosed_open(self):
+        source = "handle = open(path)\nreturn handle.read()\n"
+        findings = ResourceLeakRule()._find_leak_patterns(source, "main.py", "python")
+        assert len(findings) == 1
+
 
 class TestSecurityRules:
     def test_command_injection_metadata(self):

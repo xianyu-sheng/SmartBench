@@ -197,6 +197,12 @@ ProjectReader 不写 `SemanticIR`。在已实现的资源生命周期路径上�
 smartbench benchmark run --manifest benchmarks/real/manifest.yaml --output benchmark-report.json
 ```
 
+**负语料 —— 14 个干净 fixture。** `benchmarks/negative/` 收录表面像 bug 模式、实际正确的普通代码：context manager、`try/finally`、`defer`、所有权转移、占位符密钥、常量命令和 guard 子句。CI 在默认置信度阈值（0.7）下断言零命中；任何命中都是误报。采样规则见 [benchmarks/negative/README.md](benchmarks/negative/README.md)。
+
+```bash
+smartbench benchmark run --manifest benchmarks/negative/manifest.yaml --output negative-report.json
+```
+
 **真实仓库扫描 —— 诚实数字。** 在 12 个开源项目（Python 与 Go）上运行后，410 条 finding 经过人工核验，再对照 SDK 类型和项目文档交叉检查。结果值得在信任任何数字之前先读一遍：
 
 - 确定性规则在这些仓库上产出 **0 个真 bug**（它们是保守启发式，不会在干净代码上幻觉）；
