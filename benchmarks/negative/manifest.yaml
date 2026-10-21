@@ -1,0 +1,186 @@
+version: smartbench.benchmarks/v1
+# Negative corpus: clean code that superficially resembles a bug pattern.
+# Every snapshot asserts ZERO findings at the default confidence threshold.
+# See README.md for the sampling rules and the issue #11 acceptance criteria.
+cases:
+  - id: neg-resource-python-with
+    language: python
+    rules: [resource_leak]
+    metadata:
+      category: resource-lifecycle
+      resembles: open() without close()
+      true_positive_if: the handle escapes the with block and is used later
+    snapshots:
+      - label: clean
+        path: resource_lifecycle/python_with_statement
+        max_findings: 0
+        min_confidence: 0.7
+
+  - id: neg-resource-python-try-finally
+    language: python
+    rules: [resource_leak]
+    metadata:
+      category: resource-lifecycle
+      resembles: open() without a with block
+      true_positive_if: the finally block is removed or close() only runs on success
+    snapshots:
+      - label: clean
+        path: resource_lifecycle/python_try_finally
+        max_findings: 0
+        min_confidence: 0.7
+
+  - id: neg-resource-go-defer
+    language: go
+    rules: [resource_leak]
+    metadata:
+      category: resource-lifecycle
+      resembles: os.Open without cleanup
+      true_positive_if: the defer is removed or an early return precedes it
+    snapshots:
+      - label: clean
+        path: resource_lifecycle/go_defer_cleanup
+        max_findings: 0
+        min_confidence: 0.7
+
+  - id: neg-resource-go-ownership
+    language: go
+    rules: [resource_leak]
+    metadata:
+      category: resource-lifecycle
+      resembles: a handle opened without a local close
+      true_positive_if: the caller never closes the returned handle
+    snapshots:
+      - label: clean
+        path: resource_lifecycle/go_ownership_transfer
+        max_findings: 0
+        min_confidence: 0.7
+
+  - id: neg-resource-go-wrapper
+    language: go
+    rules: [resource_leak]
+    metadata:
+      category: resource-lifecycle
+      resembles: opening a file at a call site that never closes it
+      true_positive_if: the helper returns the handle instead of the content
+    snapshots:
+      - label: clean
+        path: resource_lifecycle/go_wrapper_helper
+        max_findings: 0
+        min_confidence: 0.7
+
+  - id: neg-secret-example-placeholder
+    language: python
+    rules: [hardcoded_secret]
+    metadata:
+      category: secrets
+      resembles: a hardcoded API key
+      true_positive_if: a real-looking key replaces the placeholder
+    snapshots:
+      - label: clean
+        path: secrets/python_example_placeholder
+        max_findings: 0
+        min_confidence: 0.7
+
+  - id: neg-secret-test-fixture
+    language: python
+    rules: [hardcoded_secret]
+    metadata:
+      category: secrets
+      resembles: a hardcoded secret in test code
+      true_positive_if: a production key is committed or the fixture is copied to runtime code
+    snapshots:
+      - label: clean
+        path: secrets/python_test_fixture
+        max_findings: 0
+        min_confidence: 0.7
+
+  - id: neg-secret-documented-placeholder
+    language: python
+    rules: [hardcoded_secret]
+    metadata:
+      category: secrets
+      resembles: a hardcoded database password
+      true_positive_if: a real password replaces the deployment placeholder
+    snapshots:
+      - label: clean
+        path: secrets/python_documented_placeholder
+        max_findings: 0
+        min_confidence: 0.7
+
+  - id: neg-command-constant
+    language: python
+    rules: [command_injection]
+    metadata:
+      category: command-injection
+      resembles: os.system()
+      true_positive_if: a user-controlled value is interpolated into the command
+    snapshots:
+      - label: clean
+        path: command_injection/python_constant_command
+        max_findings: 0
+        min_confidence: 0.7
+
+  - id: neg-command-list-args
+    language: python
+    rules: [command_injection]
+    metadata:
+      category: command-injection
+      resembles: subprocess.run()
+      true_positive_if: shell=True is added and user input is concatenated
+    snapshots:
+      - label: clean
+        path: command_injection/python_list_args
+        max_findings: 0
+        min_confidence: 0.7
+
+  - id: neg-command-validated-concat
+    language: python
+    rules: [command_injection]
+    metadata:
+      category: command-injection
+      resembles: string concatenation into a shell command
+      true_positive_if: the validated integer is replaced by the raw string
+    snapshots:
+      - label: clean
+        path: command_injection/python_validated_concat
+        max_findings: 0
+        min_confidence: 0.7
+
+  - id: neg-guard-python-clause
+    language: python
+    rules: [null_dereference]
+    metadata:
+      category: state-guard
+      resembles: dereferencing a possibly-None value
+      true_positive_if: the guard is removed or moved after the access
+    snapshots:
+      - label: clean
+        path: state_guard/python_guard_clause
+        max_findings: 0
+        min_confidence: 0.7
+
+  - id: neg-guard-python-helper
+    language: python
+    rules: [null_dereference]
+    metadata:
+      category: state-guard
+      resembles: dereferencing a maybe-None value guarded in a helper
+      true_positive_if: the helper returns None on failure instead of raising
+    snapshots:
+      - label: clean
+        path: state_guard/python_guard_helper
+        max_findings: 0
+        min_confidence: 0.7
+
+  - id: neg-guard-go-clause
+    language: go
+    rules: [null_dereference]
+    metadata:
+      category: state-guard
+      resembles: dereferencing a possibly-nil pointer
+      true_positive_if: the check is removed or the dereference moves above it
+    snapshots:
+      - label: clean
+        path: state_guard/go_guard_clause
+        max_findings: 0
+        min_confidence: 0.7
