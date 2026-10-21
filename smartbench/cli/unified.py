@@ -220,6 +220,8 @@ def run_unified_diagnosis(
     max_evidence_packs: int = 50,
     state_rule_paths: Optional[List[str]] = None,
     deterministic_output: bool = False,
+    record_trajectory: bool = False,
+    trajectory_dir: Optional[str] = None,
 ) -> Tuple[UnifiedDiagnosticResult, Optional[Path]]:
     """
     Run unified diagnosis.
@@ -272,6 +274,29 @@ def run_unified_diagnosis(
         engine=engine,
     )
     result = session.result
+
+    if record_trajectory:
+        from smartbench import __version__ as tool_version
+        from smartbench.trajectory import TrajectoryStore, build_trajectory
+
+        document = build_trajectory(
+            project_path=project_path,
+            tool_version=tool_version,
+            config={
+                "rules": list(rules or []),
+                "languages": list(languages or []),
+                "min_confidence": min_confidence,
+                "state_rules": list(state_rule_paths or []),
+            },
+            session=session,
+        )
+        saved = TrajectoryStore(trajectory_dir or None).write(document)
+        if saved is None:
+            console.print(
+                "[yellow]Trajectory could not be saved (report unaffected).[/yellow]"
+            )
+        else:
+            console.print(f"[green]Trajectory saved: {saved}[/green]")
 
     # Print results
     print_diagnosis_result(console, result, project_path)

@@ -185,7 +185,7 @@ def test_anthropic_usage_mapping(monkeypatch):
     ]
 
 
-def test_quick_mode_trials_report_stability(monkeypatch):
+def test_quick_mode_trials_report_stability(monkeypatch, tmp_path):
     from io import StringIO
     from types import SimpleNamespace
 
@@ -208,7 +208,7 @@ def test_quick_mode_trials_report_stability(monkeypatch):
             analysis_report={},
         )
 
-    monkeypatch.setattr(phases, "resolve_project_path", lambda console, project: object())
+    monkeypatch.setattr(phases, "resolve_project_path", lambda console, project: tmp_path)
     monkeypatch.setattr(phases, "load_api_keys_from_env", lambda: {"models": [{"model": "deepseek-chat"}]})
     monkeypatch.setattr(phases, "run_analysis_session", lambda console, path: SimpleNamespace(fingerprint=object()))
     monkeypatch.setattr(phases, "display_fingerprint", lambda console, fingerprint: None)
@@ -220,6 +220,8 @@ def test_quick_mode_trials_report_stability(monkeypatch):
         trials=2,
         temperature=0.2,
         seed=7,
+        save_trajectory=True,
+        trajectory_dir=str(tmp_path / "trajectories"),
     )
 
     report = result.analysis_report["trials"]
@@ -230,3 +232,7 @@ def test_quick_mode_trials_report_stability(monkeypatch):
     assert report["total_cost_usd"] == 0.000016
     assert calls[0]["temperature"] == 0.2
     assert calls[0]["seed"] == 7
+
+    index = tmp_path / "trajectories" / "index.jsonl"
+    assert index.is_file()
+    assert len(index.read_text(encoding="utf-8").splitlines()) == 1
