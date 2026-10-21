@@ -91,6 +91,12 @@ jobs:
           smartbench benchmark run \
             --manifest benchmarks/negative/manifest.yaml \
             --output negative-report.json
+      - name: Compute corpus metrics
+        run: |
+          smartbench benchmark metrics \
+            --manifest benchmarks/real/manifest.yaml \
+            --negative benchmarks/negative/manifest.yaml \
+            --output metrics-report.json
       - name: Run ProjectReader boundary experiment
         run: |
           python -m smartbench.experiments.project_reader_resource \
@@ -111,6 +117,7 @@ jobs:
           path: |
             benchmark-report.json
             negative-report.json
+            metrics-report.json
             project-reader-experiment.json
             project-reader-blind.json
 
