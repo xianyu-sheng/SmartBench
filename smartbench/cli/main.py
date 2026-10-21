@@ -260,6 +260,23 @@ def quick(
         "--sandbox",
         help="Apply proposed patches and run tests in a temp copy (trusted repos only)",
     ),
+    trials: int = typer.Option(
+        1,
+        "--trials",
+        min=1,
+        max=10,
+        help="Run the LLM review N times and report trial stability",
+    ),
+    temperature: float = typer.Option(
+        0.3,
+        "--temperature",
+        help="LLM sampling temperature (0.0–2.0)",
+    ),
+    seed: Optional[int] = typer.Option(
+        None,
+        "--seed",
+        help="LLM sampling seed when the provider supports it",
+    ),
 ):
     """Quick diagnosis — auto-detect everything, minimal prompts."""
     result = run_quick_mode(
@@ -267,6 +284,9 @@ def quick(
         project=project,
         concern=concern,
         enable_sandbox=sandbox,
+        trials=trials,
+        temperature=temperature,
+        seed=seed,
     )
     _maybe_save_output(result, output)
 

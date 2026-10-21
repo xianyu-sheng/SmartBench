@@ -210,7 +210,7 @@ smartbench benchmark run --manifest benchmarks/negative/manifest.yaml --output n
 |---|---|---|---|---|---|---|---|---|
 | overall (positive + negative) | 26 | 0 | 0 | 40 | 1.000 | 1.000 | 1.000 | 0.000 |
 
-Latency on the deterministic path: p50 **114 ms**, p95 **436 ms**, max 763 ms over 64 snapshots. Abstention and provider cost only exist on the LLM path; they are reported as `null` / opt-in rather than invented. Per-rule, per-language and per-category breakdowns are in the JSON report.
+Latency on the deterministic path: p50 **114 ms**, p95 **436 ms**, max 763 ms over 64 snapshots. Abstention and provider cost only exist on the LLM path: `quick --trials N` records trial stability, tokens and an indicative cost (unknown models report `n/a` instead of a made-up number). Per-rule, per-language and per-category breakdowns are in the JSON report.
 
 ```bash
 smartbench benchmark metrics \

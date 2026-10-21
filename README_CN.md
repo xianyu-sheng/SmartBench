@@ -209,7 +209,7 @@ smartbench benchmark run --manifest benchmarks/negative/manifest.yaml --output n
 |---|---|---|---|---|---|---|---|---|
 | 总体（正 + 负语料） | 26 | 0 | 0 | 40 | 1.000 | 1.000 | 1.000 | 0.000 |
 
-确定性路径延迟：64 个快照上 p50 **114 ms**、p95 **436 ms**、最大 763 ms。弃权率和提供商成本只存在于 LLM 路径，报告中如实标为 `null` / 可选，而不是编造数字。按规则、语言、类别的细分见 JSON 报告。
+确定性路径延迟：64 个快照上 p50 **114 ms**、p95 **436 ms**、最大 763 ms。弃权率和提供商成本只存在于 LLM 路径：`quick --trials N` 会记录试验稳定性、token 与指示性成本（未知模型标 `n/a`，不编造数字）。按规则、语言、类别的细分见 JSON 报告。
 
 ```bash
 smartbench benchmark metrics \
