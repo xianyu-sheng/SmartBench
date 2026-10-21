@@ -34,6 +34,7 @@ class BenchmarkSnapshot:
     min_findings: int = 0
     max_findings: int | None = None
     expected_rule_ids: frozenset[str] = frozenset()
+    min_confidence: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -152,7 +153,7 @@ class BenchmarkRunner:
             languages=[case.language],
             rule_ids=list(case.rule_ids) or None,
             state_rule_paths=list(case.state_rule_paths),
-            min_confidence=0.0,
+            min_confidence=snapshot.min_confidence,
             build_evidence_packs=True,
         )
         result = AnalysisSession.analyze(
@@ -213,7 +214,7 @@ def _parse_snapshot(value: Any, index: int, base: Path, case_id: str) -> Benchma
     snapshot = _mapping(value, path)
     _reject_unknown(
         snapshot,
-        {"label", "path", "min_findings", "max_findings", "expected_rule_ids"},
+        {"label", "path", "min_findings", "max_findings", "expected_rule_ids", "min_confidence"},
         path,
     )
     label = _non_empty_string(snapshot.get("label"), f"{path}.label")
@@ -229,7 +230,10 @@ def _parse_snapshot(value: Any, index: int, base: Path, case_id: str) -> Benchma
     expected_ids = frozenset(
         _string_list(snapshot.get("expected_rule_ids", []), f"{path}.expected_rule_ids")
     )
-    return BenchmarkSnapshot(label, project, min_findings, max_findings, expected_ids)
+    min_confidence = _unit_float(snapshot.get("min_confidence", 0.0), f"{path}.min_confidence")
+    return BenchmarkSnapshot(
+        label, project, min_findings, max_findings, expected_ids, min_confidence
+    )
 
 
 def _resolve_path(base: Path, value: Any, path: str) -> Path:
@@ -278,3 +282,12 @@ def _non_negative_int(value: Any, path: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise BenchmarkConfigError(f"{path} must be a non-negative integer")
     return value
+
+
+def _unit_float(value: Any, path: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise BenchmarkConfigError(f"{path} must be a number between 0 and 1")
+    result = float(value)
+    if not 0.0 <= result <= 1.0:
+        raise BenchmarkConfigError(f"{path} must be between 0 and 1")
+    return result
