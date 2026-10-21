@@ -14,8 +14,10 @@ import hashlib
 import os
 import shutil
 import tempfile
+import time
+from io import StringIO
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import typer
 from rich.console import Console
@@ -51,7 +53,14 @@ from smartbench.ir import (
     SemanticIR,
 )
 from smartbench.llm.client import call_llm, parse_json_safe
+from smartbench.llm.pricing import estimate_cost
 from smartbench.llm.provider import load_api_keys_from_env
+from smartbench.llm.trials import (
+    TrialRecord,
+    UsageAccumulator,
+    suggestion_signature,
+    summarize_trials,
+)
 from smartbench.path_safety import read_text_prefix, resolve_project_file
 from smartbench.prompts.factory import PromptFactory
 from smartbench.subprocess_utils import run_bounded
@@ -320,6 +329,9 @@ def run_diagnosis_with_graph(
     enable_verify: bool = True,
     enable_sandbox: bool = False,
     analysis_session: Optional[AnalysisSession] = None,
+    temperature: float = 0.3,
+    seed: Optional[int] = None,
+    on_usage: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Optional[object]:
     """Run the full graph-enhanced diagnosis pipeline with RAG + verification.
 
@@ -343,6 +355,9 @@ def run_diagnosis_with_graph(
             prompt,
             role=role,
             timeout_seconds=timeout_seconds,
+            temperature=temperature,
+            seed=seed,
+            on_usage=on_usage,
         ) or ""
 
     if analysis_session is not None:
@@ -401,7 +416,13 @@ def run_diagnosis_with_graph(
 
     selected = _fallback_strategy(concern)
     strategy_prompt = factory.build_strategy_prompt(concern, strategies)
-    strategy_response = call_llm(api_config, strategy_prompt)
+    strategy_response = call_llm(
+        api_config,
+        strategy_prompt,
+        temperature=temperature,
+        seed=seed,
+        on_usage=on_usage,
+    )
     strategy = parse_json_safe(strategy_response) if strategy_response else None
 
     if strategy:
@@ -592,6 +613,9 @@ def run_diagnosis_with_session(
     *,
     enable_verify: bool = True,
     enable_sandbox: bool = False,
+    temperature: float = 0.3,
+    seed: Optional[int] = None,
+    on_usage: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Optional[object]:
     """Run retrieval and Agent review over an existing full analysis session."""
     fingerprint = session.fingerprint
@@ -609,6 +633,9 @@ def run_diagnosis_with_session(
             fingerprint,
             api_config,
             concern,
+            temperature=temperature,
+            seed=seed,
+            on_usage=on_usage,
         )
 
     if not api_config:
@@ -636,6 +663,9 @@ def run_diagnosis_with_session(
         enable_verify=enable_verify,
         enable_sandbox=enable_sandbox,
         analysis_session=session,
+        temperature=temperature,
+        seed=seed,
+        on_usage=on_usage,
     )
 
 
@@ -645,6 +675,10 @@ def run_fallback_analysis(
     fingerprint: ProjectFingerprint,
     api_config: Optional[Dict],
     concern: str,
+    *,
+    temperature: float = 0.3,
+    seed: Optional[int] = None,
+    on_usage: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Optional[object]:
     """Fallback: file-based analysis when code graph can't be built.
 
@@ -733,6 +767,9 @@ def run_fallback_analysis(
             prompt,
             role=role,
             timeout_seconds=timeout_seconds,
+            temperature=temperature,
+            seed=seed,
+            on_usage=on_usage,
         ) or ""
 
     version_material = "|".join(fact.fact_id for fact in fallback_facts)
@@ -766,6 +803,9 @@ def run_quick_mode(
     project: Optional[str] = None,
     concern: Optional[str] = None,
     enable_sandbox: bool = False,
+    trials: int = 1,
+    temperature: float = 0.3,
+    seed: Optional[int] = None,
 ) -> Optional[object]:
     """Minimal-interaction quick mode — auto-detect everything.
 
@@ -800,16 +840,115 @@ def run_quick_mode(
     if not concern:
         concern = "analyze the project for potential issues"
 
-    result = run_diagnosis_with_session(
-        console,
-        session,
-        api_config,
-        concern,
-        enable_sandbox=enable_sandbox,
+    if not api_config:
+        result = run_diagnosis_with_session(
+            console,
+            session,
+            api_config,
+            concern,
+            enable_sandbox=enable_sandbox,
+        )
+        console.print("\n[bold green]Done![/bold green]\n")
+        return result
+
+    trial_count = max(1, min(int(trials), 10))
+    console.print(
+        f"[dim]LLM settings: temperature={temperature}, "
+        f"seed={seed if seed is not None else 'unset'}[/dim]"
     )
+    records: list[TrialRecord] = []
+    result = None
+    model_name: Optional[str] = None
+    for index in range(trial_count):
+        usage = UsageAccumulator()
+        started = time.monotonic()
+        active_console = Console(file=StringIO()) if trial_count > 1 else console
+        trial_result = run_diagnosis_with_session(
+            active_console,
+            session,
+            api_config,
+            concern,
+            enable_sandbox=enable_sandbox,
+            temperature=temperature,
+            seed=seed,
+            on_usage=usage.add,
+        )
+        duration_ms = int((time.monotonic() - started) * 1000)
+        if trial_result is not None:
+            result = trial_result
+        model_name = usage.model or model_name
+        suggestions = getattr(trial_result, "final_suggestions", None) or []
+        records.append(
+            TrialRecord(
+                index=index + 1,
+                suggestions=len(suggestions),
+                signature=suggestion_signature(suggestions),
+                prompt_tokens=usage.prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+                total_tokens=usage.total_tokens,
+                cost_usd=estimate_cost(
+                    usage.model, usage.prompt_tokens, usage.completion_tokens
+                ),
+                duration_ms=duration_ms,
+            )
+        )
+
+    report = summarize_trials(
+        records, temperature=temperature, seed=seed, model=model_name
+    )
+    if trial_count > 1:
+        _print_trial_report(console, report)
+    else:
+        record = records[0]
+        console.print(
+            f"[dim]LLM run: temperature={temperature} "
+            f"seed={seed if seed is not None else 'unset'} · "
+            f"tokens {record.prompt_tokens}/{record.completion_tokens} · "
+            f"cost {_format_cost(record.cost_usd)} · {record.duration_ms} ms[/dim]"
+        )
+    if result is not None and hasattr(result, "analysis_report"):
+        payload = dict(getattr(result, "analysis_report") or {})
+        payload["trials"] = report.to_dict()
+        result.analysis_report = payload
 
     console.print("\n[bold green]Done![/bold green]\n")
     return result
+
+
+def _print_trial_report(console: Console, report) -> None:
+    """Render per-trial stability, tokens and cost without averaging them away."""
+    table = Table(
+        "#", "Suggestions", "Tokens in/out", "Cost", "Duration", "Signature"
+    )
+    for trial in report.trials:
+        table.add_row(
+            str(trial.index),
+            str(trial.suggestions),
+            f"{trial.prompt_tokens}/{trial.completion_tokens}",
+            _format_cost(trial.cost_usd),
+            f"{trial.duration_ms} ms",
+            trial.signature,
+        )
+    console.print(table)
+    verdict = (
+        "all trials agree"
+        if report.stable
+        else "[yellow]differing trials — compare signatures[/yellow]"
+    )
+    console.print(
+        f"[bold]Stability:[/bold] {report.majority_count}/{len(report.trials)} "
+        f"({report.stability_rate:.1%}) — {verdict}"
+    )
+    console.print(
+        f"[dim]temperature={report.temperature} "
+        f"seed={report.seed if report.seed is not None else 'unset'} "
+        f"model={report.model or 'unknown'} · total tokens={report.total_tokens} · "
+        f"total cost={_format_cost(report.total_cost_usd)}[/dim]"
+    )
+
+
+def _format_cost(value: Optional[float]) -> str:
+    return "n/a" if value is None else f"${value:.6f}"
 
 
 def run_diagnose_mode(

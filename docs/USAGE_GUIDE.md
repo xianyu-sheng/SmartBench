@@ -42,6 +42,18 @@ smartbench quick \
   --output report.json
 ```
 
+### 试验稳定性与成本（`--trials`）
+
+LLM 阶段默认只跑一次。要让非确定性可见，可重复运行 LLM 审查并保留每次结果：
+
+```bash
+smartbench quick --project ./my-project --trials 3 \
+  --temperature 0.3 --seed 42 \
+  --output report.json
+```
+
+输出会给出每次试验的 suggestion 数量、prompt/completion token、指示性成本、耗时和结果签名；`Stability` 表示与最常见签名一致的试验占比，只有全部一致时 `stable` 才为 true。`temperature`/`seed` 会打印在运行摘要中（Anthropic 不支持 seed，会自动省略）。报告 JSON 的 `analysis_report.trials` 保存完整明细。确定性分析只跑一次，多次试验共享同一个 `AnalysisSession`。未知模型的成本显示 `n/a`；可用 `SMARTBENCH_PRICE_INPUT_PER_M` / `SMARTBENCH_PRICE_OUTPUT_PER_M` 覆盖每百万 token 的价格。
+
 也可以使用主命令快捷参数：
 
 ```bash
