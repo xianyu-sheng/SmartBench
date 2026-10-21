@@ -133,14 +133,20 @@ def extract_findings(document: object) -> list[dict[str, object]]:
             except ValueError:
                 line_start = 0
         metadata = item.get("metadata")
-        findings.append(
-            {
-                "rule_id": rule_id,
-                "file_path": file_path,
-                "line_start": line_start,
-                "metadata": metadata if isinstance(metadata, Mapping) else {},
-            }
-        )
+        confidence = item.get("confidence")
+        try:
+            confidence_value = None if confidence is None else float(confidence)
+        except (TypeError, ValueError):
+            confidence_value = None
+        entry = {
+            "rule_id": rule_id,
+            "file_path": file_path,
+            "line_start": line_start,
+            "metadata": metadata if isinstance(metadata, Mapping) else {},
+        }
+        if confidence_value is not None:
+            entry["confidence"] = confidence_value
+        findings.append(entry)
     return findings
 
 
