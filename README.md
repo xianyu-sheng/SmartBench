@@ -233,6 +233,8 @@ smartbench benchmark metrics \
   --output benchmarks/metrics.json
 ```
 
+**Trajectory dataset v0 — [`trajectories/v0`](trajectories/v0/).** 69 redacted trajectories (5 real-world outcomes, 50 benchmark snapshots, 14 negative fixtures) under CC-BY-4.0, with a dataset card, manifest and SHA-256; CI validates the schema and hash.
+
 **Real-world sweep — honest numbers.** SmartBench was run over 12 open-source repositories (Python and Go). 410 findings were manually verified, then cross-checked against SDK types and project documentation — and the outcome is worth reading before trusting any number:
 
 - deterministic rules produced **zero** real bugs on these repositories (they are conservative heuristics that don't hallucinate on clean code);
