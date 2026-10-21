@@ -251,6 +251,23 @@ SmartBench 适合受控的仓库实验、架构研究和作品集展示。它已
 2. 在不削弱 IR 边界的前提下加深语言语义（异常流、异步、别名、并发）；
 3. 降低语言接入成本（[#6](https://github.com/xianyu-sheng/SmartBench/issues/6)–[#8](https://github.com/xianyu-sheng/SmartBench/issues/8)）并暴露公共 API（[#9](https://github.com/xianyu-sheng/SmartBench/issues/9)）。
 
+## 路线图：从「找 Bug」到「可验证的审计轨迹」
+
+找 Bug 不是最终产物。目标是**可验证的审计轨迹引擎**：finding 只是副产物；轨迹（假设 → 证据 → 裁决）及其裁决结果才是可复用、可训练、可审计的资产。下面每一步都独立有用，并让下一步更便宜。
+
+- [x] **公示可发现的 Bug 类别**（见上方表格），并把四个后审计方向登记为可认领 issue（[#45](https://github.com/xianyu-sheng/SmartBench/issues/45)–[#48](https://github.com/xianyu-sheng/SmartBench/issues/48)）。
+- [ ] **度量** —— 建负语料（[#11](https://github.com/xianyu-sheng/SmartBench/issues/11)），公开诚实的 precision / recall / 弃权率 / 成本（[#10](https://github.com/xianyu-sheng/SmartBench/issues/10)、[#12](https://github.com/xianyu-sheng/SmartBench/issues/12)）；把上方的 bug 类别表变成评测矩阵。
+- [ ] **轨迹 schema** —— 每次 `quick`/`unified` 运行记录为 `smartbench.trajectory/v1`，支持离线回放（[#46](https://github.com/xianyu-sheng/SmartBench/issues/46)）。这是数据资产的起点。
+- [ ] **反馈事件** —— 人工确认/驳回持久化为 `smartbench.feedback/v1`；先做离线排序/阈值策略，不做训练（[#45](https://github.com/xianyu-sheng/SmartBench/issues/45) 第一阶段）。
+- [ ] **发布 Audit Trajectories v0** —— 3–5 个已披露真实案例 + 25 案例语料 + 负样本（被驳回/弃权），附 dataset card、许可证、脱敏与 takedown 政策。
+- [ ] **容器沙箱** —— 面向动态验证的 rootless 容器后端（[#47](https://github.com/xianyu-sheng/SmartBench/issues/47)）；工程量小、风险低，直接提升「已验证」的可信度。
+- [ ] **分片审查** —— 确定性 shard 计划 + 有界并行子 Agent + 主 Agent 合并；默认关闭，直到与串行结果一致（[#48](https://github.com/xianyu-sheng/SmartBench/issues/48)）。
+- [ ] **策略学习** —— 等轨迹量和评估集到位后再做；否则只是无法证伪的优化。
+
+**为什么是这个顺序**：度量和轨迹是沙箱、分片、学习工作的共同地基。没有合并/证据故事的分片只是噪音；没有评估集的策略学习无法证明自己变好。
+
+诚实的竞争判断：上下文工程、子 Agent、沙箱、轨迹数据集都已分别存在（Cursor/Sourcegraph/Aider；Claude Code/Devin；Firecracker/E2B；SWE-Gym/SWE-smith/R2E）。仍然缺的是一个**证据约束的审计闭环**——假设 → 绑定证据 → 裁决 → 结果。这就是本路线图瞄准的空位。
+
 ## 收录与认可
 
 - [Awesome Testing](https://github.com/TheJambo/awesome-testing#static-analysis) — 收录于 **Static Analysis（静态分析）** 分类（[PR #305](https://github.com/TheJambo/awesome-testing/pull/305)，2026-10-19 合并）。

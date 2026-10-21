@@ -252,6 +252,23 @@ The next useful work is **measurement, not more surface features**:
 2. deepen language semantics (exception flow, async, aliasing, concurrency) without weakening the IR boundary;
 3. make language onboarding cheap ([#6](https://github.com/xianyu-sheng/SmartBench/issues/6)–[#8](https://github.com/xianyu-sheng/SmartBench/issues/8)) and expose a public API ([#9](https://github.com/xianyu-sheng/SmartBench/issues/9)).
 
+## Roadmap: from findings to verifiable audit trajectories
+
+Finding bugs is not the end product. The goal is a **verifiable audit trajectory engine**: findings are a by-product; the trajectory (hypothesis → evidence → verdict) and its adjudication are the reusable, trainable, auditable asset. Every step below is independently useful and makes the next one cheaper.
+
+- [x] **Document the bug classes** the deterministic layer can find today (see above) and file the four post-audit directions as claimable issues ([#45](https://github.com/xianyu-sheng/SmartBench/issues/45)–[#48](https://github.com/xianyu-sheng/SmartBench/issues/48)).
+- [ ] **Measurement** — build the negative corpus ([#11](https://github.com/xianyu-sheng/SmartBench/issues/11)) and report honest precision / recall / abstention / cost numbers ([#10](https://github.com/xianyu-sheng/SmartBench/issues/10), [#12](https://github.com/xianyu-sheng/SmartBench/issues/12)); turn the bug-class table above into an evaluation matrix.
+- [ ] **Trajectory schema** — record every `quick`/`unified` run as `smartbench.trajectory/v1`, with offline replay ([#46](https://github.com/xianyu-sheng/SmartBench/issues/46)). This is the starting point of the data asset.
+- [ ] **Feedback events** — persist human confirm/reject as `smartbench.feedback/v1`; start with offline ranking/threshold policies, not training ([#45](https://github.com/xianyu-sheng/SmartBench/issues/45), phase 1).
+- [ ] **Publish Audit Trajectories v0** — 3–5 disclosed real cases + the 25-case corpus + negative samples (rejected/abstained), with a dataset card, license, redaction and takedown policy.
+- [ ] **Container sandbox** — a rootless container backend for dynamic verification ([#47](https://github.com/xianyu-sheng/SmartBench/issues/47)); small, low-risk, raises the trust level of "verified".
+- [ ] **Sharded review** — deterministic shard plan + bounded parallel sub-agents + lead merge, default off until it matches sequential results ([#48](https://github.com/xianyu-sheng/SmartBench/issues/48)).
+- [ ] **Policy learning** — only after trajectories and an evaluation set exist; otherwise it is unfalsifiable optimization.
+
+**Why this order.** Measurement and trajectories are the shared foundation for the sandbox, sharding and learning work. Parallelism without a merge/evidence story only adds noise; policy learning without an evaluation set cannot prove it got better.
+
+Honest competitive note: context engineering, sub-agents, sandboxes and trajectory datasets already exist separately (Cursor/Sourcegraph/Aider; Claude Code/Devin; Firecracker/E2B; SWE-Gym/SWE-smith/R2E). What is still missing is an **evidence-constrained audit loop** — hypothesis → bound evidence → adjudication → outcome. That is the gap this roadmap targets.
+
 ## Recognition
 
 - [Awesome Testing](https://github.com/TheJambo/awesome-testing#static-analysis) — listed under **Static Analysis** ([PR #305](https://github.com/TheJambo/awesome-testing/pull/305), merged 2026-10-19).
