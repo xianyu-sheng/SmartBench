@@ -41,9 +41,38 @@
 |---|---|---|
 | 确定性 `unified` 分析 | 规则 finding、能力评估、源码角色、图事实、JSON 与 SARIF | 干净结果 ≠ 没有 bug |
 | 带模型的 `quick` | 项目假设、证据门审查、显式的拒绝与弃权状态 | 结论不因引用了真实事实就被证明 |
-| before/after 语料 | 可复现地验证分析器能区分 20 个已知修复 | 未知 bug 的 precision / recall |
+| before/after 语料 | 可复现地验证分析器能区分 25 个已知修复 | 未知 bug 的 precision / recall |
 
 当前的目标用户是评估这套架构的人，或做受控、人工复核式仓库审计的人——不是把它当 CI 质量门。
+
+## 目前能发现哪些 Bug
+
+以下是当前覆盖范围，不是「通用 bug 检测」的承诺。确定性分析器拥有事实；LLM 层可以发现其他类别，但只能作为假设，必须绑定到 fact ID 才能成为 finding。
+
+| 类别 | 目标缺陷 | 证据基础 | 语料覆盖 |
+|---|---|---|---|
+| 资源生命周期 | 未关闭的文件、数据库连接、HTTP body、SQL rows/事务；错误路径缺少 `defer close`/`cancel`；清理发生在使用之后而非之前 | acquire/cleanup 操作、类型证据、CFG 支配关系（Python/Go 语义级；JS/TS 部分） | 16/25 案例；真实案例 qscan #22、stunner #89 |
+| 并发与生命周期 | goroutine 泄漏、无界 goroutine 创建、ticker 未停止、mutex/RWMutex 未解锁、WaitGroup 误用、context cancel 缺失、channel 未关闭 | 状态机 + 过程间 CFG/ICFG | 4/25 案例；etcd TLS listener DoS 背后的无界 goroutine 模式（CVE-2026-73500） |
+| 错误处理与正确性 | 无退避重试（以及让失败行为变差的补丁）、返回 nil error、HTTP 错误路径落穿、重复 finalize、代理鉴权守卫 | 反事实重试分析、控制流/状态检查 | 2/25 正确性 + 1 配置校验；真实案例 go-imap #773 |
+| 安全与数据流 | SQL 注入、命令注入、路径遍历、硬编码密钥、不安全随机数 | source-to-sink 数据流规则（Python/TypeScript AST）+ 证据门 | 内置规则；不是完整污点引擎 |
+| 项目自定义状态机 | 仓库特定的生命周期规则，如「响应前清理」「返回前 flush」「使用前守卫」 | YAML 声明的状态/迁移绑定到 IR 事实 | 前后对照语料使用的机制 |
+| 证据门控的 LLM 审查 | 内置规则之外的缺陷（panic 路径、分支特定泄漏、并发调用点） | Proposer → Critique → Judge；只有绑定事实的结论能存活，其余保持 `unknown`/`abstained` | 可选；需要人工复核 |
+
+**明确不覆盖（暂）**：检测器级别的数据竞争、任意业务逻辑/规格违背、动态派发下的完整跨过程污点、跨仓库/跨服务影响、Rust/C++ 内存安全（这两个前端只是结构化/启发式）。未知 bug 的 precision / recall 尚未度量——见 [#10](https://github.com/xianyu-sheng/SmartBench/issues/10)、[#11](https://github.com/xianyu-sheng/SmartBench/issues/11)。
+
+25 案例、50 快照的前后对照语料（16 资源生命周期、4 并发、2 正确性、1 配置校验、1 数据完整性、1 安全状态守卫）就是「50/50」的来源：每个有 bug 的快照命中预期规则，每个修复后的快照零命中。
+
+<details>
+<summary>确定性规则与分析器 ID</summary>
+
+- `null_dereference`、`resource_leak`
+- `command_injection`、`path_traversal`、`hardcoded_secret`、`sql_injection`、`security_data_flow`、`insecure_random`
+- `broad_exception`、`unused_import`、`todo_fixme`
+- `retry_without_backoff`
+- `project_resource_lifecycle`（项目级分析器）
+- YAML 声明的状态规则（`DeclarativeStateRule`）
+
+</details>
 
 ## 快速开始
 

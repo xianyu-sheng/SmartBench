@@ -42,9 +42,38 @@ The same detection layer reproduces **6/6 known concurrency and resource-lifetim
 |---|---|---|
 | Deterministic `unified` analysis | Rule findings, capability assessments, source roles, graph facts, JSON and SARIF | That a clean result means bug-free code |
 | `quick` with a configured model | Project hypotheses, evidence-gated review, explicit rejection and abstention states | That a conclusion is proved merely because it cites a real fact |
-| Before/after corpus | Reproducible checks that selected analyzers distinguish 20 known fixes | Precision or recall on previously unknown bugs |
+| Before/after corpus | Reproducible checks that selected analyzers distinguish 25 known fixes | Precision or recall on previously unknown bugs |
 
 The intended user today is someone evaluating the architecture or performing a controlled, human-reviewed repository audit — not a drop-in CI quality gate.
+
+## Bug classes it can find today
+
+This is the current coverage, not a claim of general bug-finding. Deterministic analyzers own the facts; the LLM layer may surface other classes, but only as hypotheses that must bind to a fact ID before they can become a finding.
+
+| Family | What it is built to catch | Evidence basis | Coverage in the corpus |
+|---|---|---|---|
+| Resource lifecycle | unclosed files, DB connections, HTTP bodies, SQL rows/transactions; missing `defer close`/`cancel` on error paths; cleanup after use instead of before | acquire/cleanup operations, type evidence, CFG dominance (Python/Go semantic; JS/TS partial) | 16/25 cases; real-world qscan #22, stunner #89 |
+| Concurrency & lifetime | leaked goroutines, unbounded goroutine spawn, ticker not stopped, mutex/RWMutex not unlocked, WaitGroup misuse, missing context cancel, channel not closed | state machines + interprocedural CFG/ICFG | 4/25 cases; the unbounded-goroutine pattern behind the etcd TLS-listener DoS (CVE-2026-73500) |
+| Error handling & correctness | retry without backoff (and patches that make failure handling worse), returned nil error, HTTP error fallthrough, double finalize, proxy-authorization guard | counterfactual retry analysis, control-flow/state checks | 2/25 correctness + 1 configuration-validation; real-world go-imap #773 |
+| Security & data flow | SQL injection, command injection, path traversal, hardcoded secrets, insecure randomness | source-to-sink flow rules (Python/TypeScript AST) + evidence gate | built-in rules; not a full taint engine |
+| Project-declared state machines | repo-specific lifecycle rules such as "cleanup before response", "flush before return", "guard before use" | YAML-declared states/transitions bound to IR facts | used by the before/after corpus |
+| Evidence-gated LLM review | defects outside the built-ins (panic paths, branch-specific leaks, concurrency call sites) | Proposer → Critique → Judge; only fact-bound conclusions survive, everything else stays `unknown`/`abstained` | optional; human review required |
+
+**Not covered (yet):** data races at detector granularity, arbitrary business-logic or spec violations, full interprocedural taint under dynamic dispatch, cross-repository/cross-service consequences, and memory safety for Rust/C++ (those frontends are structural/heuristic). Unknown-bug precision and recall are unmeasured — see [#10](https://github.com/xianyu-sheng/SmartBench/issues/10) and [#11](https://github.com/xianyu-sheng/SmartBench/issues/11).
+
+The 25-case, 50-snapshot before/after corpus (16 resource-lifecycle, 4 concurrency, 2 correctness, 1 configuration-validation, 1 data-integrity, 1 security-state-guard) is what the "50/50" number refers to: every buggy snapshot produces the expected rule, every fixed snapshot produces none.
+
+<details>
+<summary>Deterministic rule and analyzer IDs</summary>
+
+- `null_dereference`, `resource_leak`
+- `command_injection`, `path_traversal`, `hardcoded_secret`, `sql_injection`, `security_data_flow`, `insecure_random`
+- `broad_exception`, `unused_import`, `todo_fixme`
+- `retry_without_backoff`
+- `project_resource_lifecycle` (project-level analyzer)
+- YAML-declared state rules (`DeclarativeStateRule`)
+
+</details>
 
 ## Quick start
 
