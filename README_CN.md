@@ -203,6 +203,21 @@ smartbench benchmark run --manifest benchmarks/real/manifest.yaml --output bench
 smartbench benchmark run --manifest benchmarks/negative/manifest.yaml --output negative-report.json
 ```
 
+**计算出的指标 —— [`benchmarks/metrics.json`](benchmarks/metrics.json)。** `smartbench benchmark metrics` 从 manifest 重新生成下面每个数字（case 级，限定每个 case 的目标规则；目标规则之外的 finding 不计入）：
+
+| 范围 | TP | FP | FN | TN | Precision | Recall | F1 | FPR |
+|---|---|---|---|---|---|---|---|---|
+| 总体（正 + 负语料） | 26 | 0 | 0 | 40 | 1.000 | 1.000 | 1.000 | 0.000 |
+
+确定性路径延迟：64 个快照上 p50 **114 ms**、p95 **436 ms**、最大 763 ms。弃权率和提供商成本只存在于 LLM 路径，报告中如实标为 `null` / 可选，而不是编造数字。按规则、语言、类别的细分见 JSON 报告。
+
+```bash
+smartbench benchmark metrics \
+  --manifest benchmarks/real/manifest.yaml \
+  --negative benchmarks/negative/manifest.yaml \
+  --output benchmarks/metrics.json
+```
+
 **真实仓库扫描 —— 诚实数字。** 在 12 个开源项目（Python 与 Go）上运行后，410 条 finding 经过人工核验，再对照 SDK 类型和项目文档交叉检查。结果值得在信任任何数字之前先读一遍：
 
 - 确定性规则在这些仓库上产出 **0 个真 bug**（它们是保守启发式，不会在干净代码上幻觉）；
@@ -256,6 +271,8 @@ SmartBench 适合受控的仓库实验、架构研究和作品集展示。它已
 1. 在扩展语料上公开 precision、recall、弃权率、试验稳定性、延迟与成本（[#10](https://github.com/xianyu-sheng/SmartBench/issues/10)、[#11](https://github.com/xianyu-sheng/SmartBench/issues/11)、[#12](https://github.com/xianyu-sheng/SmartBench/issues/12)）；
 2. 在不削弱 IR 边界的前提下加深语言语义（异常流、异步、别名、并发）；
 3. 降低语言接入成本（[#6](https://github.com/xianyu-sheng/SmartBench/issues/6)–[#8](https://github.com/xianyu-sheng/SmartBench/issues/8)）并暴露公共 API（[#9](https://github.com/xianyu-sheng/SmartBench/issues/9)）。
+
+所有语料数字都可以用 `smartbench benchmark metrics` 重新生成；已提交的样本报告是 [benchmarks/metrics.json](benchmarks/metrics.json)。
 
 ## 路线图：从「找 Bug」到「可验证的审计轨迹」
 
