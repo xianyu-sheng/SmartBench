@@ -629,6 +629,11 @@ def check_branches(
 intent_app = typer.Typer(name="intent", help="Manage the user-side intent memory file")
 app.add_typer(intent_app, name="intent")
 
+feedback_app = typer.Typer(
+    name="feedback", help="Record human decisions and rank findings offline"
+)
+app.add_typer(feedback_app, name="feedback")
+
 
 @intent_app.command("list")
 def intent_list(
@@ -714,6 +719,203 @@ def intent_add(
         f"[green]Intent memory saved to {safe_terminal_text(str(saved))}[/green] "
         f"({len(store.entries) - before} new entries, {len(store.entries)} total)"
     )
+
+
+@feedback_app.command("add")
+def feedback_add(
+    label: str = typer.Option(..., "--label", help="actionable / design_trade_off / intentional / out_of_scope / theoretical"),
+    rule_id: str = typer.Option("", "--rule-id", help="Rule id the decision applies to"),
+    language: str = typer.Option("", "--language", help="Language (python, go, ...)"),
+    file_path: str = typer.Option("", "--file-path", help="Project-relative file path"),
+    line_start: int = typer.Option(0, "--line", help="Line number"),
+    confidence: Optional[float] = typer.Option(None, "--confidence", min=0.0, max=1.0),
+    reason: str = typer.Option("", "--reason", help="Why this decision applies"),
+    source: str = typer.Option("", "--source", help="URL or reference for the decision"),
+    trajectory_id: str = typer.Option("", "--trajectory-id", help="Link to a recorded trajectory"),
+    finding_signature: str = typer.Option("", "--finding-signature"),
+    feedback_file: str = typer.Option("", "--file", help="Feedback JSONL file (default: ~/.smartbench/feedback/events.jsonl)"),
+):
+    """Append one human decision as a feedback event."""
+    from smartbench.feedback import FeedbackStore, make_event
+
+    try:
+        event = make_event(
+            label=label,
+            rule_id=rule_id,
+            language=language,
+            file_path=file_path,
+            line_start=line_start,
+            confidence=confidence,
+            reason=reason,
+            source=source,
+            trajectory_id=trajectory_id,
+            finding_signature=finding_signature,
+        )
+    except ValueError as exc:
+        console.print(f"[red]{safe_terminal_text(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    store = FeedbackStore(Path(feedback_file) if feedback_file else None)
+    added = store.append(event)
+    if not added:
+        console.print(
+            "[yellow]Event not written (duplicate or store unavailable).[/yellow]"
+        )
+        return
+    console.print(
+        f"[green]Feedback event recorded: {safe_terminal_text(event.event_id)}[/green] "
+        f"({len(store.events())} total)"
+    )
+
+
+@feedback_app.command("list")
+def feedback_list(
+    rule_id: Optional[str] = typer.Option(None, "--rule-id"),
+    language: Optional[str] = typer.Option(None, "--language"),
+    label: Optional[str] = typer.Option(None, "--label"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+    feedback_file: str = typer.Option("", "--file", help="Feedback JSONL file"),
+):
+    """List recorded feedback events."""
+    from smartbench.feedback import FeedbackStore
+
+    store = FeedbackStore(Path(feedback_file) if feedback_file else None)
+    events = store.filter(rule_id=rule_id, language=language, label=label)
+    if json_output:
+        payload = {
+            "schema_version": "smartbench.feedback.list/v1",
+            "events": [event.to_dict() for event in events],
+            "counts": store.counts(events),
+        }
+        console.print(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+            soft_wrap=True,
+        )
+        return
+    if not events:
+        console.print("[yellow]No feedback events recorded.[/yellow]")
+        return
+    table = Table("Recorded", "Label", "Rule", "Language", "Location", "Conf", "Reason")
+    for event in events:
+        location = f"{event.file_path}:{event.line_start}" if event.file_path else "*"
+        table.add_row(
+            safe_terminal_text(event.recorded_at),
+            event.label,
+            safe_terminal_text(event.rule_id or "*"),
+            safe_terminal_text(event.language or "*"),
+            safe_terminal_text(location),
+            "-" if event.confidence is None else f"{event.confidence:.2f}",
+            safe_terminal_text(event.reason),
+        )
+    console.print(table)
+
+
+@feedback_app.command("policy")
+def feedback_policy(
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+    feedback_file: str = typer.Option("", "--file", help="Feedback JSONL file"),
+):
+    """Show offline priors and advisory thresholds (never auto-applied)."""
+    from smartbench.feedback import FeedbackStore, build_priors, suggest_thresholds
+
+    store = FeedbackStore(Path(feedback_file) if feedback_file else None)
+    events = store.events()
+    priors = build_priors(events)
+    payload = {
+        "schema_version": "smartbench.feedback.policy/v1",
+        "events": len(events),
+        "counts": store.counts(events),
+        "priors": [prior.to_dict() for _, prior in sorted(priors.items())],
+        "advisory_thresholds": suggest_thresholds(events, priors=priors),
+        "suppressed": 0,
+        "note": "advisory only; findings are never suppressed",
+    }
+    if json_output:
+        console.print(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
+            soft_wrap=True,
+        )
+        return
+    if not priors:
+        console.print("[yellow]No feedback events recorded.[/yellow]")
+        return
+    table = Table("Rule", "Language", "Support", "Actionable", "Ratio")
+    for _, prior in sorted(priors.items()):
+        table.add_row(
+            safe_terminal_text(prior.rule_id),
+            safe_terminal_text(prior.language),
+            str(prior.support),
+            str(prior.actionable),
+            f"{prior.actionable_ratio:.3f}",
+        )
+    console.print(table)
+    for suggestion in payload["advisory_thresholds"]:
+        console.print(
+            "[dim]advisory: "
+            f"{safe_terminal_text(str(suggestion['rule_id']))} / "
+            f"{safe_terminal_text(str(suggestion['language']))} → "
+            f"min_confidence={suggestion['suggested_min_confidence']} "
+            "(not applied automatically)[/dim]"
+        )
+
+
+@feedback_app.command("rank")
+def feedback_rank(
+    input_file: str = typer.Option(..., "--input", "-i", help="Unified or quick report JSON file"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Write ranked JSON"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON"),
+    feedback_file: str = typer.Option("", "--file", help="Feedback JSONL file"),
+):
+    """Rank report findings with feedback priors; every finding is preserved."""
+    from smartbench.feedback import FeedbackStore, rank_findings
+    from smartbench.frontends.upstream_checker import extract_findings
+
+    source = Path(input_file)
+    if not source.is_file():
+        console.print(f"[red]Input file not found: {safe_terminal_text(input_file)}[/red]")
+        raise typer.Exit(1)
+    try:
+        document = json.loads(source.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        console.print(f"[red]Invalid JSON: {safe_terminal_text(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    findings = extract_findings(document)
+    store = FeedbackStore(Path(feedback_file) if feedback_file else None)
+    payload = rank_findings(findings, store.events())
+    text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    if output:
+        destination = Path(output).expanduser()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(text, encoding="utf-8")
+    if json_output:
+        console.print(text, soft_wrap=True)
+        return
+    ranked = payload["findings"]
+    if not ranked:
+        console.print("[yellow]No findings found in input file.[/yellow]")
+        return
+    table = Table("Rank", "Rule", "Location", "Actionable ratio", "Support", "Confidence")
+    for index, finding in enumerate(ranked, start=1):
+        feedback = finding.get("feedback") or {}
+        ratio = feedback.get("actionable_ratio")
+        confidence = finding.get("confidence")
+        table.add_row(
+            str(index),
+            safe_terminal_text(str(finding.get("rule_id", ""))),
+            safe_terminal_text(
+                f"{finding.get('file_path', '')}:{finding.get('line_start', 0)}"
+            ),
+            "-" if ratio is None else f"{ratio:.3f}",
+            str(feedback.get("support", 0)),
+            "-" if confidence is None else f"{float(confidence):.2f}",
+        )
+    console.print(table)
+    console.print(
+        f"[dim]{len(ranked)} findings ranked, 0 suppressed (ranking only).[/dim]"
+    )
+    if output:
+        console.print(
+            f"[green]Ranked report saved to {safe_terminal_text(str(Path(output).expanduser()))}[/green]"
+        )
 
 
 @app.command("check-upstream")

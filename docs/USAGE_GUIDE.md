@@ -60,6 +60,22 @@ smartbench quick --project ./my-project --trials 3 \
 smartbench --quick --project ./my-project --concern "检查安全风险"
 ```
 
+### 人工反馈与离线排序（`feedback`）
+
+把人工确认/驳回记录成用户侧事件，用于离线排序；**只调整顺序，不删除 finding**：
+
+```bash
+smartbench feedback add   --label actionable --rule-id resource_leak --language python   --file-path src/main.py --line 10 --confidence 0.6   --reason "维护者确认"
+
+smartbench feedback list [--rule-id ...] [--language ...] [--label ...] [--json]
+smartbench feedback policy [--json]
+smartbench feedback rank --input report.json --output ranked.json [--json]
+```
+
+默认事件文件是 `~/.smartbench/feedback/events.jsonl`（或 `SMARTBENCH_FEEDBACK_FILE`）。
+排序使用 `(rule, language)` 的 Laplace 先验，`rank` 输出的 `policy.suppressed` 恒为 0；
+`policy` 给出的 `min_confidence` 只是建议值，不会自动应用。Phase 1 不做训练。
+
 ### 轨迹记录与导出（`--trajectory`）
 
 `quick` / `unified run` 可以记录一条脱敏的审计轨迹（默认关闭）：
