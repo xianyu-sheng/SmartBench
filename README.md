@@ -210,6 +210,20 @@ smartbench benchmark run --manifest benchmarks/negative/manifest.yaml --output n
 |---|---|---|---|---|---|---|---|---|
 | overall (positive + negative) | 26 | 0 | 0 | 40 | 1.000 | 1.000 | 1.000 | 0.000 |
 
+By category (same report; `–` means the corpus has no expected findings for that category, so precision/recall are undefined):
+
+| Category | TP | FP | FN | TN | Precision | Recall |
+|---|---|---|---|---|---|---|
+| resource-lifecycle | 16 | 0 | 0 | 21 | 1.000 | 1.000 |
+| concurrency | 5 | 0 | 0 | 5 | 1.000 | 1.000 |
+| correctness | 2 | 0 | 0 | 2 | 1.000 | 1.000 |
+| configuration-validation | 1 | 0 | 0 | 1 | 1.000 | 1.000 |
+| data-integrity | 1 | 0 | 0 | 1 | 1.000 | 1.000 |
+| security-state-guard | 1 | 0 | 0 | 1 | 1.000 | 1.000 |
+| secrets | 0 | 0 | 0 | 3 | – | – |
+| command-injection | 0 | 0 | 0 | 3 | – | – |
+| state-guard | 0 | 0 | 0 | 3 | – | – |
+
 Latency on the deterministic path: p50 **114 ms**, p95 **436 ms**, max 763 ms over 64 snapshots. Abstention and provider cost only exist on the LLM path: `quick --trials N` records trial stability, tokens and an indicative cost (unknown models report `n/a` instead of a made-up number). Per-rule, per-language and per-category breakdowns are in the JSON report.
 
 ```bash
@@ -280,7 +294,7 @@ Every corpus number is regenerable with `smartbench benchmark metrics`; the comm
 Finding bugs is not the end product. The goal is a **verifiable audit trajectory engine**: findings are a by-product; the trajectory (hypothesis → evidence → verdict) and its adjudication are the reusable, trainable, auditable asset. Every step below is independently useful and makes the next one cheaper.
 
 - [x] **Document the bug classes** the deterministic layer can find today (see above) and file the four post-audit directions as claimable issues ([#45](https://github.com/xianyu-sheng/SmartBench/issues/45)–[#48](https://github.com/xianyu-sheng/SmartBench/issues/48)).
-- [ ] **Measurement** — build the negative corpus ([#11](https://github.com/xianyu-sheng/SmartBench/issues/11)) and report honest precision / recall / abstention / cost numbers ([#10](https://github.com/xianyu-sheng/SmartBench/issues/10), [#12](https://github.com/xianyu-sheng/SmartBench/issues/12)); turn the bug-class table above into an evaluation matrix.
+- [x] **Measurement** — negative corpus ([#11](https://github.com/xianyu-sheng/SmartBench/issues/11)), honest precision / recall / abstention / cost numbers ([#10](https://github.com/xianyu-sheng/SmartBench/issues/10), [#12](https://github.com/xianyu-sheng/SmartBench/issues/12)), and the evaluation matrix below.
 - [ ] **Trajectory schema** — record every `quick`/`unified` run as `smartbench.trajectory/v1`, with offline replay ([#46](https://github.com/xianyu-sheng/SmartBench/issues/46)). This is the starting point of the data asset.
 - [ ] **Feedback events** — persist human confirm/reject as `smartbench.feedback/v1`; start with offline ranking/threshold policies, not training ([#45](https://github.com/xianyu-sheng/SmartBench/issues/45), phase 1).
 - [ ] **Publish Audit Trajectories v0** — 3–5 disclosed real cases + the 25-case corpus + negative samples (rejected/abstained), with a dataset card, license, redaction and takedown policy.

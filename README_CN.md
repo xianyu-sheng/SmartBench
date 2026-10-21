@@ -209,6 +209,20 @@ smartbench benchmark run --manifest benchmarks/negative/manifest.yaml --output n
 |---|---|---|---|---|---|---|---|---|
 | 总体（正 + 负语料） | 26 | 0 | 0 | 40 | 1.000 | 1.000 | 1.000 | 0.000 |
 
+按类别（同一份报告；`–` 表示该类别在语料中没有预期 finding，因此 precision/recall 无定义）：
+
+| 类别 | TP | FP | FN | TN | Precision | Recall |
+|---|---|---|---|---|---|---|
+| resource-lifecycle | 16 | 0 | 0 | 21 | 1.000 | 1.000 |
+| concurrency | 5 | 0 | 0 | 5 | 1.000 | 1.000 |
+| correctness | 2 | 0 | 0 | 2 | 1.000 | 1.000 |
+| configuration-validation | 1 | 0 | 0 | 1 | 1.000 | 1.000 |
+| data-integrity | 1 | 0 | 0 | 1 | 1.000 | 1.000 |
+| security-state-guard | 1 | 0 | 0 | 1 | 1.000 | 1.000 |
+| secrets | 0 | 0 | 0 | 3 | – | – |
+| command-injection | 0 | 0 | 0 | 3 | – | – |
+| state-guard | 0 | 0 | 0 | 3 | – | – |
+
 确定性路径延迟：64 个快照上 p50 **114 ms**、p95 **436 ms**、最大 763 ms。弃权率和提供商成本只存在于 LLM 路径：`quick --trials N` 会记录试验稳定性、token 与指示性成本（未知模型标 `n/a`，不编造数字）。按规则、语言、类别的细分见 JSON 报告。
 
 ```bash
@@ -279,7 +293,7 @@ SmartBench 适合受控的仓库实验、架构研究和作品集展示。它已
 找 Bug 不是最终产物。目标是**可验证的审计轨迹引擎**：finding 只是副产物；轨迹（假设 → 证据 → 裁决）及其裁决结果才是可复用、可训练、可审计的资产。下面每一步都独立有用，并让下一步更便宜。
 
 - [x] **公示可发现的 Bug 类别**（见上方表格），并把四个后审计方向登记为可认领 issue（[#45](https://github.com/xianyu-sheng/SmartBench/issues/45)–[#48](https://github.com/xianyu-sheng/SmartBench/issues/48)）。
-- [ ] **度量** —— 建负语料（[#11](https://github.com/xianyu-sheng/SmartBench/issues/11)），公开诚实的 precision / recall / 弃权率 / 成本（[#10](https://github.com/xianyu-sheng/SmartBench/issues/10)、[#12](https://github.com/xianyu-sheng/SmartBench/issues/12)）；把上方的 bug 类别表变成评测矩阵。
+- [x] **度量** —— 负语料（[#11](https://github.com/xianyu-sheng/SmartBench/issues/11)）、诚实的 precision / recall / 弃权率 / 成本（[#10](https://github.com/xianyu-sheng/SmartBench/issues/10)、[#12](https://github.com/xianyu-sheng/SmartBench/issues/12)），以及下方的评测矩阵。
 - [ ] **轨迹 schema** —— 每次 `quick`/`unified` 运行记录为 `smartbench.trajectory/v1`，支持离线回放（[#46](https://github.com/xianyu-sheng/SmartBench/issues/46)）。这是数据资产的起点。
 - [ ] **反馈事件** —— 人工确认/驳回持久化为 `smartbench.feedback/v1`；先做离线排序/阈值策略，不做训练（[#45](https://github.com/xianyu-sheng/SmartBench/issues/45) 第一阶段）。
 - [ ] **发布 Audit Trajectories v0** —— 3–5 个已披露真实案例 + 25 案例语料 + 负样本（被驳回/弃权），附 dataset card、许可证、脱敏与 takedown 政策。
