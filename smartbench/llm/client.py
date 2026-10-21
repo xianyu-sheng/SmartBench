@@ -76,6 +76,9 @@ def call_llm(
     max_retries: int = 2,
     timeout_seconds: float = 120,
     on_error: Optional[Callable[[str], None]] = None,
+    temperature: float = 0.3,
+    seed: Optional[int] = None,
+    on_usage: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> str:
     """Call the best configured model for *role* and return response text.
 
@@ -103,6 +106,13 @@ def call_llm(
         max_retries = max(0, int(max_retries))
     except (TypeError, ValueError):
         max_retries = 2
+    try:
+        normalized_temperature = float(temperature)
+    except (TypeError, ValueError):
+        normalized_temperature = 0.3
+    if not math.isfinite(normalized_temperature) or not 0.0 <= normalized_temperature <= 2.0:
+        normalized_temperature = 0.3
+    normalized_seed = seed if isinstance(seed, int) and not isinstance(seed, bool) else None
 
     ordered = sorted(
         models,
@@ -132,6 +142,8 @@ def call_llm(
             model_name=model_name,
             prompt=prompt,
             system=system,
+            temperature=normalized_temperature,
+            seed=normalized_seed,
         )
 
         for attempt in range(max_retries + 1):
@@ -159,7 +171,11 @@ def call_llm(
 
             if 200 <= response.status_code < 300:
                 try:
-                    return _extract_content(provider, response.json())
+                    payload = response.json()
+                    text = _extract_content(provider, payload)
+                    if on_usage is not None:
+                        on_usage(_extract_usage(provider, payload, model_name))
+                    return text
                 except EmptyCompletionError as exc:
                     # Reasoning models may exhaust the token budget on hidden
                     # reasoning and return empty content. Retry with a larger
@@ -258,6 +274,8 @@ def _build_request(
     model_name: str,
     prompt: str,
     system: str,
+    temperature: float = 0.3,
+    seed: Optional[int] = None,
 ) -> Tuple[str, Dict[str, str], Dict]:
     """Build a provider-specific HTTP request without exposing credentials."""
     if provider == "anthropic":
@@ -272,7 +290,7 @@ def _build_request(
                 "model": model_name,
                 "system": system,
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3,
+                "temperature": temperature,
                 "max_tokens": _max_output_tokens(),
             },
         )
@@ -283,9 +301,11 @@ def _build_request(
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.3,
+        "temperature": temperature,
         "max_tokens": _max_output_tokens(),
     }
+    if seed is not None:
+        body["seed"] = seed
     if provider == "deepseek" and _deepseek_thinking_disabled():
         body["thinking"] = {"type": "disabled"}
 
@@ -312,6 +332,30 @@ def _extract_content(provider: str, payload: Dict) -> str:
     if not isinstance(text, str) or not text.strip():
         raise EmptyCompletionError("response contained no text")
     return text
+
+
+def _extract_usage(provider: str, payload: Dict, model_name: str) -> Dict[str, Any]:
+    """Normalize provider usage fields into one comparable record."""
+    raw = payload.get("usage") if isinstance(payload, dict) else None
+    usage = raw if isinstance(raw, dict) else {}
+    if provider == "anthropic":
+        prompt_tokens = usage.get("input_tokens", 0)
+        completion_tokens = usage.get("output_tokens", 0)
+    else:
+        prompt_tokens = usage.get("prompt_tokens", 0)
+        completion_tokens = usage.get("completion_tokens", 0)
+    try:
+        prompt_count = max(0, int(prompt_tokens or 0))
+        completion_count = max(0, int(completion_tokens or 0))
+    except (TypeError, ValueError):
+        prompt_count = 0
+        completion_count = 0
+    return {
+        "model": model_name,
+        "prompt_tokens": prompt_count,
+        "completion_tokens": completion_count,
+        "total_tokens": prompt_count + completion_count,
+    }
 
 
 def _retry_delay(response: httpx.Response, attempt: int) -> float:

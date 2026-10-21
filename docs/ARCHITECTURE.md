@@ -343,6 +343,20 @@ no-repair baseline completed 3/6 because opaque cleanup fact IDs were copied
 incompletely. This is evidence for the resolver boundary on this small corpus,
 not a general bug-detection accuracy claim.
 
+The normal `quick` path exposes the same discipline in miniature.
+`smartbench quick --trials 3 --temperature 0.3 --seed 42` reuses one
+deterministic `AnalysisSession` and runs the LLM stages three times. Each trial
+records token usage (prompt/completion), an indicative cost (unknown models are
+reported as `n/a`, never invented), duration, and a signature over the
+normalized final-suggestion set. Stability is the share of trials agreeing with
+the most common signature; `stable` is true only when every trial agrees, and
+disagreeing signatures stay visible in the report. The block is attached to
+`analysis_report.trials`, so `quick --output report.json` persists it. Usage
+capture is tested offline against a stub HTTP provider; CI never makes live
+model calls. Temperature and seed are printed in the run summary and settable
+via `--temperature` / `--seed` (the seed is omitted for providers such as
+Anthropic that do not accept one).
+
 The blind transfer experiment removes each historical target file and fix from
 the reference inventory. Pinned, hashed files from unrelated project modules
 provide admissible positive evidence. On the current four-case Go resource
