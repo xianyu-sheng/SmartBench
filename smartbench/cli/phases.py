@@ -806,6 +806,8 @@ def run_quick_mode(
     trials: int = 1,
     temperature: float = 0.3,
     seed: Optional[int] = None,
+    save_trajectory: bool = False,
+    trajectory_dir: Optional[str] = None,
 ) -> Optional[object]:
     """Minimal-interaction quick mode — auto-detect everything.
 
@@ -848,6 +850,16 @@ def run_quick_mode(
             concern,
             enable_sandbox=enable_sandbox,
         )
+        if save_trajectory:
+            _record_trajectory(
+                console,
+                project_path,
+                session,
+                result,
+                config={"concern": concern, "trials": 1},
+                usage=None,
+                directory=trajectory_dir,
+            )
         console.print("\n[bold green]Done![/bold green]\n")
         return result
 
@@ -910,9 +922,56 @@ def run_quick_mode(
         payload = dict(getattr(result, "analysis_report") or {})
         payload["trials"] = report.to_dict()
         result.analysis_report = payload
+    if save_trajectory:
+        _record_trajectory(
+            console,
+            project_path,
+            session,
+            result,
+            config={
+                "concern": concern,
+                "trials": trial_count,
+                "temperature": temperature,
+                "seed": seed,
+            },
+            usage=report.to_dict(),
+            directory=trajectory_dir,
+        )
 
     console.print("\n[bold green]Done![/bold green]\n")
     return result
+
+
+def _record_trajectory(
+    console: Console,
+    project_path,
+    session,
+    result,
+    *,
+    config: Optional[Dict[str, Any]] = None,
+    usage: Optional[Dict[str, Any]] = None,
+    directory: Optional[str] = None,
+) -> None:
+    """Persist a redacted trajectory; never fail the audit because of it."""
+    from smartbench import __version__
+    from smartbench.trajectory import TrajectoryStore, build_trajectory
+
+    debate = result if hasattr(result, "final_suggestions") else None
+    document = build_trajectory(
+        project_path=project_path,
+        tool_version=__version__,
+        config=config or {},
+        session=session,
+        debate_result=debate,
+        usage=usage,
+    )
+    saved = TrajectoryStore(directory or None).write(document)
+    if saved is None:
+        console.print(
+            "[yellow]Trajectory could not be saved (audit result unaffected).[/yellow]"
+        )
+    else:
+        console.print(f"[green]Trajectory saved: {saved}[/green]")
 
 
 def _print_trial_report(console: Console, report) -> None:
