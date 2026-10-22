@@ -29,8 +29,9 @@ trajectories/
 # validate the committed dataset (schema, counts, hash, redaction)
 python -m pytest tests/test_trajectory_dataset.py -q
 
-# record your own runs (user-side, opt-in)
-smartbench quick --project ./repo --trajectory
+# runs are recorded automatically (user-side, redacted)
+smartbench quick --project ./repo
+# opt out for one run: --no-trajectory  (or SMARTBENCH_TRAJECTORY=0)
 
 # export them as a dataset
 smartbench trajectory export my-dataset.jsonl

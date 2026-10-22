@@ -275,7 +275,9 @@ def run_unified_diagnosis(
     )
     result = session.result
 
-    if record_trajectory:
+    from smartbench.trajectory import trajectory_enabled
+
+    if record_trajectory and trajectory_enabled():
         from smartbench import __version__ as tool_version
         from smartbench.trajectory import TrajectoryStore, build_trajectory
 

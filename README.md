@@ -263,6 +263,7 @@ The biggest gaps are open as claimable issues — see the [roadmap](https://gith
 - External commands run without a shell, with time and output bounds.
 - Optional `quick --sandbox` applies patches only to a temporary copy; add `--sandbox-backend container` for a rootless container (network off, read-only root, no host env). The local backend is not an OS sandbox — see [docs/SANDBOX.md](docs/SANDBOX.md).
 - Do not send repositories containing secrets or restricted code to a remote provider unless that exposure is acceptable.
+- Each completed run writes a redacted audit trajectory under `~/.smartbench/trajectories` by default; use `--no-trajectory` or `SMARTBENCH_TRAJECTORY=0` to disable it.
 - Do not file a finding upstream without repeated verification and a human decision.
 
 ## Development

@@ -262,6 +262,7 @@ smartbench benchmark metrics \
 - 外部命令不经过 shell，且有时间和输出上限。
 - 可选的 `quick --sandbox` 只把补丁应用到临时副本；加 `--sandbox-backend container` 可使用 rootless 容器（无网络、只读根、不传宿主环境变量）。本地后端不是 OS 沙箱——见 [docs/SANDBOX.md](docs/SANDBOX.md)。
 - 不要把含密钥或受限源码的仓库发给远端提供商，除非你能接受这种暴露。
+- 每次运行结束默认会把脱敏审计轨迹写到 `~/.smartbench/trajectories`；用 `--no-trajectory` 或 `SMARTBENCH_TRAJECTORY=0` 关闭。
 - 没有反复验证和人工决策，不要把 finding 提交到上游。
 
 ## 开发
