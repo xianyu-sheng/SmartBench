@@ -1,5 +1,6 @@
 """Tests for deterministic sharded review (issue #48)."""
 
+import re
 import threading
 import time
 
@@ -174,7 +175,8 @@ def test_deadline_skips_undispatched_shards():
 
 
 def test_quick_help_documents_max_workers():
-    result = CliRunner().invoke(app, ["quick", "--help"])
+    result = CliRunner().invoke(app, ["quick", "--help"], env={"COLUMNS": "200"})
+    plain = re.sub(r"\[[0-9;]*m", "", result.output)
 
     assert result.exit_code == 0
-    assert "--max-workers" in result.output
+    assert "--max-workers" in plain
