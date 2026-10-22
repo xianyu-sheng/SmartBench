@@ -25,8 +25,8 @@ def test_manifest_counts_and_hash():
 
     assert manifest["schema_version"] == "smartbench.dataset/v1"
     assert manifest["license"] == "CC-BY-4.0"
-    assert manifest["documents"] == len(documents) == 70
-    assert manifest["splits"] == {"benchmark": 50, "negative": 14, "real_world": 6}
+    assert manifest["documents"] == len(documents) == 73
+    assert manifest["splits"] == {"benchmark": 50, "negative": 14, "real_world": 9}
     assert Counter(doc["config"]["split"] for doc in documents) == manifest["splits"]
     canonical = (V0 / "trajectories.jsonl").read_bytes().replace(bytes([13, 10]), bytes([10]))
     assert hashlib.sha256(canonical).hexdigest() == manifest["sha256"]
@@ -47,7 +47,7 @@ def test_every_document_is_valid_and_redacted():
 
 def test_real_world_entries_carry_provenance():
     real = [doc for doc in _documents() if doc["config"]["split"] == "real_world"]
-    assert len(real) == 6
+    assert len(real) == 9
     for document in real:
         assert document["verification"]
         assert document["adjudication"]

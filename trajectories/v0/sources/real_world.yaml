@@ -106,3 +106,57 @@ cases:
       continue spins a core with log spam, so the fail-stop crash is preferred.
     adjudication: design_trade_off
     location_note: Line 138 is the detection location cited in the PR.
+
+  - id: tproxy-pipe-goroutine-leak
+    repository: kevwan/tproxy
+    language: go
+    category: resource-lifecycle
+    rule_id: resource_leak
+    file_path: conn.go
+    line_start: 64
+    title: io.Pipe writers never close, leaking dump goroutines per connection
+    reference: https://github.com/kevwan/tproxy/pull/177
+    disclosure: public-pr-open
+    outcome: pr-open
+    verification: >-
+      conn_test.go opens and closes five proxied connections and compares
+      runtime.NumGoroutine() with the baseline; closing the pipe writers
+      restores the count.
+    adjudication: actionable
+    location_note: Line 64 is the audit location; the PR points at the pipe setup.
+
+  - id: webdav-cors-warning-unreachable
+    repository: hacdias/webdav
+    language: go
+    category: security-state-guard
+    rule_id: unreachable-security-warning
+    file_path: lib/handler.go
+    line_start: 1
+    title: CORS early return skips unprotected-config warnings
+    reference: https://github.com/hacdias/webdav/pull/374
+    disclosure: public-pr-open
+    outcome: pr-open
+    verification: >-
+      Code inspection: the CORS-enabled branch returns before the no-users and
+      NoPassword warnings, so operators never see them; the PR makes the
+      warnings reachable for CORS configurations.
+    adjudication: actionable
+    location_note: Line 1 is approximate; the PR points at NewHandler.
+
+  - id: afero-gcs-writer-leak
+    repository: spf13/afero
+    language: go
+    category: resource-lifecycle
+    rule_id: resource_leak
+    file_path: gcsfs/file_resource.go
+    line_start: 64
+    title: GCS writer leaked on WriteAt error paths
+    reference: https://github.com/spf13/afero/pull/701
+    disclosure: public-pr-open
+    outcome: pr-open
+    verification: >-
+      Error paths return before the writer is recorded or closed; the PR closes
+      readers and writers on every failure path. The audit run also flagged the
+      same file's close-state and mutex paths.
+    adjudication: actionable
+    location_note: Line 64 is the audit location; the PR points at the WriteAt error paths.
