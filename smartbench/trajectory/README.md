@@ -15,6 +15,7 @@ log dump.
 - `findings`: `rule_id`, project-relative `file_path`, `line_start`, title,
   severity, confidence, evidence IDs, status
 - `adjudication`, `verification`, `human_feedback`, `usage`
+- `analysis`: review strategy, shard plan, merge counters and per-shard status
 - `finding_signature`: stable hash of the normalized finding set
 
 ## Privacy and redaction
