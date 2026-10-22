@@ -90,6 +90,18 @@ smartbench feedback rank --input report.json --output ranked.json [--json]
 排序使用 `(rule, language)` 的 Laplace 先验，`rank` 输出的 `policy.suppressed` 恒为 0；
 `policy` 给出的 `min_confidence` 只是建议值，不会自动应用。Phase 1 不做训练。
 
+Phase 2 可以把先验接进正常流程（默认关闭，只排序/标注，不抑制）：
+
+```bash
+smartbench quick --project ./my-project --feedback
+smartbench quick --project ./my-project --feedback --feedback-file ./events.jsonl
+smartbench preflight --input report.json --no-branches --feedback
+```
+
+`quick` 会在 adjudication 之后重排 final suggestions，并在 `analysis_report.feedback`
+记录事件数、排名数与 `suppressed: 0`；`preflight` 在同一 verdict 组内按先验排序，表格
+增加 `Prior` 列（ratio/support），verdict 优先级不变。
+
 ### 轨迹记录与导出（默认自动）
 
 `quick` / `unified run` 每次完成后会**自动**把一条脱敏的审计轨迹写入本地目录（默认
