@@ -918,6 +918,8 @@ def run_quick_mode(
     sandbox_image: Optional[str] = None,
     sandbox_runtime: Optional[str] = None,
     max_workers: int = 1,
+    apply_feedback: bool = False,
+    feedback_file: Optional[str] = None,
     save_trajectory: bool = False,
     trajectory_dir: Optional[str] = None,
 ) -> Optional[object]:
@@ -1044,6 +1046,8 @@ def run_quick_mode(
         payload = dict(getattr(result, "analysis_report") or {})
         payload["trials"] = report.to_dict()
         result.analysis_report = payload
+    if apply_feedback and result is not None and hasattr(result, "final_suggestions"):
+        _apply_feedback_ranking(console, result, feedback_file)
     if save_trajectory and trajectory_enabled():
         _record_trajectory(
             console,
@@ -1062,6 +1066,28 @@ def run_quick_mode(
 
     console.print("\n[bold green]Done![/bold green]\n")
     return result
+
+
+def _apply_feedback_ranking(console: Console, result, feedback_file: Optional[str]) -> None:
+    """Reorder suggestions with feedback priors; never drop or suppress one."""
+    from smartbench.feedback import FeedbackStore, rank_findings
+
+    store = FeedbackStore(Path(feedback_file) if feedback_file else None)
+    events = store.events()
+    payload = rank_findings(result.final_suggestions, events)
+    result.final_suggestions = payload["findings"]
+    report = dict(getattr(result, "analysis_report", None) or {})
+    report["feedback"] = {
+        "events": len(events),
+        "ranked": len(result.final_suggestions),
+        "suppressed": 0,
+        "advisory_thresholds": payload["policy"]["advisory_thresholds"],
+    }
+    result.analysis_report = report
+    console.print(
+        f"[dim]Feedback priors: {len(result.final_suggestions)} findings ranked, "
+        f"0 suppressed ({len(events)} events)[/dim]"
+    )
 
 
 def _record_trajectory(

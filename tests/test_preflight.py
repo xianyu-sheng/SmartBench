@@ -143,3 +143,47 @@ def test_preflight_submit_when_clean(tmp_path, monkeypatch):
     payload = json.loads(result.output)
     assert [row["verdict"] for row in payload["findings"]] == ["submit"] * 3
     assert payload["summary"]["submit"] == 3
+
+
+def test_preflight_feedback_ranks_without_dropping(tmp_path):
+    from smartbench.feedback import FeedbackStore, make_event
+
+    report = _write_report(tmp_path)
+    memory = tmp_path / "intent.yaml"
+    events_path = tmp_path / "events.jsonl"
+    store = FeedbackStore(events_path)
+    for index in range(2):
+        store.append(
+            make_event(
+                label="actionable",
+                rule_id="retry_without_backoff",
+                language="go",
+                confidence=0.8,
+                reason=f"case {index}",
+            )
+        )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "preflight",
+            "--input",
+            str(report),
+            "--memory-file",
+            str(memory),
+            "--no-branches",
+            "--no-record",
+            "--feedback",
+            "--feedback-file",
+            str(events_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert len(payload["findings"]) == 3
+    assert payload["findings"][0]["rule_id"] == "retry_without_backoff"
+    assert all("feedback" in row for row in payload["findings"])
+    assert payload["findings"][0]["feedback"]["support"] == 2
+    assert payload["summary"]["submit"] == 3

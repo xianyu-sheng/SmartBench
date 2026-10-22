@@ -435,6 +435,16 @@ def quick(
         max=8,
         help="Shard the LLM review across N workers (1 = single debate)",
     ),
+    feedback: bool = typer.Option(
+        False,
+        "--feedback/--no-feedback",
+        help="Apply feedback priors to suggestion ordering (never suppresses)",
+    ),
+    feedback_file: Optional[str] = typer.Option(
+        None,
+        "--feedback-file",
+        help="Feedback JSONL file (default: ~/.smartbench/feedback/events.jsonl)",
+    ),
     trials: int = typer.Option(
         1,
         "--trials",
@@ -473,6 +483,8 @@ def quick(
         sandbox_image=sandbox_image,
         sandbox_runtime=sandbox_runtime,
         max_workers=max_workers,
+        apply_feedback=feedback,
+        feedback_file=feedback_file,
         trials=trials,
         temperature=temperature,
         seed=seed,
@@ -1067,6 +1079,16 @@ def preflight(
         "--record/--no-record",
         help="Record discussed upstream results in the user intent memory",
     ),
+    feedback: bool = typer.Option(
+        False,
+        "--feedback/--no-feedback",
+        help="Annotate and order rows with feedback priors (never suppresses)",
+    ),
+    feedback_file: str = typer.Option(
+        "",
+        "--feedback-file",
+        help="Feedback JSONL file (default: ~/.smartbench/feedback/events.jsonl)",
+    ),
 ):
     """Unified pre-submission check: branches, declared intent and upstream history.
 
@@ -1189,6 +1211,52 @@ def preflight(
             }
         )
 
+    if feedback:
+        from smartbench.feedback import (
+            FeedbackStore,
+            build_priors,
+            finding_language,
+            prior_for,
+        )
+
+        events = FeedbackStore(Path(feedback_file) if feedback_file else None).events()
+        priors = build_priors(events)
+        verdict_rank = {
+            "already_fixed": 0,
+            "declared": 1,
+            "discussed": 2,
+            "mentioned": 3,
+            "submit": 4,
+        }
+        scored = []
+        for index, row in enumerate(rows):
+            prior = prior_for(
+                priors,
+                str(row["rule_id"]),
+                finding_language({"file_path": str(row["file_path"])}),
+            )
+            score = prior.actionable_ratio if prior is not None else 0.5
+            row["feedback"] = (
+                {
+                    "score": score,
+                    "actionable_ratio": prior.actionable_ratio,
+                    "support": prior.support,
+                    "label_counts": dict(prior.label_counts),
+                }
+                if prior is not None
+                else {
+                    "score": score,
+                    "actionable_ratio": None,
+                    "support": 0,
+                    "label_counts": {},
+                }
+            )
+            scored.append(
+                (verdict_rank.get(str(row["verdict"]), 9), -score, index, row)
+            )
+        scored.sort(key=lambda item: (item[0], item[1], item[2]))
+        rows = [item[3] for item in scored]
+
     counts: dict[str, int] = {}
     for row in rows:
         counts[row["verdict"]] = counts.get(row["verdict"], 0) + 1
@@ -1203,14 +1271,28 @@ def preflight(
             console.print(text, soft_wrap=True)
         return
 
-    table = Table("Finding", "Verdict", "Detail")
+    headers = ["Finding", "Verdict", "Detail"] + (["Prior"] if feedback else [])
+    table = Table(*headers)
     for row in rows:
-        table.add_row(
+        cells = [
             safe_terminal_text(f"{row['rule_id']} @ {row['file_path']}:{row['line_start']}"),
             row["verdict"],
             safe_terminal_text(str(row["detail"])[:120]),
-        )
+        ]
+        if feedback:
+            annotation = row.get("feedback") or {}
+            ratio = annotation.get("actionable_ratio")
+            cells.append(
+                "-"
+                if ratio is None
+                else f"{ratio:.2f}/{annotation.get('support', 0)}"
+            )
+        table.add_row(*cells)
     console.print(table)
+    if feedback:
+        console.print(
+            "[dim]Feedback priors applied: ranking only, 0 findings suppressed.[/dim]"
+        )
     console.print(
         f"\n[green]submit:[/green] {counts.get('submit', 0)} "
         f"| [cyan]already_fixed:[/cyan] {counts.get('already_fixed', 0)} "
