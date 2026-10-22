@@ -8,7 +8,7 @@ separate dataset repo). The schema and tooling live in
 trajectories/
   LICENSE              # CC BY 4.0 for the data (code stays MIT)
   v0/
-    trajectories.jsonl # 69 redacted `smartbench.trajectory/v1` documents
+    trajectories.jsonl # 70 redacted `smartbench.trajectory/v1` documents
     manifest.json      # counts, splits, SHA-256
     dataset_card.md    # provenance, limitations, license, citation
     sources/
@@ -19,7 +19,7 @@ trajectories/
 
 | Split | Documents | Source |
 |---|---|---|
-| `real_world` | 5 | Public issues/PRs with runtime verification and outcomes |
+| `real_world` | 6 | Public issues/PRs with runtime verification and outcomes |
 | `benchmark` | 50 | 25 before/after cases from `benchmarks/real/manifest.yaml` |
 | `negative` | 14 | Clean look-alikes from `benchmarks/negative/manifest.yaml` |
 

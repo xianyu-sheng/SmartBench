@@ -1,6 +1,6 @@
 # SmartBench Audit Trajectories v0
 
-**69 redacted audit trajectories** (75 KB JSONL): 5 real-world outcomes,
+**70 redacted audit trajectories** (76 KB JSONL): 6 real-world outcomes,
 50 benchmark snapshots and 14 negative fixtures. This is a dataset of
 **verifiable audit trajectories** — hypothesis/evidence/verdict records — not a
 leaderboard and not a claim of general bug-detection accuracy.
@@ -14,7 +14,7 @@ leaderboard and not a claim of general bug-detection accuracy.
 
 | Split | Documents | What it contains | LLM involved |
 |---|---|---|---|
-| `real_world` | 5 | Public issues/PRs with runtime verification and an outcome (`merged`, `closed-fixed`, `open`, `pr-open`) | Human-verified |
+| `real_world` | 6 | Public issues/PRs with runtime verification and an outcome (`merged`, `closed-fixed`, `open`, `pr-open`) | Human-verified |
 | `benchmark` | 50 | 25 before/after cases (public fixes + synthetic fixtures); deterministic findings only | No |
 | `negative` | 14 | Clean look-alike fixtures that must produce zero findings | No |
 

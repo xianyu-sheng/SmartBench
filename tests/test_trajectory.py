@@ -46,7 +46,11 @@ def _debate():
         duration_ms=120,
         consensus_reached=True,
         stage_statuses={"proposer": "ok", "critique": "ok"},
-        analysis_report={},
+        analysis_report={
+            "review_strategy": "sharded",
+            "shard_plan": {"shards": [{"shard_id": "src"}]},
+            "merge": {"suggestions": 1, "cross_shard_duplicates": 0},
+        },
     )
 
 
@@ -72,6 +76,8 @@ def test_build_trajectory_is_valid_and_redacted(tmp_path):
     assert str(tmp_path) not in json.dumps(document)
     assert document["deterministic"]["findings"][0]["rule_id"] == "resource_leak"
     assert document["usage"]["total_tokens"] == 42
+    assert document["analysis"]["review_strategy"] == "sharded"
+    assert document["analysis"]["merge"]["suggestions"] == 1
 
 
 def test_redact_text_masks_secrets_and_home(tmp_path):
