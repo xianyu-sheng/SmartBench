@@ -1,9 +1,15 @@
 """Apply machine-readable patches in a temporary copy and run tests.
 
-This verifier is deliberately opt-in.  A temporary directory protects the
-working tree from edits, but it is not an operating-system security sandbox:
-project tests still execute with the current user's permissions.  Callers must
-only enable it for repositories they trust.
+This verifier is deliberately opt-in. Two backends are available:
+
+- ``local`` (default): a temporary copy protects the working tree, but tests
+  still execute with the current user's permissions. It is **not** an
+  operating-system sandbox; callers must only enable it for trusted repos.
+- ``container``: a rootless podman/docker container with networking disabled,
+  a read-only root filesystem, a writable workspace mount, a tmpfs ``/tmp``,
+  a non-root user on POSIX, resource limits and an explicit environment
+  allowlist. A container shares the host kernel — a stronger boundary, not a
+  formal guarantee.
 """
 
 import logging
@@ -11,38 +17,22 @@ import os
 import re
 import shlex
 import shutil
-import subprocess
 import sys
 import tempfile
 from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from smartbench.subprocess_utils import run_bounded
+from smartbench.verifier.sandbox_backends import (
+    SandboxBackend,
+    SandboxBackendError,
+    make_backend,
+)
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MAX_COPY_FILES = 20_000
 _DEFAULT_MAX_COPY_BYTES = 512 * 1024 * 1024
 _DEFAULT_MAX_PATCH_BYTES = 1024 * 1024
-_SENSITIVE_ENV_MARKERS = (
-    "API_KEY",
-    "AUTH",
-    "COOKIE",
-    "CREDENTIAL",
-    "PASSWORD",
-    "PRIVATE_KEY",
-    "SECRET",
-    "SESSION",
-    "TOKEN",
-)
-_SENSITIVE_ENV_PREFIXES = (
-    "AWS_",
-    "AZURE_",
-    "GITHUB_",
-    "GITLAB_",
-    "GOOGLE_",
-    "OPENAI_",
-)
 
 
 class SandboxVerifier:
@@ -55,8 +45,17 @@ class SandboxVerifier:
         max_copy_files: int = _DEFAULT_MAX_COPY_FILES,
         max_copy_bytes: int = _DEFAULT_MAX_COPY_BYTES,
         max_patch_bytes: int = _DEFAULT_MAX_PATCH_BYTES,
+        backend: str = "local",
+        image: Optional[str] = None,
+        runtime: Optional[str] = None,
     ):
         self.project_path = Path(project_path).resolve()
+        try:
+            self.backend: SandboxBackend = make_backend(
+                backend, image=image, runtime=runtime
+            )
+        except SandboxBackendError as exc:
+            raise ValueError(str(exc)) from exc
         try:
             self.timeout = max(1, int(timeout_seconds))
         except (TypeError, ValueError, OverflowError):
@@ -360,59 +359,19 @@ class SandboxVerifier:
         cwd: Path,
         input_text: Optional[str] = None,
     ) -> Dict:
-        try:
-            proc = run_bounded(
-                command,
-                cwd=str(cwd),
-                timeout=self.timeout,
-                env=self._subprocess_environment(),
-                input_text=input_text,
-            )
-            output = (proc.stdout[-3000:] + "\n" + proc.stderr[-1000:]).strip()
-            return {
-                "status": "passed" if proc.returncode == 0 else "failed",
-                "output": output,
-                "exit_code": proc.returncode,
-                "error": None,
-            }
-        except subprocess.TimeoutExpired as exc:
-            output = ""
-            if isinstance(exc.stdout, str):
-                output += exc.stdout[-2000:]
-            if isinstance(exc.stderr, str):
-                output += exc.stderr[-1000:]
-            return {
-                "status": "timeout",
-                "output": output,
-                "exit_code": -1,
-                "error": f"Test execution timed out after {self.timeout}s",
-            }
-        except Exception as exc:
-            return {
-                "status": "error",
-                "output": "",
-                "exit_code": -1,
-                "error": str(exc),
-            }
+        result = self.backend.run(
+            command,
+            cwd,
+            timeout=self.timeout,
+            input_text=input_text,
+        )
+        return {
+            "status": result.status,
+            "output": result.output,
+            "exit_code": result.exit_code,
+            "error": result.error,
+        }
 
-    @staticmethod
-    def _subprocess_environment() -> Dict[str, str]:
-        """Drop credential-like variables before repository code executes."""
-        environment = {}
-        for name, value in os.environ.items():
-            upper_name = name.upper()
-            if upper_name.startswith(_SENSITIVE_ENV_PREFIXES):
-                continue
-            if any(marker in upper_name for marker in _SENSITIVE_ENV_MARKERS):
-                continue
-            environment[name] = value
-        environment.update({
-            "CI": "1",
-            "GIT_TERMINAL_PROMPT": "0",
-            "PIP_NO_INPUT": "1",
-            "SMARTBENCH_SANDBOX": "1",
-        })
-        return environment
 
     @staticmethod
     def _parse_location(location: str) -> Tuple[Optional[str], Optional[int]]:
