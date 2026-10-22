@@ -24,6 +24,39 @@ For a consented case, the trajectory contains only:
 - the public issue/PR URL and outcome;
 - no raw prompts, raw model responses, secrets or absolute paths.
 
+## Every scan is staged
+
+1. `smartbench quick` / `smartbench unified` saves the redacted trajectory
+   locally.
+2. If the project has a GitHub `origin` and the trajectory has findings, the
+   repository is added to the local consent queue
+   (`~/.smartbench/consent/outreach.json`) as `staged`. Nothing is published.
+3. `smartbench consent send` resolves a **public** maintainer contact and sends
+   at most one request per repository (dry run by default; `--send` to deliver).
+4. A reply is recorded in `trajectories/v0/consent.json`; only `granted` with
+   evidence enters the dataset.
+
+`SMARTBENCH_CONSENT_AUTOSEND=1` (with SMTP configured) lets a scan send its own
+staged request. The GitHub `Consent outreach` workflow can also run on a
+schedule; it defaults to a dry run unless the `CONSENT_AUTOSEND` repository
+variable is `true` or a manual run sets `send=true`.
+
+## Email outreach
+
+- Contacts come only from the public GitHub profile or an email written in
+  `SECURITY.md` / `CONTRIBUTING.md`. Commit-author emails are not harvested.
+- One email per repository; no findings, code or vulnerability details are
+  included, and security policies take precedence.
+- At most 5 messages per run; no automatic follow-ups.
+- A case with no public email is marked `contact_missing`; it is not sent.
+
+## Contributor leaderboard
+
+Maintainers who grant consent can be listed in
+[`CONTRIBUTORS.md`](CONTRIBUTORS.md), generated from `consent.json` by
+`tools/build_contributors.py`. Listing is opt-in (display name or no listing).
+Pending requests are never listed.
+
 ## How consent is recorded
 
 1. Send the request in [`docs/CONSENT_REQUEST.md`](../docs/CONSENT_REQUEST.md)
@@ -64,7 +97,8 @@ For a consented case, the trajectory contains only:
 
 - `tools/check_dataset_consent.py` fails if any published `real_world` document
   lacks a `granted` consent with evidence.
-- `.github/workflows/consent.yml` runs the check on every dataset change.
+- `.github/workflows/consent.yml` runs the check and verifies the generated
+  contributor leaderboard on every dataset change.
 - Takedown/consent requests can also be filed with the repository's
   [data consent issue template](../.github/ISSUE_TEMPLATE/data-consent.md).
 

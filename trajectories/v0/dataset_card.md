@@ -25,6 +25,7 @@ consent.** The nine curated public cases are `pending` in
 [`consent.json`](consent.json) and excluded from the JSONL. A repository owner
 can decline; we then remove the entry and delete our local trajectory
 (see [`../CONSENT.md`](../CONSENT.md)). A public issue/PR is not consent.
+Consented contributors are listed in [`../CONTRIBUTORS.md`](../CONTRIBUTORS.md).
 
 The `benchmark` split carries `config.expected_rule_ids` and
 `config.snapshot=before|after`. The `negative` split asserts zero findings at

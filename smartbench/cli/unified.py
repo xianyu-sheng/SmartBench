@@ -299,7 +299,19 @@ def run_unified_diagnosis(
             )
         else:
             console.print(f"[green]Trajectory saved: {saved}[/green]")
+            try:
+                from smartbench.consent import stage_trajectory
 
+                staged = stage_trajectory(document, project_path)
+                if staged:
+                    console.print(
+                        f"[dim]Consent staged: {staged['repository']} "
+                        f"(not published)[/dim]"
+                    )
+            except Exception as exc:  # staging must never break an audit
+                console.print(
+                    f"[yellow]Consent staging failed: {safe_terminal_text(str(exc))}[/yellow]"
+                )
     # Print results
     print_diagnosis_result(console, result, project_path)
 

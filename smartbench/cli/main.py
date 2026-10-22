@@ -92,6 +92,130 @@ trajectory_app = typer.Typer(
 )
 app.add_typer(trajectory_app, name="trajectory")
 
+consent_app = typer.Typer(
+    name="consent",
+    help="Stage third-party trajectories and send consent requests by email",
+)
+app.add_typer(consent_app, name="consent")
+
+
+@consent_app.command("list")
+def consent_list(
+    queue: Optional[str] = typer.Option(
+        None, "--queue", help="Consent queue (default: ~/.smartbench/consent/outreach.json)"
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON"),
+):
+    """List staged/requested consent requests."""
+    from smartbench.consent.queue import default_queue_path, load_queue
+
+    document = load_queue(queue or None)
+    requests = document.get("requests", [])
+    if json_output:
+        console.print_json(data=requests)
+        return
+    table = Table("Repository", "Status", "Trajectories", "Requested", "Note")
+    for entry in requests:
+        table.add_row(
+            safe_terminal_text(str(entry.get("repository", ""))),
+            safe_terminal_text(str(entry.get("status", ""))),
+            str(len(entry.get("trajectory_ids") or [])),
+            safe_terminal_text(str(entry.get("requested_at") or "-")),
+            safe_terminal_text(str(entry.get("note", ""))),
+        )
+    console.print(table)
+    console.print(f"[dim]Queue: {safe_terminal_text(str(default_queue_path() if not queue else queue))}[/dim]")
+
+
+@consent_app.command("stage")
+def consent_stage(
+    repository: str = typer.Argument("", help="owner/repo; omit with --project"),
+    project: Optional[str] = typer.Option(
+        None, "--project", help="Local git checkout used to discover owner/repo"
+    ),
+    trajectory_id: str = typer.Option("", "--trajectory-id"),
+    queue: Optional[str] = typer.Option(None, "--queue"),
+):
+    """Add a repository to the local consent queue (no email is sent)."""
+    from smartbench.consent.queue import discover_github_repository, stage
+
+    name = repository.strip()
+    if not name and project:
+        name = discover_github_repository(project) or ""
+    if not name:
+        console.print("[red]Provide owner/repo or a git checkout with a GitHub origin.[/red]")
+        raise typer.Exit(1)
+    try:
+        entry = stage(name, trajectory_id, project_name=project or "", queue_path=queue)
+    except ValueError as exc:
+        console.print(f"[red]{safe_terminal_text(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(
+        f"[green]Staged: {safe_terminal_text(entry['repository'])} "
+        f"({entry['status']}, {len(entry['trajectory_ids'])} trajectory id(s))[/green]"
+    )
+
+
+@consent_app.command("resolve")
+def consent_resolve(
+    repository: str = typer.Argument(..., help="owner/repo"),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON"),
+):
+    """Resolve a public maintainer contact (profile or SECURITY/CONTRIBUTING)."""
+    from smartbench.consent.contacts import resolve_contact
+
+    contact = resolve_contact(repository)
+    if json_output:
+        console.print_json(data=contact)
+        return
+    if contact is None:
+        console.print(
+            "[yellow]No public contact found; request will be marked contact_missing.[/yellow]"
+        )
+        return
+    console.print(
+        f"[green]{safe_terminal_text(repository)}:[/green] "
+        f"{safe_terminal_text(contact['email'])} "
+        f"[dim]({safe_terminal_text(contact['source'])})[/dim]"
+    )
+
+
+@consent_app.command("send")
+def consent_send(
+    send: bool = typer.Option(
+        False, "--send", help="Actually send; without it this is a dry run"
+    ),
+    limit: int = typer.Option(5, "--limit", min=1, max=10),
+    repository: Optional[str] = typer.Option(None, "--repository", help="Only this owner/repo"),
+    queue: Optional[str] = typer.Option(None, "--queue"),
+):
+    """Resolve contacts and send staged consent requests (dry run by default)."""
+    from smartbench.consent.email import send_pending
+
+    try:
+        results = send_pending(
+            queue_path=queue,
+            dry_run=not send,
+            limit=limit,
+            repository=repository,
+        )
+    except RuntimeError as exc:
+        console.print(f"[red]{safe_terminal_text(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    table = Table("Repository", "Status", "Contact source", "Message-ID")
+    for result in results:
+        table.add_row(
+            safe_terminal_text(str(result.get("repository", ""))),
+            safe_terminal_text(str(result.get("status", ""))),
+            safe_terminal_text(str(result.get("contact_source") or "-")),
+            safe_terminal_text(str(result.get("message_id") or "-")),
+        )
+    console.print(table)
+    if not send:
+        console.print("[yellow]Dry run: no email sent. Re-run with --send.[/yellow]")
+    elif not results:
+        console.print("[dim]No staged requests to send.[/dim]")
+
 
 def _version_callback(value: bool) -> None:
     if value:
