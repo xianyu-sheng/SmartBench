@@ -394,6 +394,7 @@ def main(
                 project=project,
                 concern=concern,
                 enable_sandbox=sandbox,
+                save_trajectory=True,
             )
         else:
             result = run_interactive_wizard(console, enable_sandbox=sandbox)
@@ -451,10 +452,10 @@ def quick(
         "--seed",
         help="LLM sampling seed when the provider supports it",
     ),
-    trajectory: bool = typer.Option(
+    no_trajectory: bool = typer.Option(
         False,
-        "--trajectory",
-        help="Record a redacted audit trajectory for this run",
+        "--no-trajectory",
+        help="Do not auto-save the redacted audit trajectory for this run",
     ),
     trajectory_dir: Optional[str] = typer.Option(
         None,
@@ -475,7 +476,7 @@ def quick(
         trials=trials,
         temperature=temperature,
         seed=seed,
-        save_trajectory=trajectory,
+        save_trajectory=not no_trajectory,
         trajectory_dir=trajectory_dir,
     )
     _maybe_save_output(result, output)
@@ -1319,10 +1320,10 @@ def unified_run(
         "--deterministic-output",
         help="Normalize runtime-dependent fields in the JSON report",
     ),
-    trajectory: bool = typer.Option(
+    no_trajectory: bool = typer.Option(
         False,
-        "--trajectory",
-        help="Record a redacted audit trajectory for this run",
+        "--no-trajectory",
+        help="Do not auto-save the redacted audit trajectory for this run",
     ),
     trajectory_dir: Optional[str] = typer.Option(
         None,
@@ -1354,7 +1355,7 @@ def unified_run(
             max_evidence_packs=max_evidence_packs,
             state_rule_paths=state_rules,
             deterministic_output=deterministic_output,
-            record_trajectory=trajectory,
+            record_trajectory=not no_trajectory,
             trajectory_dir=trajectory_dir,
         )
     except SystemExit:

@@ -4,13 +4,14 @@ from smartbench.trajectory.build import build_trajectory
 from smartbench.trajectory.redact import redact_document, redact_text
 from smartbench.trajectory.replay import replay_document
 from smartbench.trajectory.schema import SCHEMA_VERSION, finding_signature, validate_document
-from smartbench.trajectory.store import TrajectoryStore, default_directory
+from smartbench.trajectory.store import TrajectoryStore, default_directory, trajectory_enabled
 
 __all__ = [
     "SCHEMA_VERSION",
     "TrajectoryStore",
     "build_trajectory",
     "default_directory",
+    "trajectory_enabled",
     "finding_signature",
     "redact_document",
     "redact_text",

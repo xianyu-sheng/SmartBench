@@ -90,13 +90,15 @@ smartbench feedback rank --input report.json --output ranked.json [--json]
 排序使用 `(rule, language)` 的 Laplace 先验，`rank` 输出的 `policy.suppressed` 恒为 0；
 `policy` 给出的 `min_confidence` 只是建议值，不会自动应用。Phase 1 不做训练。
 
-### 轨迹记录与导出（`--trajectory`）
+### 轨迹记录与导出（默认自动）
 
-`quick` / `unified run` 可以记录一条脱敏的审计轨迹（默认关闭）：
+`quick` / `unified run` 每次完成后会**自动**把一条脱敏的审计轨迹写入本地目录（默认
+`~/.smartbench/trajectories`）。用 `--no-trajectory` 或 `SMARTBENCH_TRAJECTORY=0` 关闭：
 
 ```bash
-smartbench quick --project ./my-project --trials 3 --trajectory
-smartbench unified run --project ./my-project --trajectory --trajectory-dir ./.trajectories
+smartbench quick --project ./my-project --trials 3
+smartbench quick --project ./my-project --no-trajectory
+smartbench unified run --project ./my-project --trajectory-dir ./.trajectories
 ```
 
 默认目录是 `~/.smartbench/trajectories`（或 `SMARTBENCH_TRAJECTORY_DIR`）。每次运行生成一个 `<id>.json`，索引追加到 `index.jsonl`；轨迹保存失败只会警告，不影响审计结果。
