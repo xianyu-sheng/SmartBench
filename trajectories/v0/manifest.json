@@ -1,16 +1,19 @@
 {
+  "consent_declined": 0,
+  "consent_file": "consent.json",
+  "consent_pending": 9,
   "created": "2026-10-21",
-  "documents": 73,
+  "documents": 64,
   "generator": "tools/build_trajectories_v0.py",
   "license": "CC-BY-4.0",
   "name": "smartbench-audit-trajectories",
   "notes": "Deterministic audit trajectories. The benchmark and negative splits contain no LLM conclusions; the real-world split is curated from public issues/PRs with runtime verification.",
+  "publication_policy": "explicit-written-consent",
   "schema_version": "smartbench.dataset/v1",
-  "sha256": "25c81dd21dcd186b10166dab3968a1d1362a8b0666aa5c7ccc8601a39ad5be0f",
+  "sha256": "c4b2566cc8f857ae8f7506e4b1df0162c3565bfab8e00d766e331ff46f09474e",
   "splits": {
     "benchmark": 50,
-    "negative": 14,
-    "real_world": 9
+    "negative": 14
   },
   "tool_version": "0.7.0",
   "trajectory_schema": "smartbench.trajectory/v1",
