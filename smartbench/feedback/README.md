@@ -36,8 +36,15 @@ smoothing: `(actionable + 1) / (support + 2)`.
   priors dominated by rejections (support ≥ 3, ratio < 0.5). Suggestions are
   printed, never applied automatically.
 
-Phase 2+ (applying the policy inside quick/preflight, learned policies) is
-tracked in #45 and is intentionally out of scope here.
+Phase 2 is now available behind explicit flags:
+
+```bash
+smartbench quick --project ./repo --feedback
+smartbench preflight --input report.json --no-branches --feedback
+```
+
+Both are **off by default**, ranking/annotation only: every finding stays in the
+output (`suppressed: 0`). Learned policies (phase 3+) remain tracked in #45.
 
 ## CLI
 

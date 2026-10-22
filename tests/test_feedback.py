@@ -154,3 +154,72 @@ def test_cli_add_list_rank(tmp_path):
     assert len(payload["findings"]) == 2
     assert payload["findings"][0]["rule_id"] == "r"
     assert payload["policy"]["suppressed"] == 0
+
+
+def test_quick_feedback_ranking_is_annotated_and_lossless(tmp_path, monkeypatch):
+    from io import StringIO
+    from types import SimpleNamespace
+
+    from rich.console import Console
+
+    from smartbench.cli import phases
+
+    events_path = tmp_path / "events.jsonl"
+    store = FeedbackStore(events_path)
+    for index in range(2):
+        store.append(
+            make_event(
+                label="actionable",
+                rule_id="r",
+                language="go",
+                confidence=0.8,
+                reason=f"case {index}",
+            )
+        )
+    suggestions = [
+        {
+            "rule_id": "other",
+            "title": "other",
+            "location": {"file_path": "b.go", "line_start": 2},
+            "confidence": 0.9,
+        },
+        {
+            "rule_id": "r",
+            "title": "prioritized",
+            "location": {"file_path": "a.go", "line_start": 1},
+            "confidence": 0.6,
+        },
+    ]
+
+    def fake_run(console, session, api_config, concern, **kwargs):
+        kwargs.get("on_usage", lambda _: None)(
+            {"model": "test", "prompt_tokens": 1, "completion_tokens": 1}
+        )
+        return SimpleNamespace(
+            final_suggestions=[dict(item) for item in suggestions],
+            analysis_report={},
+        )
+
+    monkeypatch.setattr(phases, "resolve_project_path", lambda console, project: tmp_path)
+    monkeypatch.setattr(
+        phases, "load_api_keys_from_env", lambda: {"models": [{"model": "test"}]}
+    )
+    monkeypatch.setattr(
+        phases,
+        "run_analysis_session",
+        lambda console, path: SimpleNamespace(fingerprint=object()),
+    )
+    monkeypatch.setattr(phases, "display_fingerprint", lambda console, fingerprint: None)
+    monkeypatch.setattr(phases, "run_diagnosis_with_session", fake_run)
+
+    result = phases.run_quick_mode(
+        Console(file=StringIO()),
+        project=".",
+        apply_feedback=True,
+        feedback_file=str(events_path),
+    )
+
+    assert [item["rule_id"] for item in result.final_suggestions] == ["r", "other"]
+    assert len(result.final_suggestions) == 2
+    assert result.analysis_report["feedback"]["suppressed"] == 0
+    assert result.final_suggestions[0]["feedback"]["support"] == 2

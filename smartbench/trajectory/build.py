@@ -87,7 +87,7 @@ def _analysis_summary(debate_result: Any) -> Dict[str, Any]:
     if not isinstance(report, dict):
         return {}
     summary: Dict[str, Any] = {}
-    for key in ("review_strategy", "shard_plan", "merge", "shards", "stage_statuses"):
+    for key in ("review_strategy", "shard_plan", "merge", "shards", "stage_statuses", "feedback"):
         if key in report:
             summary[key] = report[key]
     return summary

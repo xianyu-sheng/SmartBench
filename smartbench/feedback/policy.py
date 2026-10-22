@@ -104,18 +104,24 @@ def rank_findings(
     for index, finding in enumerate(findings):
         item = dict(finding)
         rule_id = str(item.get("rule_id") or "")
-        language = _finding_language(item)
+        language = finding_language(item)
         prior = prior_for(priors, rule_id, language)
         confidence = _confidence(item)
         score = prior.actionable_ratio if prior is not None else default_score
         item["feedback"] = (
             {
+                "score": score,
                 "actionable_ratio": prior.actionable_ratio,
                 "support": prior.support,
                 "label_counts": dict(prior.label_counts),
             }
             if prior is not None
-            else {"actionable_ratio": None, "support": 0, "label_counts": {}}
+            else {
+                "score": score,
+                "actionable_ratio": None,
+                "support": 0,
+                "label_counts": {},
+            }
         )
         ordered.append((score, confidence, index, item))
     ordered.sort(key=lambda entry: (-entry[0], -entry[1], entry[2]))
@@ -186,7 +192,7 @@ def _sorted_priors(
     return sorted(priors.items(), key=lambda item: item[0])
 
 
-def _finding_language(finding: Mapping[str, Any]) -> str:
+def finding_language(finding: Mapping[str, Any]) -> str:
     explicit = str(finding.get("language") or "").strip().lower()
     if explicit:
         return explicit
