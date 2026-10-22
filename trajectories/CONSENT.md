@@ -98,6 +98,15 @@ Pending requests are never listed.
   history-rewrite requests.
 - **No response:** stays `pending`; it is not published.
 
+## Restoring a consented case
+
+1. Add **only that case** to `v0/sources/real_world.yaml` (never pending cases).
+2. Set its ledger entry to `granted` with `evidence`, `granted_at` and
+   `trajectory_ids`; optionally `display_name`, `listed` and `contribution`.
+3. Run `python tools/build_trajectories_v0.py --root . --out trajectories/v0`
+   and `python tools/build_contributors.py`, then open a PR. The consent gate
+   and leaderboard check must pass.
+
 ## Enforcement
 
 - `tools/check_dataset_consent.py` fails if any published `real_world` document
