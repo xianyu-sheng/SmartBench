@@ -60,6 +60,20 @@ smartbench quick --project ./my-project --trials 3 \
 smartbench --quick --project ./my-project --concern "检查安全风险"
 ```
 
+### 分片审查（`--max-workers`）
+
+大仓库可以把 LLM 审查按目录分片并行执行（默认 `--max-workers 1`，保持原来的单次 debate）：
+
+```bash
+smartbench quick --project ./large-repo --max-workers 4
+```
+
+分片计划按顶层目录生成，单个 shard 最多 40 个文件、整个计划最多 20 个 shard，id 稳定；
+每个 shard 只拿自己文件范围内的证据包，结果按 `(rule, file, line)` 去重合并，冲突保留
+置信度更高的一条。任何 shard 失败不会让整个审查崩溃，报告标记 `partial` 并保留 per-shard
+状态；截止时间到达后未派发的 shard 标记 `skipped_budget`。v1 不做跨 shard 的 LLM 综合
+（机械合并）；完整的 token/时间预算熔断仍由 #20 跟踪。
+
 ### 人工反馈与离线排序（`feedback`）
 
 把人工确认/驳回记录成用户侧事件，用于离线排序；**只调整顺序，不删除 finding**：
