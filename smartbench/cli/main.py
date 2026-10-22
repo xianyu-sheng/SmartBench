@@ -412,6 +412,21 @@ def quick(
         "--sandbox",
         help="Apply proposed patches and run tests in a temp copy (trusted repos only)",
     ),
+    sandbox_backend: str = typer.Option(
+        "local",
+        "--sandbox-backend",
+        help="Execution backend: local (host) or container (rootless podman/docker)",
+    ),
+    sandbox_image: Optional[str] = typer.Option(
+        None,
+        "--sandbox-image",
+        help="Container image containing the project toolchain",
+    ),
+    sandbox_runtime: Optional[str] = typer.Option(
+        None,
+        "--sandbox-runtime",
+        help="Container runtime: podman or docker (auto-detect by default)",
+    ),
     trials: int = typer.Option(
         1,
         "--trials",
@@ -446,6 +461,9 @@ def quick(
         project=project,
         concern=concern,
         enable_sandbox=sandbox,
+        sandbox_backend=sandbox_backend,
+        sandbox_image=sandbox_image,
+        sandbox_runtime=sandbox_runtime,
         trials=trials,
         temperature=temperature,
         seed=seed,

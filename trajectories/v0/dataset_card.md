@@ -51,7 +51,8 @@ The benchmark/negative splits are produced by running the deterministic
 analysis over the committed corpora; no model is called. The real-world split
 is curated from public threads in `sources/real_world.yaml`. Timestamps are
 fixed and documents are sorted, so regeneration is stable. The manifest stores
-the SHA-256 of the JSONL; CI validates every document, the split counts and the
+the SHA-256 of the JSONL over canonical LF bytes (CRLF-normalized), so Windows
+checkouts verify too; CI validates every document, the split counts and the
 hash (`tests/test_trajectory_dataset.py`).
 
 Regenerate (requires the full parser set, including Go):

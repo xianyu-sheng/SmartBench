@@ -28,7 +28,8 @@ def test_manifest_counts_and_hash():
     assert manifest["documents"] == len(documents) == 69
     assert manifest["splits"] == {"benchmark": 50, "negative": 14, "real_world": 5}
     assert Counter(doc["config"]["split"] for doc in documents) == manifest["splits"]
-    assert hashlib.sha256((V0 / "trajectories.jsonl").read_bytes()).hexdigest() == manifest["sha256"]
+    canonical = (V0 / "trajectories.jsonl").read_bytes().replace(bytes([13, 10]), bytes([10]))
+    assert hashlib.sha256(canonical).hexdigest() == manifest["sha256"]
 
 
 def test_every_document_is_valid_and_redacted():
