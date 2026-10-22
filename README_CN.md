@@ -300,7 +300,7 @@ SmartBench 适合受控的仓库实验、架构研究和作品集展示。它已
 - [x] **反馈事件** —— 人工确认/驳回记录为 `smartbench.feedback/v1`；离线排序 + 建议阈值（不训练、不抑制 finding）（[#45](https://github.com/xianyu-sheng/SmartBench/issues/45) 第一阶段）。
 - [x] **发布 Audit Trajectories v0** —— 5 个已披露真实案例 + 25 案例语料 + 14 个负样本，位于 [`trajectories/v0`](trajectories/v0/)，附 dataset card、CC-BY-4.0 许可证、脱敏与 takedown 政策。
 - [x] **容器沙箱** —— 面向动态验证的 rootless 容器后端（无网络、只读根、env 白名单、资源限额）（[#47](https://github.com/xianyu-sheng/SmartBench/issues/47)）；见 [docs/SANDBOX.md](docs/SANDBOX.md)。
-- [ ] **分片审查** —— 确定性 shard 计划 + 有界并行子 Agent + 主 Agent 合并；默认关闭，直到与串行结果一致（[#48](https://github.com/xianyu-sheng/SmartBench/issues/48)）。
+- [x] **分片审查** —— 确定性 shard 计划 + 有界并行子 Agent + 机械式主合并；通过 `--max-workers` 显式开启（默认 1 = 串行），带 partial/deadline 状态（[#48](https://github.com/xianyu-sheng/SmartBench/issues/48)）。
 - [ ] **策略学习** —— 等轨迹量和评估集到位后再做；否则只是无法证伪的优化。
 
 **为什么是这个顺序**：度量和轨迹是沙箱、分片、学习工作的共同地基。没有合并/证据故事的分片只是噪音；没有评估集的策略学习无法证明自己变好。
