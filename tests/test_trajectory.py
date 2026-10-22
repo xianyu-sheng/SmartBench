@@ -175,7 +175,6 @@ def test_unified_cli_records_trajectory(tmp_path):
             "run",
             "--project",
             str(project),
-            "--trajectory",
             "--trajectory-dir",
             str(directory),
         ],
@@ -188,3 +187,84 @@ def test_unified_cli_records_trajectory(tmp_path):
     ]
     assert len(entries) == 1
     assert entries[0]["project"] == "project"
+
+
+def test_unified_cli_can_disable_trajectory(tmp_path):
+    project = tmp_path / "project_no_trajectory"
+    project.mkdir()
+    (project / "main.py").write_text(
+        "def ok():\n    return 1\n",
+        encoding="utf-8",
+    )
+    directory = tmp_path / "disabled"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "unified",
+            "run",
+            "--project",
+            str(project),
+            "--no-trajectory",
+            "--trajectory-dir",
+            str(directory),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert not (directory / "index.jsonl").exists()
+
+
+def test_quick_cli_auto_saves_trajectory(tmp_path, monkeypatch):
+    from smartbench.cli import phases
+
+    monkeypatch.setattr(phases, "load_api_keys_from_env", lambda: None)
+    project = tmp_path / "quick_project"
+    project.mkdir()
+    (project / "main.py").write_text(
+        "def ok():\n    return 1\n",
+        encoding="utf-8",
+    )
+    directory = tmp_path / "quick_trajectories"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "quick",
+            "--project",
+            str(project),
+            "--trajectory-dir",
+            str(directory),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (directory / "index.jsonl").is_file()
+
+
+def test_quick_cli_env_can_disable_trajectory(tmp_path, monkeypatch):
+    from smartbench.cli import phases
+
+    monkeypatch.setattr(phases, "load_api_keys_from_env", lambda: None)
+    monkeypatch.setenv("SMARTBENCH_TRAJECTORY", "0")
+    project = tmp_path / "quick_disabled"
+    project.mkdir()
+    (project / "main.py").write_text(
+        "def ok():\n    return 1\n",
+        encoding="utf-8",
+    )
+    directory = tmp_path / "quick_disabled_trajectories"
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "quick",
+            "--project",
+            str(project),
+            "--trajectory-dir",
+            str(directory),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert not (directory / "index.jsonl").exists()

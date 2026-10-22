@@ -41,10 +41,13 @@ A failed write is logged and ignored: recording never breaks an audit.
 
 ## CLI
 
+Recording is **automatic** for `quick` and `unified run`: each completed run
+writes a redacted trajectory to the local store. Opt out with
+`--no-trajectory` or `SMARTBENCH_TRAJECTORY=0`.
+
 ```bash
-# record (opt-in)
-smartbench quick --project ./repo --trajectory
-smartbench unified run --project ./repo --trajectory --trajectory-dir ./.trajectories
+smartbench quick --project ./repo
+smartbench unified run --project ./repo --trajectory-dir ./.trajectories
 
 # inspect
 smartbench trajectory list --dir ./.trajectories

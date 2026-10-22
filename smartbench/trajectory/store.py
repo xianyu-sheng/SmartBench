@@ -23,6 +23,12 @@ INDEX_NAME = "index.jsonl"
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]{4,64}$")
 
 
+def trajectory_enabled() -> bool:
+    """Auto-recording is on unless ``SMARTBENCH_TRAJECTORY`` disables it."""
+    raw = os.environ.get("SMARTBENCH_TRAJECTORY", "1").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
 def default_directory() -> Path:
     override = os.environ.get("SMARTBENCH_TRAJECTORY_DIR", "").strip()
     if override:
