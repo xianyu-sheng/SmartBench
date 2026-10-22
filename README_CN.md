@@ -232,7 +232,7 @@ smartbench benchmark metrics \
   --output benchmarks/metrics.json
 ```
 
-**轨迹数据集 v0 —— [`trajectories/v0`](trajectories/v0/)。** 69 条脱敏轨迹（5 个真实案例结局、50 个基准快照、14 个负样本），采用 CC-BY-4.0，附 dataset card、manifest 与 SHA-256；CI 校验 schema 和哈希。
+**轨迹数据集 v0 —— [`trajectories/v0`](trajectories/v0/)。** 70 条脱敏轨迹（6 个真实案例结局、50 个基准快照、14 个负样本），采用 CC-BY-4.0，附 dataset card、manifest 与 SHA-256；CI 校验 schema 和哈希。
 
 **真实仓库扫描 —— 诚实数字。** 在 12 个开源项目（Python 与 Go）上运行后，410 条 finding 经过人工核验，再对照 SDK 类型和项目文档交叉检查。结果值得在信任任何数字之前先读一遍：
 

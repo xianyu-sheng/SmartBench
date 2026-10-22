@@ -88,3 +88,21 @@ cases:
       before the fix and received a2 BAD after. The fix was merged upstream.
     adjudication: actionable
     location_note: Line 1 is approximate; the PR points at handleAppend.
+
+  - id: lf-accept-error-crash
+    repository: gokcehan/lf
+    language: go
+    category: correctness
+    rule_id: accept-error-nil-connection
+    file_path: server.go
+    line_start: 138
+    title: Accept() error path falls through to handleConn(nil)
+    reference: https://github.com/gokcehan/lf/pull/2712
+    disclosure: public-pr-closed
+    outcome: closed-declined
+    verification: >-
+      Reproduced the nil-connection panic and verified a continue-based fix, but
+      maintainers closed the PR as an intentional trade-off: under EMFILE,
+      continue spins a core with log spam, so the fail-stop crash is preferred.
+    adjudication: design_trade_off
+    location_note: Line 138 is the detection location cited in the PR.

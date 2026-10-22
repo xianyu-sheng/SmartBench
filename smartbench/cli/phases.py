@@ -574,7 +574,9 @@ def run_diagnosis_with_graph(
             )
 
     if analysis_session is not None:
-        result.analysis_report = analysis_session.report_dict()
+        session_report = analysis_session.report_dict()
+        existing_report = getattr(result, "analysis_report", None) or {}
+        result.analysis_report = {**session_report, **existing_report}
 
     # Verification stats
     if verifier:
