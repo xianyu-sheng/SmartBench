@@ -20,6 +20,7 @@ No third-party audit trajectory is published without explicit written consent
 from the repository owner. The nine curated cases are `pending` in
 [`v0/consent.json`](v0/consent.json) and excluded from the JSONL. See
 [CONSENT.md](CONSENT.md) for the policy, request template and removal process.
+Granted contributors are listed in [CONTRIBUTORS.md](CONTRIBUTORS.md).
 
 ## What v0 contains
 

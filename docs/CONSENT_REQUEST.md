@@ -21,7 +21,9 @@ The record would contain only:
 - the public issue/PR URL and outcome.
 
 It would **not** contain raw prompts, raw model responses, secrets or absolute
-paths. Nothing is published unless you explicitly agree.
+paths. Nothing is published unless you explicitly agree. With your permission we
+will also list the repository on our data-contributor leaderboard (opt-in; you
+can choose a display name or ask not to be listed).
 
 If you agree, please reply with:
 
