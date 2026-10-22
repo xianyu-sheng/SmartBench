@@ -233,7 +233,7 @@ smartbench benchmark metrics \
   --output benchmarks/metrics.json
 ```
 
-**Trajectory dataset v0 — [`trajectories/v0`](trajectories/v0/).** 64 redacted trajectories (real-world split pending explicit consent; 50 benchmark snapshots; 14 negative fixtures) under CC-BY-4.0, with a dataset card, manifest and SHA-256; CI validates the schema and hash.
+**Trajectory dataset v0 — [`trajectories/v0`](trajectories/v0/).** 64 redacted trajectories (real-world split pending explicit consent; 50 benchmark snapshots; 14 negative fixtures) and a consent-first pipeline: third-party scans are staged locally and emailed to maintainers before publication ([policy](trajectories/CONSENT.md)). under CC-BY-4.0, with a dataset card, manifest and SHA-256; CI validates the schema and hash.
 
 **Real-world sweep — honest numbers.** SmartBench was run over 12 open-source repositories (Python and Go). 410 findings were manually verified, then cross-checked against SDK types and project documentation — and the outcome is worth reading before trusting any number:
 

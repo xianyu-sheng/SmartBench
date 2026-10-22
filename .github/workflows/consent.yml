@@ -22,3 +22,5 @@ jobs:
           python-version: "3.12"
       - name: Verify real-world trajectories are consented
         run: python tools/check_dataset_consent.py
+      - name: Verify contributor leaderboard is current
+        run: python tools/build_contributors.py --check

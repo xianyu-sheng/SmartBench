@@ -1,0 +1,57 @@
+name: Consent outreach
+
+on:
+  workflow_dispatch:
+    inputs:
+      send:
+        description: "Actually send email (requires SMTP secrets)"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "0 9 * * 1"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: consent-outreach
+  cancel-in-progress: false
+
+jobs:
+  outreach:
+    name: Resolve or send consent requests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Resolve contacts (and send if enabled)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SMARTBENCH_SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMARTBENCH_SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMARTBENCH_SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMARTBENCH_SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMARTBENCH_SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          SMARTBENCH_SMTP_TLS: "1"
+          DISPATCH_SEND: ${{ inputs.send }}
+          AUTO_SEND: ${{ vars.CONSENT_AUTOSEND }}
+        run: |
+          FLAG=""
+          if [ "$DISPATCH_SEND" = "true" ] || [ "$AUTO_SEND" = "true" ]; then
+            FLAG="--send"
+          fi
+          python tools/consent_outreach.py $FLAG --limit 5
+      - name: Open PR with outreach records
+        if: always()
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: consent/outreach
+          title: "chore(consent): record email outreach"
+          commit-message: "chore(consent): record email outreach"
+          body: |
+            Records `requested_at` for consent emails sent by the outreach
+            workflow. Email addresses are never committed.
+          add-paths: trajectories/v0/consent.json
