@@ -924,6 +924,8 @@ def run_quick_mode(
     Returns:
         DebateResult if diagnosis completed, None otherwise.
     """
+    from smartbench.trajectory import trajectory_enabled
+
     console.print(Panel.fit(
         "[bold cyan]SmartBench Quick Mode[/bold cyan]", border_style="cyan"
     ))
@@ -964,7 +966,7 @@ def run_quick_mode(
             sandbox_runtime=sandbox_runtime,
             max_workers=max_workers,
         )
-        if save_trajectory:
+        if save_trajectory and trajectory_enabled():
             _record_trajectory(
                 console,
                 project_path,
@@ -1040,7 +1042,7 @@ def run_quick_mode(
         payload = dict(getattr(result, "analysis_report") or {})
         payload["trials"] = report.to_dict()
         result.analysis_report = payload
-    if save_trajectory:
+    if save_trajectory and trajectory_enabled():
         _record_trajectory(
             console,
             project_path,
