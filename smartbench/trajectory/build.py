@@ -66,6 +66,7 @@ def build_trajectory(
         "verification": list(verification or []),
         "human_feedback": list(human_feedback or []),
         "usage": dict(usage or {}),
+        "analysis": _analysis_summary(debate_result),
     }
     if debate_result is not None:
         document["review_status"] = getattr(debate_result, "review_status", "")
@@ -78,6 +79,18 @@ def build_trajectory(
     )
     document["deterministic"] = deterministic_block
     return document
+
+
+def _analysis_summary(debate_result: Any) -> Dict[str, Any]:
+    """Keep the execution-state fields that explain how findings were merged."""
+    report = getattr(debate_result, "analysis_report", None) if debate_result else None
+    if not isinstance(report, dict):
+        return {}
+    summary: Dict[str, Any] = {}
+    for key in ("review_strategy", "shard_plan", "merge", "shards", "stage_statuses"):
+        if key in report:
+            summary[key] = report[key]
+    return summary
 
 
 def _deterministic_findings(session: Any) -> List[Dict[str, Any]]:
