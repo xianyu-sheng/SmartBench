@@ -427,6 +427,13 @@ def quick(
         "--sandbox-runtime",
         help="Container runtime: podman or docker (auto-detect by default)",
     ),
+    max_workers: int = typer.Option(
+        1,
+        "--max-workers",
+        min=1,
+        max=8,
+        help="Shard the LLM review across N workers (1 = single debate)",
+    ),
     trials: int = typer.Option(
         1,
         "--trials",
@@ -464,6 +471,7 @@ def quick(
         sandbox_backend=sandbox_backend,
         sandbox_image=sandbox_image,
         sandbox_runtime=sandbox_runtime,
+        max_workers=max_workers,
         trials=trials,
         temperature=temperature,
         seed=seed,
