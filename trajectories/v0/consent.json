@@ -1,0 +1,88 @@
+{
+  "schema_version": "smartbench.consent/v1",
+  "policy": "explicit-written-consent",
+  "updated_at": "2026-10-22",
+  "cases": [
+    {
+      "id": "qscan-db-close",
+      "repository": "qi4L/qscan",
+      "status": "pending",
+      "requested_at": null,
+      "granted_at": null,
+      "evidence": null,
+      "note": "Public issue #22 exists; consent not yet requested."
+    },
+    {
+      "id": "stunner-conn-close",
+      "repository": "firefart/stunner",
+      "status": "pending",
+      "requested_at": null,
+      "granted_at": null,
+      "evidence": null,
+      "note": "Public issue #89 exists; consent not yet requested."
+    },
+    {
+      "id": "sniproxy-ticker-panic",
+      "repository": "mosajjal/sniproxy",
+      "status": "pending",
+      "requested_at": null,
+      "granted_at": null,
+      "evidence": null,
+      "note": "Public PR #203 exists; consent not yet requested."
+    },
+    {
+      "id": "robyn-sse-test-hygiene",
+      "repository": "sparckles/Robyn",
+      "status": "pending",
+      "requested_at": null,
+      "granted_at": null,
+      "evidence": null,
+      "note": "Public issue #1432 exists; consent not yet requested."
+    },
+    {
+      "id": "go-imap-append-nil-error",
+      "repository": "emersion/go-imap",
+      "status": "pending",
+      "requested_at": null,
+      "granted_at": null,
+      "evidence": null,
+      "note": "Merged PR #773 exists; consent not yet requested."
+    },
+    {
+      "id": "lf-accept-error-crash",
+      "repository": "gokcehan/lf",
+      "status": "pending",
+      "requested_at": null,
+      "granted_at": null,
+      "evidence": null,
+      "note": "Closed PR #2712 exists; consent not yet requested."
+    },
+    {
+      "id": "tproxy-pipe-goroutine-leak",
+      "repository": "kevwan/tproxy",
+      "status": "pending",
+      "requested_at": null,
+      "granted_at": null,
+      "evidence": null,
+      "note": "Public PR #177 exists; consent not yet requested."
+    },
+    {
+      "id": "webdav-cors-warning-unreachable",
+      "repository": "hacdias/webdav",
+      "status": "pending",
+      "requested_at": null,
+      "granted_at": null,
+      "evidence": null,
+      "note": "Public PR #374 exists; consent not yet requested."
+    },
+    {
+      "id": "afero-gcs-writer-leak",
+      "repository": "spf13/afero",
+      "status": "pending",
+      "requested_at": null,
+      "granted_at": null,
+      "evidence": null,
+      "note": "Public PR #701 exists; consent not yet requested."
+    }
+  ]
+}
