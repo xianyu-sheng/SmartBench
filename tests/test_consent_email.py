@@ -1,5 +1,8 @@
 """Tests for consent email rendering and sending (no network)."""
 
+import json
+
+from smartbench.consent.contacts import resolve_contact
 from smartbench.consent.email import SmtpConfig, render_request, send_pending
 from smartbench.consent.queue import load_queue, stage
 
@@ -21,7 +24,7 @@ def test_send_pending_dry_run_does_not_change_queue(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "smartbench.consent.email.resolve_contact",
         lambda repository, token=None: {
-            "email": "maintainer@example.org",
+            "email": "maintainer@acme.dev",
             "source": "https://github.com/owner",
         },
     )
@@ -38,7 +41,7 @@ def test_send_pending_marks_requested(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "smartbench.consent.email.resolve_contact",
         lambda repository, token=None: {
-            "email": "maintainer@example.org",
+            "email": "maintainer@acme.dev",
             "source": "https://github.com/owner",
         },
     )
@@ -76,3 +79,17 @@ def test_send_pending_marks_contact_missing(tmp_path, monkeypatch):
 
     assert results[0]["status"] == "contact_missing"
     assert load_queue(queue)["requests"][0]["status"] == "contact_missing"
+
+
+def test_manual_contact_mapping_is_local_only(tmp_path, monkeypatch):
+    mapping = tmp_path / "contacts.json"
+    mapping.write_text(
+        json.dumps({"owner/repo": "maintainer@acme.dev"}), encoding="utf-8"
+    )
+    monkeypatch.setenv("SMARTBENCH_CONSENT_CONTACTS", str(mapping))
+
+    contact = resolve_contact("owner/repo")
+
+    assert contact is not None
+    assert contact["email"] == "maintainer@acme.dev"
+    assert contact["source"] == "local manual contact mapping"

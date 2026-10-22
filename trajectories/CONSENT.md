@@ -49,6 +49,11 @@ variable is `true` or a manual run sets `send=true`.
   included, and security policies take precedence.
 - At most 5 messages per run; no automatic follow-ups.
 - A case with no public email is marked `contact_missing`; it is not sent.
+  You can supply a local, uncommitted `SMARTBENCH_CONSENT_CONTACTS` JSON mapping
+  (`{"owner/repo": "maintainer@example.org"}`) for a manual contact.
+- SMTP is configured with `SMARTBENCH_SMTP_HOST`, `SMARTBENCH_SMTP_PORT`,
+  `SMARTBENCH_SMTP_USER`, `SMARTBENCH_SMTP_PASSWORD` and
+  `SMARTBENCH_SMTP_FROM`; see `send-consent.sh` in the working directory.
 
 ## Contributor leaderboard
 

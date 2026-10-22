@@ -18,6 +18,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 API = "https://api.github.com"
@@ -77,12 +78,34 @@ def _file_text(repository: str, path: str, token: Optional[str]) -> str:
         return ""
 
 
+def _manual_contact(repository: str) -> Optional[Dict[str, str]]:
+    """Read a local, uncommitted repo -> email mapping if configured."""
+    path = os.environ.get("SMARTBENCH_CONSENT_CONTACTS", "").strip()
+    if not path:
+        return None
+    try:
+        mapping = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(mapping, dict):
+        return None
+    email = str(
+        mapping.get(repository) or mapping.get(repository.lower()) or ""
+    ).strip()
+    if _usable(email):
+        return {"email": email, "source": "local manual contact mapping"}
+    return None
+
+
 def resolve_contact(
     repository: str,
     *,
     token: Optional[str] = None,
 ) -> Optional[Dict[str, str]]:
     """Return ``{email, source}`` for a public contact, or ``None``."""
+    manual = _manual_contact(repository)
+    if manual:
+        return manual
     token = token or os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     owner = repository.split("/", 1)[0]
     user = _get_json(f"{API}/users/{urllib.parse.quote(owner)}", token)
