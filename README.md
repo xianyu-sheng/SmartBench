@@ -300,7 +300,7 @@ Finding bugs is not the end product. The goal is a **verifiable audit trajectory
 - [x] **Trajectory schema** — every `quick`/`unified` run can be recorded as `smartbench.trajectory/v1`, with redaction, local storage, export and deterministic replay ([#46](https://github.com/xianyu-sheng/SmartBench/issues/46)). This is the starting point of the data asset.
 - [x] **Feedback events** — human confirm/reject recorded as `smartbench.feedback/v1`; offline ranking and advisory thresholds (no training, no suppression) ([#45](https://github.com/xianyu-sheng/SmartBench/issues/45), phase 1).
 - [x] **Publish Audit Trajectories v0** — 5 disclosed real cases + the 25-case corpus + 14 negative fixtures in [`trajectories/v0`](trajectories/v0/), with a dataset card, CC-BY-4.0 license, redaction and takedown policy.
-- [ ] **Container sandbox** — a rootless container backend for dynamic verification ([#47](https://github.com/xianyu-sheng/SmartBench/issues/47)); small, low-risk, raises the trust level of "verified".
+- [x] **Container sandbox** — a rootless container backend with network isolation, read-only root, env allowlist and resource limits for dynamic verification ([#47](https://github.com/xianyu-sheng/SmartBench/issues/47)); see [docs/SANDBOX.md](docs/SANDBOX.md).
 - [ ] **Sharded review** — deterministic shard plan + bounded parallel sub-agents + lead merge, default off until it matches sequential results ([#48](https://github.com/xianyu-sheng/SmartBench/issues/48)).
 - [ ] **Policy learning** — only after trajectories and an evaluation set exist; otherwise it is unfalsifiable optimization.
 

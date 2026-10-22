@@ -299,7 +299,7 @@ SmartBench 适合受控的仓库实验、架构研究和作品集展示。它已
 - [x] **轨迹 schema** —— 每次 `quick`/`unified` 运行都可记录为 `smartbench.trajectory/v1`，含脱敏、本地存储、导出与确定性回放（[#46](https://github.com/xianyu-sheng/SmartBench/issues/46)）。这是数据资产的起点。
 - [x] **反馈事件** —— 人工确认/驳回记录为 `smartbench.feedback/v1`；离线排序 + 建议阈值（不训练、不抑制 finding）（[#45](https://github.com/xianyu-sheng/SmartBench/issues/45) 第一阶段）。
 - [x] **发布 Audit Trajectories v0** —— 5 个已披露真实案例 + 25 案例语料 + 14 个负样本，位于 [`trajectories/v0`](trajectories/v0/)，附 dataset card、CC-BY-4.0 许可证、脱敏与 takedown 政策。
-- [ ] **容器沙箱** —— 面向动态验证的 rootless 容器后端（[#47](https://github.com/xianyu-sheng/SmartBench/issues/47)）；工程量小、风险低，直接提升「已验证」的可信度。
+- [x] **容器沙箱** —— 面向动态验证的 rootless 容器后端（无网络、只读根、env 白名单、资源限额）（[#47](https://github.com/xianyu-sheng/SmartBench/issues/47)）；见 [docs/SANDBOX.md](docs/SANDBOX.md)。
 - [ ] **分片审查** —— 确定性 shard 计划 + 有界并行子 Agent + 主 Agent 合并；默认关闭，直到与串行结果一致（[#48](https://github.com/xianyu-sheng/SmartBench/issues/48)）。
 - [ ] **策略学习** —— 等轨迹量和评估集到位后再做；否则只是无法证伪的优化。
 
