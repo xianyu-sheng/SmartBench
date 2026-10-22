@@ -331,6 +331,7 @@ def run_diagnosis_with_graph(
     sandbox_backend: str = "local",
     sandbox_image: Optional[str] = None,
     sandbox_runtime: Optional[str] = None,
+    max_workers: int = 1,
     analysis_session: Optional[AnalysisSession] = None,
     temperature: float = 0.3,
     seed: Optional[int] = None,
@@ -541,11 +542,25 @@ def run_diagnosis_with_graph(
     def on_progress(role: str, parsed_json, raw_text: str) -> None:
         show_debate_round(console, role, parsed_json, raw_text)
 
-    result = debate_engine.debate(
-        analysis_context, target=concern, on_progress=on_progress,
-        strategy=selected,
-        evidence_pack=evidence_pack,
-    )
+    if max_workers > 1 and analysis_session is not None and analysis_session.ir is not None:
+        result = _run_sharded_review(
+            console,
+            analysis_session,
+            evidence_pack,
+            evidence_rag,
+            factory,
+            llm_fn,
+            verifier,
+            concern,
+            selected,
+            max_workers,
+        )
+    else:
+        result = debate_engine.debate(
+            analysis_context, target=concern, on_progress=on_progress,
+            strategy=selected,
+            evidence_pack=evidence_pack,
+        )
 
     # Adjudicate agent suggestions against documented intent and user memory.
     if result.final_suggestions:
@@ -620,6 +635,74 @@ def run_diagnosis_with_graph(
     return result
 
 
+def _run_sharded_review(
+    console: Console,
+    session: AnalysisSession,
+    evidence_pack,
+    evidence_rag,
+    factory,
+    llm_fn,
+    verifier,
+    concern: str,
+    selected: str,
+    max_workers: int,
+):
+    """Run one scoped debate per shard and merge the outcomes."""
+    from smartbench.engine.debate import DebateEngine, DebateResult, EvidencePolicy
+    from smartbench.sharding import (
+        build_shard_plan,
+        merge_shard_results,
+        run_sharded_review,
+        scope_evidence_pack,
+    )
+
+    files = list(session.ir.source_units.keys()) if session.ir is not None else []
+    plan = build_shard_plan(files)
+    console.print(
+        f"  [dim]Sharded review: {len(plan.shards)} shards, "
+        f"{max(1, int(max_workers))} workers[/dim]"
+    )
+
+    def run_shard(shard):
+        scoped = scope_evidence_pack(evidence_pack, shard)
+        if not scoped.facts and not scoped.hypotheses:
+            return DebateResult(review_status="skipped_no_evidence")
+        shard_context = evidence_rag.render(scoped)
+        newline = chr(10)
+        shard_context += (
+            newline
+            + newline
+            + f"// shard files ({len(shard.files)})"
+            + newline
+        )
+        shard_context += newline.join(f"- {path}" for path in shard.files[:40])
+        shard_analysis_context = factory.build_analysis_context(
+            code_context=shard_context,
+            user_symptoms=concern,
+        )
+        engine = DebateEngine(
+            llm_fn,
+            prompt_factory=factory,
+            verifier=verifier,
+            evidence_policy=EvidencePolicy.EXCLUSIVE,
+        )
+        return engine.debate(
+            shard_analysis_context,
+            target=concern,
+            evidence_pack=scoped,
+            strategy=selected,
+        )
+
+    outcomes = run_sharded_review(plan, run_shard, max_workers=max_workers)
+    merged = merge_shard_results(outcomes, plan=plan)
+    completed = sum(1 for outcome in outcomes if outcome.status == "completed")
+    console.print(
+        f"  [dim]shards: {completed}/{len(outcomes)} completed · "
+        f"merge: {len(merged.final_suggestions)} findings[/dim]"
+    )
+    return merged
+
+
 def run_diagnosis_with_session(
     console: Console,
     session: AnalysisSession,
@@ -631,6 +714,7 @@ def run_diagnosis_with_session(
     sandbox_backend: str = "local",
     sandbox_image: Optional[str] = None,
     sandbox_runtime: Optional[str] = None,
+    max_workers: int = 1,
     temperature: float = 0.3,
     seed: Optional[int] = None,
     on_usage: Optional[Callable[[Dict[str, Any]], None]] = None,
@@ -683,6 +767,7 @@ def run_diagnosis_with_session(
         sandbox_backend=sandbox_backend,
         sandbox_image=sandbox_image,
         sandbox_runtime=sandbox_runtime,
+        max_workers=max_workers,
         analysis_session=session,
         temperature=temperature,
         seed=seed,
@@ -830,6 +915,7 @@ def run_quick_mode(
     sandbox_backend: str = "local",
     sandbox_image: Optional[str] = None,
     sandbox_runtime: Optional[str] = None,
+    max_workers: int = 1,
     save_trajectory: bool = False,
     trajectory_dir: Optional[str] = None,
 ) -> Optional[object]:
@@ -876,6 +962,7 @@ def run_quick_mode(
             sandbox_backend=sandbox_backend,
             sandbox_image=sandbox_image,
             sandbox_runtime=sandbox_runtime,
+            max_workers=max_workers,
         )
         if save_trajectory:
             _record_trajectory(
@@ -911,6 +998,7 @@ def run_quick_mode(
             sandbox_backend=sandbox_backend,
             sandbox_image=sandbox_image,
             sandbox_runtime=sandbox_runtime,
+            max_workers=max_workers,
             temperature=temperature,
             seed=seed,
             on_usage=usage.add,
