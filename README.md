@@ -261,7 +261,7 @@ The biggest gaps are open as claimable issues — see the [roadmap](https://gith
 
 - Source paths are confined to the repository root; external symlinks and `../` escapes are ignored.
 - External commands run without a shell, with time and output bounds.
-- Optional `quick --sandbox` applies proposed patches only to a temporary copy, but repository tests still run with your OS permissions.
+- Optional `quick --sandbox` applies patches only to a temporary copy; add `--sandbox-backend container` for a rootless container (network off, read-only root, no host env). The local backend is not an OS sandbox — see [docs/SANDBOX.md](docs/SANDBOX.md).
 - Do not send repositories containing secrets or restricted code to a remote provider unless that exposure is acceptable.
 - Do not file a finding upstream without repeated verification and a human decision.
 
