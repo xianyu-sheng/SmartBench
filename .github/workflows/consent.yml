@@ -1,0 +1,24 @@
+name: Dataset consent gate
+
+on:
+  pull_request:
+    paths:
+      - "trajectories/**"
+      - "tools/check_dataset_consent.py"
+  push:
+    branches: [main]
+    paths:
+      - "trajectories/**"
+      - "tools/check_dataset_consent.py"
+
+jobs:
+  consent:
+    name: Consent gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Verify real-world trajectories are consented
+        run: python tools/check_dataset_consent.py

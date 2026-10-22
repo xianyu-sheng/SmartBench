@@ -1,6 +1,6 @@
 # SmartBench Audit Trajectories v0
 
-**73 redacted audit trajectories** (80 KB JSONL): 9 real-world outcomes,
+**64 redacted audit trajectories** (64 KB JSONL): real-world split pending explicit consent,
 50 benchmark snapshots and 14 negative fixtures. This is a dataset of
 **verifiable audit trajectories** — hypothesis/evidence/verdict records — not a
 leaderboard and not a claim of general bug-detection accuracy.
@@ -14,9 +14,17 @@ leaderboard and not a claim of general bug-detection accuracy.
 
 | Split | Documents | What it contains | LLM involved |
 |---|---|---|---|
-| `real_world` | 9 | Public issues/PRs with runtime verification and an outcome (`merged`, `closed-fixed`, `closed-declined`, `open`, `pr-open`) | Human-verified |
+| `real_world` | 0 | Pending explicit consent — see [../CONSENT.md](../CONSENT.md) | — |
 | `benchmark` | 50 | 25 before/after cases (public fixes + synthetic fixtures); deterministic findings only | No |
 | `negative` | 14 | Clean look-alike fixtures that must produce zero findings | No |
+
+## Consent
+
+**No third-party audit trajectory is published without explicit written
+consent.** The nine curated public cases are `pending` in
+[`consent.json`](consent.json) and excluded from the JSONL. A repository owner
+can decline; we then remove the entry and delete our local trajectory
+(see [`../CONSENT.md`](../CONSENT.md)). A public issue/PR is not consent.
 
 The `benchmark` split carries `config.expected_rule_ids` and
 `config.snapshot=before|after`. The `negative` split asserts zero findings at
@@ -49,7 +57,7 @@ real_world = [d for d in docs if d["config"]["split"] == "real_world"]
 
 The benchmark/negative splits are produced by running the deterministic
 analysis over the committed corpora; no model is called. The real-world split
-is curated from public threads in `sources/real_world.yaml`. Timestamps are
+is only emitted for cases marked `granted` in `consent.json` (none yet). Timestamps are
 fixed and documents are sorted, so regeneration is stable. The manifest stores
 the SHA-256 of the JSONL over canonical LF bytes (CRLF-normalized), so Windows
 checkouts verify too; CI validates every document, the split counts and the

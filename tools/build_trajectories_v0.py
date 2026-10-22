@@ -40,7 +40,15 @@ def main() -> int:
     output = (root / args.out).resolve()
     documents: List[Dict[str, Any]] = []
 
-    real_sources = _load_real_sources(output / "sources" / "real_world.yaml")
+    consent = _load_consent(output / "consent.json")
+    sources_path = output / "sources" / "real_world.yaml"
+    real_sources = _load_real_sources(sources_path) if sources_path.is_file() else []
+    approved = {
+        case_id
+        for case_id, case in consent.items()
+        if case.get("status") == "granted" and str(case.get("evidence") or "").strip()
+    }
+    real_sources = [case for case in real_sources if str(case.get("id")) in approved]
     documents.extend(_real_world_documents(real_sources, tool_version=smartbench.__version__))
 
     real_manifest = root / "benchmarks" / "real" / "manifest.yaml"
@@ -85,6 +93,14 @@ def main() -> int:
         splits[split] = splits.get(split, 0) + 1
     manifest = {
         "schema_version": DATASET_SCHEMA,
+        "publication_policy": "explicit-written-consent",
+        "consent_file": "consent.json",
+        "consent_pending": sum(
+            1 for case in consent.values() if case.get("status") == "pending"
+        ),
+        "consent_declined": sum(
+            1 for case in consent.values() if case.get("status") == "declined"
+        ),
         "name": "smartbench-audit-trajectories",
         "version": "v0",
         "created": "2026-10-21",
@@ -108,6 +124,20 @@ def main() -> int:
     print(f"wrote {len(documents)} trajectories to {dataset_path}")
     print(f"splits: {manifest['splits']}")
     return 0
+
+
+def _load_consent(path: Path) -> Dict[str, Dict[str, Any]]:
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if document.get("schema_version") != "smartbench.consent/v1":
+        raise SystemExit(f"unsupported consent schema in {path}")
+    cases = document.get("cases", [])
+    if not isinstance(cases, list):
+        raise SystemExit(f"invalid consent cases in {path}")
+    return {
+        str(case.get("id")): case
+        for case in cases
+        if isinstance(case, dict) and case.get("id")
+    }
 
 
 def _load_real_sources(path: Path) -> List[Dict[str, Any]]:

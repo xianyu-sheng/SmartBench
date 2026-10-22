@@ -25,8 +25,8 @@ def test_manifest_counts_and_hash():
 
     assert manifest["schema_version"] == "smartbench.dataset/v1"
     assert manifest["license"] == "CC-BY-4.0"
-    assert manifest["documents"] == len(documents) == 73
-    assert manifest["splits"] == {"benchmark": 50, "negative": 14, "real_world": 9}
+    assert manifest["documents"] == len(documents) == 64
+    assert manifest["splits"] == {"benchmark": 50, "negative": 14}
     assert Counter(doc["config"]["split"] for doc in documents) == manifest["splits"]
     canonical = (V0 / "trajectories.jsonl").read_bytes().replace(bytes([13, 10]), bytes([10]))
     assert hashlib.sha256(canonical).hexdigest() == manifest["sha256"]
@@ -45,17 +45,21 @@ def test_every_document_is_valid_and_redacted():
     assert len(identifiers) == len(_documents())
 
 
-def test_real_world_entries_carry_provenance():
+def test_real_world_split_is_consent_gated():
     real = [doc for doc in _documents() if doc["config"]["split"] == "real_world"]
-    assert len(real) == 9
+    consent = json.loads((V0 / "consent.json").read_text(encoding="utf-8"))
+    granted = {
+        case["id"]
+        for case in consent["cases"]
+        if case.get("status") == "granted" and case.get("evidence")
+    }
+
+    assert consent["schema_version"] == "smartbench.consent/v1"
+    assert len(consent["cases"]) == 9
+    assert {doc["config"]["case_id"] for doc in real} <= granted
     for document in real:
+        assert document["consent"]["status"] == "granted"
         assert document["verification"]
-        assert document["adjudication"]
-        provenance = document["provenance"]
-        assert provenance["reference"].startswith("https://github.com/")
-        assert provenance["outcome"]
-        assert provenance["disclosure"]
-        assert document["findings"]
 
 
 def test_negative_split_is_finding_free():

@@ -8,18 +8,24 @@ separate dataset repo). The schema and tooling live in
 trajectories/
   LICENSE              # CC BY 4.0 for the data (code stays MIT)
   v0/
-    trajectories.jsonl # 73 redacted `smartbench.trajectory/v1` documents
+    trajectories.jsonl # 64 redacted `smartbench.trajectory/v1` documents
     manifest.json      # counts, splits, SHA-256
     dataset_card.md    # provenance, limitations, license, citation
-    sources/
-      real_world.yaml  # curated public cases (issue/PR links, outcomes)
+    consent.json       # explicit-consent ledger (pending/granted/declined)
 ```
+
+## Consent first
+
+No third-party audit trajectory is published without explicit written consent
+from the repository owner. The nine curated cases are `pending` in
+[`v0/consent.json`](v0/consent.json) and excluded from the JSONL. See
+[CONSENT.md](CONSENT.md) for the policy, request template and removal process.
 
 ## What v0 contains
 
 | Split | Documents | Source |
 |---|---|---|
-| `real_world` | 9 | Public issues/PRs with runtime verification and outcomes |
+| `real_world` | 0 | Pending explicit consent — see [CONSENT.md](CONSENT.md) |
 | `benchmark` | 50 | 25 before/after cases from `benchmarks/real/manifest.yaml` |
 | `negative` | 14 | Clean look-alikes from `benchmarks/negative/manifest.yaml` |
 
