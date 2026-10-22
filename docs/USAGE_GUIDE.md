@@ -110,6 +110,17 @@ smartbench quick --project ./my-project --sandbox
 SmartBench 对本地诊断、Git 元数据读取和补丁验证子进程设置超时与输出上限，
 避免异常工具无限占用内存；这仍不等价于操作系统沙箱。
 
+需要更强的隔离时，可切换到 rootless 容器后端（无网络、只读根、tmpfs、非 root、
+资源限额、不传宿主环境变量）：
+
+```bash
+smartbench quick --project ./my-project --sandbox   --sandbox-backend container   --sandbox-image golang:1.22   --sandbox-runtime podman
+```
+
+镜像必须包含项目工具链（git、编译器、测试框架）；默认 `python:3.12-slim` 只是示例。
+运行时会自动探测 podman/docker，缺失时明确报错而不是静默回退。容器共享宿主内核，
+比本地后端更强但不是 microVM；威胁模型与各后端保证见 [SANDBOX.md](SANDBOX.md)。
+
 未配置模型时，快速模式仍会返回完整 SemanticIR 与确定性规则报告，只跳过 ProjectReader 和多 Agent 审查。
 
 ### `smartbench check`

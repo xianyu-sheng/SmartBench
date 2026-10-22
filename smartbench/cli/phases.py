@@ -328,6 +328,9 @@ def run_diagnosis_with_graph(
     hybrid_retriever: object = None,
     enable_verify: bool = True,
     enable_sandbox: bool = False,
+    sandbox_backend: str = "local",
+    sandbox_image: Optional[str] = None,
+    sandbox_runtime: Optional[str] = None,
     analysis_session: Optional[AnalysisSession] = None,
     temperature: float = 0.3,
     seed: Optional[int] = None,
@@ -579,11 +582,23 @@ def run_diagnosis_with_graph(
 
             from smartbench.verifier.sandbox import SandboxVerifier
 
-            console.print(
-                "  [yellow]Running repository tests for proposed patches in a "
-                "temporary copy (not an OS security sandbox)...[/yellow]"
+            if sandbox_backend == "container":
+                console.print(
+                    "  [yellow]Running repository tests in a rootless container "
+                    "(network off, read-only root, no host env)...[/yellow]"
+                )
+            else:
+                console.print(
+                    "  [yellow]Running repository tests for proposed patches in a "
+                    "temporary copy (not an OS security sandbox)...[/yellow]"
+                )
+            sv = SandboxVerifier(
+                project_path,
+                timeout_seconds=30,
+                backend=sandbox_backend,
+                image=sandbox_image,
+                runtime=sandbox_runtime,
             )
-            sv = SandboxVerifier(project_path, timeout_seconds=30)
             sandboxed = sv.verify_all_proposals(result.final_suggestions)
             result.final_suggestions = sandboxed
             statuses = Counter(
@@ -613,6 +628,9 @@ def run_diagnosis_with_session(
     *,
     enable_verify: bool = True,
     enable_sandbox: bool = False,
+    sandbox_backend: str = "local",
+    sandbox_image: Optional[str] = None,
+    sandbox_runtime: Optional[str] = None,
     temperature: float = 0.3,
     seed: Optional[int] = None,
     on_usage: Optional[Callable[[Dict[str, Any]], None]] = None,
@@ -662,6 +680,9 @@ def run_diagnosis_with_session(
         hybrid_retriever=hybrid_retriever,
         enable_verify=enable_verify,
         enable_sandbox=enable_sandbox,
+        sandbox_backend=sandbox_backend,
+        sandbox_image=sandbox_image,
+        sandbox_runtime=sandbox_runtime,
         analysis_session=session,
         temperature=temperature,
         seed=seed,
@@ -806,6 +827,9 @@ def run_quick_mode(
     trials: int = 1,
     temperature: float = 0.3,
     seed: Optional[int] = None,
+    sandbox_backend: str = "local",
+    sandbox_image: Optional[str] = None,
+    sandbox_runtime: Optional[str] = None,
     save_trajectory: bool = False,
     trajectory_dir: Optional[str] = None,
 ) -> Optional[object]:
@@ -849,6 +873,9 @@ def run_quick_mode(
             api_config,
             concern,
             enable_sandbox=enable_sandbox,
+            sandbox_backend=sandbox_backend,
+            sandbox_image=sandbox_image,
+            sandbox_runtime=sandbox_runtime,
         )
         if save_trajectory:
             _record_trajectory(
@@ -881,6 +908,9 @@ def run_quick_mode(
             api_config,
             concern,
             enable_sandbox=enable_sandbox,
+            sandbox_backend=sandbox_backend,
+            sandbox_image=sandbox_image,
+            sandbox_runtime=sandbox_runtime,
             temperature=temperature,
             seed=seed,
             on_usage=usage.add,
