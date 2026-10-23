@@ -92,6 +92,8 @@ Pending requests are never listed.
     --trajectory-dir ~/.smartbench/trajectories --yes
   ```
 
+- Every new trajectory records `project.repository` when the checkout has a
+  GitHub `origin`; this is what makes purge safe.
 - **Already published and later withdrawn:** remove the entry from
   `consent.json`, regenerate the dataset, and remove the local trajectory. If
   the data was already released, we remove it from the current dataset and honor

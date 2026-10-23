@@ -3,7 +3,11 @@
 import json
 from pathlib import Path
 
-from tools.check_dataset_consent import check_dataset, purge_declined
+from tools.check_dataset_consent import (
+    check_dataset,
+    legacy_basename_candidates,
+    purge_declined,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 CONSENT = ROOT / "trajectories" / "v0" / "consent.json"
@@ -49,11 +53,11 @@ def test_granted_consent_requires_evidence(tmp_path):
     assert any("needs evidence" in error for error in errors)
 
 
-def test_purge_declined_removes_local_and_rebuilds_index(tmp_path):
+def test_purge_declined_does_not_delete_same_basename(tmp_path):
     store = tmp_path / "store"
     store.mkdir()
-    for trajectory_id, project_name in (
-        ("a", "o/r"),
+    for trajectory_id, repository in (
+        ("a", "o/repo"),
         ("b", "other/repo"),
     ):
         (store / f"{trajectory_id}.json").write_text(
@@ -61,7 +65,7 @@ def test_purge_declined_removes_local_and_rebuilds_index(tmp_path):
                 {
                     "trajectory_id": trajectory_id,
                     "recorded_at": "2026-10-22",
-                    "project": {"name": project_name},
+                    "project": {"name": "repo", "repository": repository},
                     "findings": [],
                     "schema_version": "smartbench.trajectory/v1",
                 }
@@ -72,14 +76,43 @@ def test_purge_declined_removes_local_and_rebuilds_index(tmp_path):
     consent = tmp_path / "consent.json"
     _write_consent(
         consent,
-        [{"id": "r1", "repository": "o/r", "status": "declined"}],
+        [{"id": "r1", "repository": "o/repo", "status": "declined"}],
     )
 
     removed = purge_declined(store, consent)
 
-    assert removed == ["o/r"]
+    assert removed == ["repo"]
     assert not (store / "a.json").exists()
     assert (store / "b.json").exists()
     lines = (store / "index.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
-    assert json.loads(lines[0])["project"] == "other/repo"
+    assert json.loads(lines[0])["trajectory_id"] == "b"
+
+
+def test_legacy_document_is_not_deleted_without_explicit_flag(tmp_path):
+    store = tmp_path / "store"
+    store.mkdir()
+    (store / "legacy.json").write_text(
+        json.dumps(
+            {
+                "trajectory_id": "legacy",
+                "project": {"name": "repo"},
+                "findings": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    consent = tmp_path / "consent.json"
+    _write_consent(
+        consent,
+        [{"id": "r1", "repository": "o/repo", "status": "declined"}],
+    )
+
+    assert legacy_basename_candidates(store, consent) == ["legacy.json"]
+    assert purge_declined(store, consent) == []
+    assert (store / "legacy.json").exists()
+
+    removed = purge_declined(store, consent, include_legacy_basename=True)
+
+    assert removed == ["repo"]
+    assert not (store / "legacy.json").exists()

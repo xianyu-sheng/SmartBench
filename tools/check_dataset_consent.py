@@ -90,21 +90,62 @@ def check_dataset(
     return errors
 
 
+def _declined_repositories(consent_path: Path) -> Dict[str, str]:
+    consent = load_json(consent_path)
+    return {
+        str(case.get("repository") or "").strip().lower(): str(
+            case.get("repository") or ""
+        )
+        for case in consent.get("cases", [])
+        if isinstance(case, dict)
+        and case.get("status") == "declined"
+        and str(case.get("repository") or "").strip()
+    }
+
+
+def legacy_basename_candidates(
+    trajectory_dir: str | Path,
+    consent_path: Path = CONSENT_PATH,
+) -> List[str]:
+    """Legacy docs (no ``project.repository``) matching a declined basename.
+
+    They are reported but never deleted automatically: two repositories can
+    share a checkout directory name.
+    """
+    declined = _declined_repositories(consent_path)
+    basenames = {name.split("/")[-1] for name in declined}
+    root = Path(trajectory_dir).expanduser()
+    matches: List[str] = []
+    if not root.is_dir():
+        return matches
+    for path in sorted(root.glob("*.json")):
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        project = document.get("project") if isinstance(document, dict) else None
+        if not isinstance(project, dict) or project.get("repository"):
+            continue
+        if str(project.get("name") or "").lower() in basenames:
+            matches.append(path.name)
+    return matches
+
+
 def purge_declined(
     trajectory_dir: str | Path,
     consent_path: Path = CONSENT_PATH,
     *,
     dry_run: bool = False,
+    include_legacy_basename: bool = False,
 ) -> List[str]:
-    """Delete local trajectories for repositories marked ``declined``."""
-    consent = load_json(consent_path)
-    declined = {
-        str(case.get("repository") or "")
-        for case in consent.get("cases", [])
-        if isinstance(case, dict) and case.get("status") == "declined"
-    }
-    declined_names = {name for name in declined if name}
-    declined_basenames = {name.split("/")[-1] for name in declined_names}
+    """Delete local trajectories for repositories marked ``declined``.
+
+    Matching is exact on ``project.repository`` (owner/repo). Legacy documents
+    without that field are left alone unless ``include_legacy_basename`` is
+    explicitly requested; a basename alone is ambiguous.
+    """
+    declined = _declined_repositories(consent_path)
+    basenames = {name.split("/")[-1] for name in declined}
     root = Path(trajectory_dir).expanduser()
     removed: List[str] = []
     if not root.is_dir():
@@ -115,9 +156,17 @@ def purge_declined(
         except (OSError, json.JSONDecodeError):
             continue
         project = document.get("project") if isinstance(document, dict) else None
-        name = str((project or {}).get("name") or "")
-        if name in declined_names or name in declined_basenames:
-            removed.append(name)
+        project = project if isinstance(project, dict) else {}
+        repository = str(project.get("repository") or "").strip().lower()
+        name = str(project.get("name") or "")
+        exact_match = bool(repository) and repository in declined
+        legacy_match = (
+            include_legacy_basename
+            and not repository
+            and name.lower() in basenames
+        )
+        if exact_match or legacy_match:
+            removed.append(name or repository)
             if not dry_run:
                 path.unlink()
     if not dry_run and (root / "index.jsonl").exists():
@@ -149,6 +198,11 @@ def main() -> int:
     parser.add_argument("--consent", default=str(CONSENT_PATH))
     parser.add_argument("--purge-declined", action="store_true")
     parser.add_argument("--trajectory-dir", default="")
+    parser.add_argument(
+        "--legacy-basename",
+        action="store_true",
+        help="Also match legacy trajectories without project.repository by directory name",
+    )
     parser.add_argument("--yes", action="store_true", help="Actually delete files")
     args = parser.parse_args()
 
@@ -163,10 +217,24 @@ def main() -> int:
         if not args.trajectory_dir:
             print("ERROR: --purge-declined needs --trajectory-dir", file=sys.stderr)
             return 1
+        if not args.legacy_basename:
+            legacy = legacy_basename_candidates(
+                args.trajectory_dir, Path(args.consent)
+            )
+            if legacy:
+                print(
+                    f"WARNING: {len(legacy)} legacy trajectory file(s) lack "
+                    "project.repository and were not deleted; review and pass "
+                    "--legacy-basename only if their directory names are unambiguous.",
+                    file=sys.stderr,
+                )
+                for filename in legacy:
+                    print(f"- {filename}", file=sys.stderr)
         removed = purge_declined(
             args.trajectory_dir,
             Path(args.consent),
             dry_run=not args.yes,
+            include_legacy_basename=args.legacy_basename,
         )
         action = "removed" if args.yes else "would remove"
         print(f"{action} {len(removed)} local trajectory file(s)")

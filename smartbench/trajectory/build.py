@@ -42,6 +42,13 @@ def build_trajectory(
         f"{project_hash}:{recorded_at}:{finding_signature(findings)}".encode("utf-8")
     ).hexdigest()[:16]
 
+    repository = ""
+    try:
+        from smartbench.consent.queue import discover_github_repository
+
+        repository = discover_github_repository(root) or ""
+    except Exception:
+        repository = ""
     document: Dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "trajectory_id": trajectory_id,
@@ -49,6 +56,7 @@ def build_trajectory(
         "tool_version": tool_version,
         "project": {
             "name": root.name,
+            "repository": repository,
             "root_hash": project_hash,
             "languages": languages,
         },

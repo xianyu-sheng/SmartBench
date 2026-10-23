@@ -9,6 +9,7 @@ trajectories/
   LICENSE              # CC BY 4.0 for the data (code stays MIT)
   v0/
     trajectories.jsonl # 64 redacted `smartbench.trajectory/v1` documents
+                       # project.repository is the stable purge identity
     manifest.json      # counts, splits, SHA-256
     dataset_card.md    # provenance, limitations, license, citation
     consent.json       # explicit-consent ledger (pending/granted/declined)
