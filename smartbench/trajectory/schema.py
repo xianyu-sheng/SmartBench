@@ -57,6 +57,9 @@ def validate_document(document: Any) -> list[str]:
     project = document.get("project")
     if not isinstance(project, dict) or not project.get("name"):
         errors.append("project.name is required")
+    if isinstance(project, dict) and "repository" in project:
+        if not isinstance(project.get("repository"), str):
+            errors.append("project.repository must be a string")
     if not isinstance(document.get("config"), dict):
         errors.append("config must be an object")
     findings = document.get("findings")

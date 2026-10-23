@@ -80,6 +80,17 @@ def test_build_trajectory_is_valid_and_redacted(tmp_path):
     assert document["analysis"]["merge"]["suggestions"] == 1
 
 
+def test_build_trajectory_records_github_repository(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "smartbench.consent.queue.discover_github_repository",
+        lambda _path: "owner/repo",
+    )
+
+    document = _document(tmp_path)
+
+    assert document["project"]["repository"] == "owner/repo"
+
+
 def test_redact_text_masks_secrets_and_home(tmp_path):
     text = f"{tmp_path}/src/main.py sk-abcdefghijklmnopqrstuvwxyz012345"
 
