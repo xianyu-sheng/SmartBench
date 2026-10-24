@@ -21,6 +21,8 @@
 | [firefart/stunner](https://github.com/firefart/stunner/issues/89) | `testPassword` 在所有路径泄漏 TURN 连接（暴力破解累积 socket） | **CLOSED** — 修复已在 `dev` 确认，发现正确 | 静默 mock server：只有修复后服务端 Read 才到 EOF |
 | [mosajjal/sniproxy](https://github.com/mosajjal/sniproxy/pull/203) | `refresh_interval: 0` 导致进程崩溃：ACL 刷新 goroutine 里 `time.NewTicker` panic | **PR OPEN** | 运行时复现 panic → 修复对照 → 测试通过 |
 | [sparckles/Robyn](https://github.com/sparckles/Robyn/issues/1432) | SSE 测试用 `stream=True` 但未显式关闭响应（测试卫生） | **OPEN** | 确认有效，低严重性 |
+| [emersion/go-imap](https://github.com/emersion/go-imap/pull/773) | `handleAppend` 返回 nil error 变量，畸形 APPEND literal 不产生 tagged response，客户端永久等待 | **MERGED** | 端到端 TCP mock：修复前超时，修复后收到 `a2 BAD` |
+| [hacdias/webdav](https://github.com/hacdias/webdav/pull/374) | CORS 分支提前 return，使 “unprotected config” 警告不可达；启用 CORS 的服务器可以在没有用户/密码时静默启动 | **MERGED**（2026-10-24） | zap observer 测试：修复前 0 条警告、修复后出现警告；`go test ./lib/` 与 `go vet ./lib/` 通过 |
 
 每个上游提交都走同一条链：静态审计 → 运行时复现 → 本地修复 → 对照实验（修复前失败、修复后通过）。完整分析见 [REAL_WORLD_CASES.md](REAL_WORLD_CASES.md)。
 
