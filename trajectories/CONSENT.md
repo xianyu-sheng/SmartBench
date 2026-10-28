@@ -31,17 +31,29 @@ For a consented case, the trajectory contains only:
 2. If the project has a GitHub `origin` and the trajectory has findings, the
    repository is added to the local consent queue
    (`~/.smartbench/consent/outreach.json`) as `staged`. Nothing is published.
-3. `smartbench consent send` resolves a **public** maintainer contact and sends
-   at most one request per repository (dry run by default; `--send` to deliver).
+3. If a public issue/PR thread already exists, post **one** request comment in
+   that thread (preferred). Otherwise use the email fallback below.
 4. A reply is recorded in `trajectories/v0/consent.json`; only `granted` with
-   evidence enters the dataset.
+   evidence enters the dataset. A thumbs-up or "thanks" is not consent; the
+   reply must contain the explicit statement.
 
-`SMARTBENCH_CONSENT_AUTOSEND=1` (with SMTP configured) lets a scan send its own
-staged request. The GitHub `Consent outreach` workflow can also run on a
-schedule; it defaults to a dry run unless the `CONSENT_AUTOSEND` repository
-variable is `true` or a manual run sets `send=true`.
+`SMARTBENCH_CONSENT_AUTOSEND=1` (with SMTP configured) is only for the email
+fallback. The GitHub `Consent outreach` workflow can also run on a schedule; it
+defaults to a dry run unless the `CONSENT_AUTOSEND` repository variable is
+`true` or a manual run sets `send=true`.
 
-## Email outreach
+## GitHub thread outreach (preferred)
+
+- Use an existing issue/PR thread where the finding was already discussed; one
+  comment per repository, no duplicate comments and no @-mentions.
+- State what would be published, link this policy, and include the exact consent
+  statement. Merged/closed threads are acceptable; for a closed design trade-off
+  explicitly say you are not asking to reopen it.
+- Record the comment URL in `consent.json` (`requested_via: "github-comment"`,
+  `request_url`). The comment is a request, **not** evidence of consent.
+- If the thread is locked or no thread exists, use the email fallback.
+
+## Email fallback
 
 - Contacts come only from the public GitHub profile or an email written in
   `SECURITY.md` / `CONTRIBUTING.md`. Commit-author emails are not harvested.
@@ -64,8 +76,8 @@ Pending requests are never listed.
 
 ## How consent is recorded
 
-1. Send the request in [`docs/CONSENT_REQUEST.md`](../docs/CONSENT_REQUEST.md)
-   (existing issue/PR thread or email).
+1. Send the request in [`docs/CONSENT_REQUEST.md`](../docs/CONSENT_REQUEST.md):
+   an existing issue/PR thread is preferred; email is the fallback.
 2. The maintainer replies with the consent statement, or declines.
 3. Record the outcome in `trajectories/v0/consent.json`:
 
@@ -75,6 +87,8 @@ Pending requests are never listed.
   "repository": "owner/repo",
   "status": "granted",
   "requested_at": "2026-10-22",
+  "requested_via": "github-comment",
+  "request_url": "https://github.com/owner/repo/issues/1#issuecomment-...",
   "granted_at": "2026-10-23",
   "evidence": "https://github.com/owner/repo/issues/1#issuecomment-...",
   "note": ""

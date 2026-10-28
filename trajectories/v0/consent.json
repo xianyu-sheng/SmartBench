@@ -1,88 +1,106 @@
 {
   "schema_version": "smartbench.consent/v1",
   "policy": "explicit-written-consent",
-  "updated_at": "2026-10-22",
+  "updated_at": "2026-10-28",
   "cases": [
     {
       "id": "qscan-db-close",
       "repository": "qi4L/qscan",
       "status": "pending",
-      "requested_at": null,
+      "requested_at": "2026-10-28",
       "granted_at": null,
       "evidence": null,
-      "note": "Public issue #22 exists; consent not yet requested."
+      "note": "Consent requested in the public thread: https://github.com/qi4L/qscan/issues/22#issuecomment-6469600276",
+      "requested_via": "github-comment",
+      "request_url": "https://github.com/qi4L/qscan/issues/22#issuecomment-6469600276"
     },
     {
       "id": "stunner-conn-close",
       "repository": "firefart/stunner",
       "status": "pending",
-      "requested_at": null,
+      "requested_at": "2026-10-28",
       "granted_at": null,
       "evidence": null,
-      "note": "Public issue #89 exists; consent not yet requested."
+      "note": "Consent requested in the public thread: https://github.com/firefart/stunner/issues/89#issuecomment-6469600841",
+      "requested_via": "github-comment",
+      "request_url": "https://github.com/firefart/stunner/issues/89#issuecomment-6469600841"
     },
     {
       "id": "sniproxy-ticker-panic",
       "repository": "mosajjal/sniproxy",
       "status": "pending",
-      "requested_at": null,
+      "requested_at": "2026-10-28",
       "granted_at": null,
       "evidence": null,
-      "note": "Public PR #203 exists; consent not yet requested."
+      "note": "Consent requested in the public thread: https://github.com/mosajjal/sniproxy/pull/203#issuecomment-6469601482",
+      "requested_via": "github-comment",
+      "request_url": "https://github.com/mosajjal/sniproxy/pull/203#issuecomment-6469601482"
     },
     {
       "id": "robyn-sse-test-hygiene",
       "repository": "sparckles/Robyn",
       "status": "pending",
-      "requested_at": null,
+      "requested_at": "2026-10-28",
       "granted_at": null,
       "evidence": null,
-      "note": "Public issue #1432 exists; consent not yet requested."
+      "note": "Consent requested in the public thread: https://github.com/sparckles/Robyn/issues/1432#issuecomment-6469602060",
+      "requested_via": "github-comment",
+      "request_url": "https://github.com/sparckles/Robyn/issues/1432#issuecomment-6469602060"
     },
     {
       "id": "go-imap-append-nil-error",
       "repository": "emersion/go-imap",
       "status": "pending",
-      "requested_at": null,
+      "requested_at": "2026-10-28",
       "granted_at": null,
       "evidence": null,
-      "note": "Merged PR #773 exists; consent not yet requested."
+      "note": "Consent requested in the public thread: https://github.com/emersion/go-imap/pull/773#issuecomment-6469602679",
+      "requested_via": "github-comment",
+      "request_url": "https://github.com/emersion/go-imap/pull/773#issuecomment-6469602679"
     },
     {
       "id": "lf-accept-error-crash",
       "repository": "gokcehan/lf",
       "status": "pending",
-      "requested_at": null,
+      "requested_at": "2026-10-28",
       "granted_at": null,
       "evidence": null,
-      "note": "Closed PR #2712 exists; consent not yet requested."
+      "note": "Consent requested in the public thread: https://github.com/gokcehan/lf/pull/2712#issuecomment-6469603256",
+      "requested_via": "github-comment",
+      "request_url": "https://github.com/gokcehan/lf/pull/2712#issuecomment-6469603256"
     },
     {
       "id": "tproxy-pipe-goroutine-leak",
       "repository": "kevwan/tproxy",
       "status": "pending",
-      "requested_at": null,
+      "requested_at": "2026-10-28",
       "granted_at": null,
       "evidence": null,
-      "note": "Public PR #177 exists; consent not yet requested."
+      "note": "Consent requested in the public thread: https://github.com/kevwan/tproxy/pull/177#issuecomment-6469603879",
+      "requested_via": "github-comment",
+      "request_url": "https://github.com/kevwan/tproxy/pull/177#issuecomment-6469603879"
     },
     {
       "id": "webdav-cors-warning-unreachable",
       "repository": "hacdias/webdav",
       "status": "pending",
-      "requested_at": null,
+      "requested_at": "2026-10-28",
       "granted_at": null,
       "evidence": null,
-      "note": "Public PR #374 exists; consent not yet requested."
+      "note": "Consent requested in the public thread: https://github.com/hacdias/webdav/pull/374#issuecomment-6469604871",
+      "requested_via": "github-comment",
+      "request_url": "https://github.com/hacdias/webdav/pull/374#issuecomment-6469604871"
     },
     {
       "id": "afero-gcs-writer-leak",
       "repository": "spf13/afero",
       "status": "pending",
-      "requested_at": null,
+      "requested_at": "2026-10-28",
       "granted_at": null,
       "evidence": null,
-      "note": "Public PR #701 exists; consent not yet requested."
+      "note": "Consent requested in the public thread: https://github.com/spf13/afero/pull/701#issuecomment-6469605567",
+      "requested_via": "github-comment",
+      "request_url": "https://github.com/spf13/afero/pull/701#issuecomment-6469605567"
     }
   ]
 }
