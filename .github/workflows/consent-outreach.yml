@@ -46,7 +46,7 @@ jobs:
           python tools/consent_outreach.py $FLAG --limit 5
       - name: Open PR with outreach records
         if: always()
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: consent/outreach
           title: "chore(consent): record email outreach"
