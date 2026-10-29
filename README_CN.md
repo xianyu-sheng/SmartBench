@@ -5,6 +5,8 @@
 [![Release](https://img.shields.io/github/v/release/xianyu-sheng/SmartBench?label=release&color=4C1)](https://github.com/xianyu-sheng/SmartBench/releases)
 [![Status: Public Beta](https://img.shields.io/badge/status-public_beta-orange.svg)](#项目状态)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Regression: 50/50](https://img.shields.io/badge/regression-50%2F50-2ea44f.svg)](#评测数字意味着什么)
+[![Real cases: 6/6](https://img.shields.io/badge/real_cases-6%2F6-1f6feb.svg)](#真实发现运行时验证)
 [![Listed in Awesome Testing](https://awesome.re/mentioned-badge-flat.svg)](https://github.com/TheJambo/awesome-testing#static-analysis)
 
 [English](README.md) | 中文
@@ -12,6 +14,13 @@
 **证据约束的代码诊断。** 静态分析拥有源码事实；LLM 只能*提出*假设；resolver 和 validator 决定假设能否绑定回真实操作、类型与控制流。绑不上的保持 `unknown` / `abstained`，永远不会被提升为 finding。
 
 > 信任边界就是产品本身：**模型可以犯错，但它无法把一个错误的断言变成 finding。**
+
+### 核心数据
+
+- **50/50** 回归快照通过（25 组 before/after）。
+- **6/6** 真实并发 / 资源生命周期案例受控验证。
+- **4** 个上游问题：qscan、stunner、sniproxy、Robyn。
+- Go 类型证据 **40,650** 条；内部 grounding **22% → 81%**。
 
 ## 真实发现（运行时验证）
 
@@ -43,7 +52,7 @@
 |---|---|---|
 | 确定性 `unified` 分析 | 规则 finding、能力评估、源码角色、图事实、JSON 与 SARIF | 干净结果 ≠ 没有 bug |
 | 带模型的 `quick` | 项目假设、证据门审查、显式的拒绝与弃权状态 | 结论不因引用了真实事实就被证明 |
-| before/after 语料 | 可复现地验证分析器能区分 25 个已知修复 | 未知 bug 的 precision / recall |
+| before/after 语料 | 可复现地验证分析器能区分 25 个已知修复（50 个 before/after 快照） | 未知 bug 的 precision / recall |
 
 当前的目标用户是评估这套架构的人，或做受控、人工复核式仓库审计的人——不是把它当 CI 质量门。
 

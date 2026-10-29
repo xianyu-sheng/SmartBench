@@ -5,6 +5,8 @@
 [![Release](https://img.shields.io/github/v/release/xianyu-sheng/SmartBench?label=release&color=4C1)](https://github.com/xianyu-sheng/SmartBench/releases)
 [![Status: Public Beta](https://img.shields.io/badge/status-public_beta-orange.svg)](#project-status)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Regression: 50/50](https://img.shields.io/badge/regression-50%2F50-2ea44f.svg)](#evaluation-what-the-numbers-mean)
+[![Real cases: 6/6](https://img.shields.io/badge/real_cases-6%2F6-1f6feb.svg)](#found-in-real-projects-runtime-verified)
 [![Listed in Awesome Testing](https://awesome.re/mentioned-badge-flat.svg)](https://github.com/TheJambo/awesome-testing#static-analysis)
 
 [English](README.md) | [中文](README_CN.md)
@@ -12,6 +14,13 @@
 **Evidence-constrained code diagnosis.** Deterministic analyzers own the source facts; an LLM may only *propose* hypotheses; resolvers and validators decide whether a hypothesis can be bound back to real operations, types and control flow. Anything that cannot be bound stays `unknown` or `abstained` — it is never promoted to a finding.
 
 > The trust boundary is the product: **a model can be wrong, but it cannot turn a wrong claim into a finding.**
+
+### Highlights
+
+- **50/50** regression snapshots pass (25 before/after cases).
+- **6/6** controlled real-world concurrency / resource-lifetime cases verified.
+- **4** upstream reports: qscan, stunner, sniproxy, Robyn.
+- Go type evidence: **40,650** items; internal grounding **22% → 81%**.
 
 ## Found in real projects — runtime-verified
 
@@ -43,7 +52,7 @@ The same detection layer reproduces **6/6 known concurrency and resource-lifetim
 |---|---|---|
 | Deterministic `unified` analysis | Rule findings, capability assessments, source roles, graph facts, JSON and SARIF | That a clean result means bug-free code |
 | `quick` with a configured model | Project hypotheses, evidence-gated review, explicit rejection and abstention states | That a conclusion is proved merely because it cites a real fact |
-| Before/after corpus | Reproducible checks that selected analyzers distinguish 25 known fixes | Precision or recall on previously unknown bugs |
+| Before/after corpus | Reproducible checks that selected analyzers distinguish 25 known fixes (50 before/after snapshots) | Precision or recall on previously unknown bugs |
 
 The intended user today is someone evaluating the architecture or performing a controlled, human-reviewed repository audit — not a drop-in CI quality gate.
 
