@@ -19,7 +19,7 @@
 
 - **50/50** regression snapshots pass (25 before/after cases).
 - **6/6** controlled real-world concurrency / resource-lifetime cases verified.
-- **4** upstream reports: qscan, stunner, sniproxy, Robyn.
+- **6** upstream reports: qscan, stunner, sniproxy, Robyn, go-imap, webdav.
 - Go type evidence: **40,650** items; internal grounding **22% → 81%**.
 
 ## Found in real projects — runtime-verified

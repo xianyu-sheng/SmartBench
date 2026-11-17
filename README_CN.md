@@ -19,7 +19,7 @@
 
 - **50/50** 回归快照通过（25 组 before/after）。
 - **6/6** 真实并发 / 资源生命周期案例受控验证。
-- **4** 个上游问题：qscan、stunner、sniproxy、Robyn。
+- **6** 个上游问题：qscan、stunner、sniproxy、Robyn、go-imap、webdav。
 - Go 类型证据 **40,650** 条；内部 grounding **22% → 81%**。
 
 ## 真实发现（运行时验证）
