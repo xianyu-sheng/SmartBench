@@ -46,8 +46,8 @@ jobs:
           cache: pip
       - name: Install graph dependencies
         run: python -m pip install -e ".[dev,graph]"
-      - name: Test parser adapters
-        run: pytest -q tests/test_tree_parser.py
+      - name: Test parser adapters and frontend conformance
+        run: pytest -q tests/test_tree_parser.py tests/test_frontend_conformance.py
         env:
           SMARTBENCH_REQUIRE_TREE_SITTER: "1"
 

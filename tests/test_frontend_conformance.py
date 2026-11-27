@@ -237,6 +237,8 @@ def test_ir_serialization_is_stable_and_matches_golden(
     snapshot: str,
     tmp_path: Path,
 ):
+    if case.adapter.language == "python" and get_parser("python") is None:
+        pytest.skip("golden IR requires the tree-sitter Python backend")
     first = _parse_snapshot(case, snapshot, tmp_path / "first")
     second = _parse_snapshot(case, snapshot, tmp_path / "second")
 
