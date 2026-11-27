@@ -1,0 +1,504 @@
+{
+  "capabilities": {
+    "go": {
+      "language": "go",
+      "partial": {
+        "call_graph": "surface types resolve proven receivers; no go/types dispatch",
+        "concurrency": "goroutine, defer, send, receive and select operations are normalized",
+        "data_flow": "operation operands plus conservative argument/return propagation",
+        "event_model": "branch and transition operations are intraprocedural",
+        "type_info": "surface parameter, receiver and return types only; no go/types"
+      },
+      "supported": [
+        "control_flow",
+        "source_locations",
+        "structure",
+        "symbols"
+      ]
+    }
+  },
+  "facts": [
+    {
+      "attributes": {
+        "kind": "assign",
+        "operation_id": "01b787af174a282bccc1"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 25,
+          "column_start": 4,
+          "file_path": "after.go",
+          "line_end": 4,
+          "line_start": 4,
+          "snippet": "resource := acquire()",
+          "source": "go_frontend"
+        }
+      ],
+      "fact_id": "fact-e077f8dc53e71446",
+      "object": "resource",
+      "predicate": "writes",
+      "subject": "dd842fbf55ac2fd7ac01"
+    },
+    {
+      "attributes": {
+        "kind": "call",
+        "operation_id": "ca7f653fc9cb6ae91d8a"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 21,
+          "column_start": 4,
+          "file_path": "after.go",
+          "line_end": 5,
+          "line_start": 5,
+          "snippet": "release(resource)",
+          "source": "go_frontend"
+        }
+      ],
+      "fact_id": "fact-9935ae7b9906cef8",
+      "object": "release",
+      "predicate": "calls",
+      "subject": "dd842fbf55ac2fd7ac01"
+    },
+    {
+      "attributes": {
+        "kind": "branch",
+        "operation_id": "7db11124a7c28efa5d24"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 5,
+          "column_start": 4,
+          "file_path": "after.go",
+          "line_end": 10,
+          "line_start": 6,
+          "snippet": "if enabled {\n        consume(resource)\n    } else {\n        return\n    }",
+          "source": "go_frontend"
+        }
+      ],
+      "fact_id": "fact-d41690fcbf455792",
+      "object": "enabled",
+      "predicate": "controls",
+      "subject": "dd842fbf55ac2fd7ac01"
+    },
+    {
+      "attributes": {
+        "kind": "call",
+        "operation_id": "f56e95752b7a2a411e72"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 25,
+          "column_start": 8,
+          "file_path": "after.go",
+          "line_end": 7,
+          "line_start": 7,
+          "snippet": "consume(resource)",
+          "source": "go_frontend"
+        }
+      ],
+      "fact_id": "fact-50e1ea5ed64ad6f3",
+      "object": "consume",
+      "predicate": "calls",
+      "subject": "dd842fbf55ac2fd7ac01"
+    },
+    {
+      "attributes": {
+        "kind": "return",
+        "operation_id": "4516e4e5dd5d4d5f7c16"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 14,
+          "column_start": 8,
+          "file_path": "after.go",
+          "line_end": 9,
+          "line_start": 9,
+          "snippet": "return",
+          "source": "go_frontend"
+        }
+      ],
+      "fact_id": "fact-d7e5728a897f1a3b",
+      "object": "return",
+      "predicate": "state_transition",
+      "subject": "dd842fbf55ac2fd7ac01"
+    },
+    {
+      "attributes": {
+        "kind": "call",
+        "operation_id": "88bbe5aeabb3dd5ce4a0"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 25,
+          "column_start": 16,
+          "file_path": "after.go",
+          "line_end": 4,
+          "line_start": 4,
+          "snippet": "acquire()",
+          "source": "go_frontend"
+        }
+      ],
+      "fact_id": "fact-e1e32001b8cc11a8",
+      "object": "acquire",
+      "predicate": "calls",
+      "subject": "dd842fbf55ac2fd7ac01"
+    }
+  ],
+  "graph": {
+    "edges": [
+      {
+        "edge_type": "contains",
+        "properties": {},
+        "source_id": "89e01e7a785da836",
+        "target_id": "d2a8ad459066008c"
+      }
+    ],
+    "meta": {
+      "language": "go",
+      "max_file_bytes": 2097152,
+      "max_files": 500,
+      "project_path": "<project>"
+    },
+    "nodes": {
+      "89e01e7a785da836": {
+        "file_path": "after.go",
+        "id": "89e01e7a785da836",
+        "language": "go",
+        "line_end": 0,
+        "line_start": 0,
+        "name": "after.go",
+        "node_type": "file",
+        "properties": {
+          "line_count": 11
+        }
+      },
+      "d2a8ad459066008c": {
+        "file_path": "after.go",
+        "id": "d2a8ad459066008c",
+        "language": "go",
+        "line_end": 11,
+        "line_start": 3,
+        "name": "run",
+        "node_type": "function",
+        "properties": {
+          "signature": "func run(enabled bool) {"
+        }
+      }
+    }
+  },
+  "languages": [
+    "go"
+  ],
+  "operation_edges": [
+    {
+      "attributes": {},
+      "kind": "contains",
+      "source_id": "dd842fbf55ac2fd7ac01",
+      "target_id": "44ea5ed86f657da30241"
+    },
+    {
+      "attributes": {},
+      "kind": "next",
+      "source_id": "01b787af174a282bccc1",
+      "target_id": "ca7f653fc9cb6ae91d8a"
+    },
+    {
+      "attributes": {},
+      "kind": "true_branch",
+      "source_id": "7db11124a7c28efa5d24",
+      "target_id": "f56e95752b7a2a411e72"
+    },
+    {
+      "attributes": {},
+      "kind": "false_branch",
+      "source_id": "7db11124a7c28efa5d24",
+      "target_id": "4516e4e5dd5d4d5f7c16"
+    },
+    {
+      "attributes": {},
+      "kind": "next",
+      "source_id": "ca7f653fc9cb6ae91d8a",
+      "target_id": "7db11124a7c28efa5d24"
+    },
+    {
+      "attributes": {},
+      "kind": "contains",
+      "source_id": "dd842fbf55ac2fd7ac01",
+      "target_id": "01b787af174a282bccc1"
+    },
+    {
+      "attributes": {},
+      "kind": "next",
+      "source_id": "88bbe5aeabb3dd5ce4a0",
+      "target_id": "01b787af174a282bccc1"
+    }
+  ],
+  "operations": [
+    {
+      "attributes": {
+        "namespace": "sample",
+        "qualified_name": "sample.run",
+        "receiver_type": "",
+        "return_types": [],
+        "symbol_name": "run"
+      },
+      "id": "dd842fbf55ac2fd7ac01",
+      "kind": "function",
+      "language": "go",
+      "location": {
+        "column_end": 1,
+        "column_start": 0,
+        "file_path": "after.go",
+        "line_end": 11,
+        "line_start": 3,
+        "snippet": "func run(enabled bool) {\n    resource := acquire()\n    release(resource)\n    if enabled {\n        consume(resource)\n    } else {\n        return\n    }\n}",
+        "source": "go_frontend"
+      },
+      "operands": [],
+      "scope_id": "dd842fbf55ac2fd7ac01",
+      "target": "run",
+      "value": "func run(enabled bool) {"
+    },
+    {
+      "attributes": {
+        "declared_type": "bool",
+        "parameter_kind": "positional",
+        "position": 0,
+        "receiver": false
+      },
+      "id": "44ea5ed86f657da30241",
+      "kind": "parameter",
+      "language": "go",
+      "location": {
+        "column_end": 21,
+        "column_start": 9,
+        "file_path": "after.go",
+        "line_end": 3,
+        "line_start": 3,
+        "snippet": "enabled bool",
+        "source": "go_frontend"
+      },
+      "operands": [],
+      "scope_id": "dd842fbf55ac2fd7ac01",
+      "target": "enabled",
+      "value": "bool"
+    },
+    {
+      "attributes": {
+        "bindings": [
+          {
+            "declared_type": "",
+            "inferred_type": "",
+            "target": "resource"
+          }
+        ],
+        "calls": [
+          "acquire"
+        ]
+      },
+      "id": "01b787af174a282bccc1",
+      "kind": "assign",
+      "language": "go",
+      "location": {
+        "column_end": 25,
+        "column_start": 4,
+        "file_path": "after.go",
+        "line_end": 4,
+        "line_start": 4,
+        "snippet": "resource := acquire()",
+        "source": "go_frontend"
+      },
+      "operands": [
+        "acquire"
+      ],
+      "scope_id": "dd842fbf55ac2fd7ac01",
+      "target": "resource",
+      "value": "acquire()"
+    },
+    {
+      "attributes": {
+        "argument_names": [
+          ""
+        ],
+        "arguments": [
+          "resource"
+        ],
+        "host_operation": "",
+        "receiver": "",
+        "result_targets": []
+      },
+      "id": "ca7f653fc9cb6ae91d8a",
+      "kind": "call",
+      "language": "go",
+      "location": {
+        "column_end": 21,
+        "column_start": 4,
+        "file_path": "after.go",
+        "line_end": 5,
+        "line_start": 5,
+        "snippet": "release(resource)",
+        "source": "go_frontend"
+      },
+      "operands": [
+        "resource"
+      ],
+      "scope_id": "dd842fbf55ac2fd7ac01",
+      "target": "release",
+      "value": "release(resource)"
+    },
+    {
+      "attributes": {
+        "calls": [],
+        "literals": [],
+        "operators": []
+      },
+      "id": "7db11124a7c28efa5d24",
+      "kind": "branch",
+      "language": "go",
+      "location": {
+        "column_end": 5,
+        "column_start": 4,
+        "file_path": "after.go",
+        "line_end": 10,
+        "line_start": 6,
+        "snippet": "if enabled {\n        consume(resource)\n    } else {\n        return\n    }",
+        "source": "go_frontend"
+      },
+      "operands": [
+        "enabled"
+      ],
+      "scope_id": "dd842fbf55ac2fd7ac01",
+      "target": "",
+      "value": "enabled"
+    },
+    {
+      "attributes": {
+        "argument_names": [
+          ""
+        ],
+        "arguments": [
+          "resource"
+        ],
+        "host_operation": "",
+        "receiver": "",
+        "result_targets": []
+      },
+      "id": "f56e95752b7a2a411e72",
+      "kind": "call",
+      "language": "go",
+      "location": {
+        "column_end": 25,
+        "column_start": 8,
+        "file_path": "after.go",
+        "line_end": 7,
+        "line_start": 7,
+        "snippet": "consume(resource)",
+        "source": "go_frontend"
+      },
+      "operands": [
+        "resource"
+      ],
+      "scope_id": "dd842fbf55ac2fd7ac01",
+      "target": "consume",
+      "value": "consume(resource)"
+    },
+    {
+      "attributes": {
+        "values": []
+      },
+      "id": "4516e4e5dd5d4d5f7c16",
+      "kind": "return",
+      "language": "go",
+      "location": {
+        "column_end": 14,
+        "column_start": 8,
+        "file_path": "after.go",
+        "line_end": 9,
+        "line_start": 9,
+        "snippet": "return",
+        "source": "go_frontend"
+      },
+      "operands": [],
+      "scope_id": "dd842fbf55ac2fd7ac01",
+      "target": "",
+      "value": ""
+    },
+    {
+      "attributes": {
+        "argument_names": [],
+        "arguments": [],
+        "host_operation": "01b787af174a282bccc1",
+        "receiver": "",
+        "result_targets": [
+          "resource"
+        ]
+      },
+      "id": "88bbe5aeabb3dd5ce4a0",
+      "kind": "call",
+      "language": "go",
+      "location": {
+        "column_end": 25,
+        "column_start": 16,
+        "file_path": "after.go",
+        "line_end": 4,
+        "line_start": 4,
+        "snippet": "acquire()",
+        "source": "go_frontend"
+      },
+      "operands": [],
+      "scope_id": "dd842fbf55ac2fd7ac01",
+      "target": "acquire",
+      "value": "acquire()"
+    }
+  ],
+  "project_path": "<project>",
+  "schema_version": "semantic-ir/v1",
+  "source_units": {
+    "after.go": {
+      "content_hash": "sha256:693f53cbb8191844e9a28870c3f9757031c4549eaf80549812ab84030470605e",
+      "file_path": "after.go",
+      "language": "go",
+      "line_count": 11,
+      "repository_zone": "first_party",
+      "repository_zone_reason": "default repository ownership",
+      "role": "production",
+      "role_reason": "default source path"
+    }
+  },
+  "type_evidence": [
+    {
+      "attributes": {
+        "surface_only": true
+      },
+      "binding": "enabled",
+      "canonical_symbol": "",
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 21,
+          "column_start": 9,
+          "file_path": "after.go",
+          "line_end": 3,
+          "line_start": 3,
+          "snippet": "enabled bool",
+          "source": "go_frontend"
+        }
+      ],
+      "evidence_id": "type-85b61fad93a22f87",
+      "normalized_type": "bool",
+      "operation_id": "44ea5ed86f657da30241",
+      "position": 0,
+      "provider": "go.surface",
+      "role": "binding",
+      "source": "surface_declaration",
+      "type_name": "bool"
+    }
+  ]
+}

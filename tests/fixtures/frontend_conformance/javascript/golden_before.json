@@ -1,0 +1,299 @@
+{
+  "capabilities": {
+    "javascript": {
+      "language": "javascript",
+      "partial": {
+        "call_graph": "derived from the structural graph; dynamic dispatch is unresolved",
+        "control_flow": "branches and loops are normalized; exceptions and async scheduling are unresolved",
+        "data_flow": "intra-procedural AST taint analysis; interprocedural flow is unresolved",
+        "event_model": "statement-level events are normalized; framework lifecycle is unresolved"
+      },
+      "supported": [
+        "source_locations",
+        "structure",
+        "symbols"
+      ]
+    }
+  },
+  "facts": [
+    {
+      "attributes": {
+        "kind": "call",
+        "operation_id": "1d914d6fac2c8a2c4bfa"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 11,
+          "column_start": 2,
+          "file_path": "before.js",
+          "line_end": 2,
+          "line_start": 2,
+          "snippet": "acquire()",
+          "source": "javascript_frontend"
+        }
+      ],
+      "fact_id": "fact-4cbfd7bd1f67c89b",
+      "object": "acquire",
+      "predicate": "calls",
+      "subject": "dc4d0b8515a9abaa9e81"
+    },
+    {
+      "attributes": {
+        "kind": "branch",
+        "operation_id": "77be8083731e7aa255f7"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 3,
+          "column_start": 2,
+          "file_path": "before.js",
+          "line_end": 5,
+          "line_start": 3,
+          "snippet": "if (enabled) {\n    consume();\n  }",
+          "source": "javascript_frontend"
+        }
+      ],
+      "fact_id": "fact-a35126faf997cb51",
+      "object": "(enabled)",
+      "predicate": "controls",
+      "subject": "dc4d0b8515a9abaa9e81"
+    },
+    {
+      "attributes": {
+        "kind": "call",
+        "operation_id": "8b356f20837ca269ffcf"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 13,
+          "column_start": 4,
+          "file_path": "before.js",
+          "line_end": 4,
+          "line_start": 4,
+          "snippet": "consume()",
+          "source": "javascript_frontend"
+        }
+      ],
+      "fact_id": "fact-2b30246a8f5c921e",
+      "object": "consume",
+      "predicate": "calls",
+      "subject": "dc4d0b8515a9abaa9e81"
+    }
+  ],
+  "graph": {
+    "edges": [
+      {
+        "edge_type": "contains",
+        "properties": {},
+        "source_id": "cde3a797808df32f",
+        "target_id": "3b84222843bcfdd4"
+      }
+    ],
+    "meta": {
+      "language": "javascript",
+      "max_file_bytes": 2097152,
+      "max_files": 500,
+      "project_path": "<project>"
+    },
+    "nodes": {
+      "3b84222843bcfdd4": {
+        "file_path": "before.js",
+        "id": "3b84222843bcfdd4",
+        "language": "javascript",
+        "line_end": 6,
+        "line_start": 1,
+        "name": "run",
+        "node_type": "function",
+        "properties": {
+          "signature": "function run(enabled) {"
+        }
+      },
+      "cde3a797808df32f": {
+        "file_path": "before.js",
+        "id": "cde3a797808df32f",
+        "language": "javascript",
+        "line_end": 0,
+        "line_start": 0,
+        "name": "before.js",
+        "node_type": "file",
+        "properties": {
+          "line_count": 6
+        }
+      }
+    }
+  },
+  "languages": [
+    "javascript"
+  ],
+  "operation_edges": [
+    {
+      "attributes": {},
+      "kind": "contains",
+      "source_id": "dc4d0b8515a9abaa9e81",
+      "target_id": "9820dc6da04f066ba410"
+    },
+    {
+      "attributes": {},
+      "kind": "true_branch",
+      "source_id": "77be8083731e7aa255f7",
+      "target_id": "8b356f20837ca269ffcf"
+    },
+    {
+      "attributes": {},
+      "kind": "next",
+      "source_id": "1d914d6fac2c8a2c4bfa",
+      "target_id": "77be8083731e7aa255f7"
+    },
+    {
+      "attributes": {},
+      "kind": "contains",
+      "source_id": "dc4d0b8515a9abaa9e81",
+      "target_id": "1d914d6fac2c8a2c4bfa"
+    }
+  ],
+  "operations": [
+    {
+      "attributes": {
+        "async": false,
+        "namespace": "",
+        "qualified_name": "run",
+        "receiver_type": "",
+        "return_types": [],
+        "symbol_name": "run"
+      },
+      "id": "dc4d0b8515a9abaa9e81",
+      "kind": "function",
+      "language": "javascript",
+      "location": {
+        "column_end": 1,
+        "column_start": 0,
+        "file_path": "before.js",
+        "line_end": 6,
+        "line_start": 1,
+        "snippet": "function run(enabled) {\n  acquire();\n  if (enabled) {\n    consume();\n  }\n}",
+        "source": "javascript_frontend"
+      },
+      "operands": [],
+      "scope_id": "dc4d0b8515a9abaa9e81",
+      "target": "run",
+      "value": "function run(enabled) {"
+    },
+    {
+      "attributes": {
+        "declared_type": "",
+        "parameter_kind": "positional",
+        "position": 0,
+        "receiver": false
+      },
+      "id": "9820dc6da04f066ba410",
+      "kind": "parameter",
+      "language": "javascript",
+      "location": {
+        "column_end": 20,
+        "column_start": 13,
+        "file_path": "before.js",
+        "line_end": 1,
+        "line_start": 1,
+        "snippet": "enabled",
+        "source": "javascript_frontend"
+      },
+      "operands": [],
+      "scope_id": "dc4d0b8515a9abaa9e81",
+      "target": "enabled",
+      "value": ""
+    },
+    {
+      "attributes": {
+        "argument_names": [],
+        "arguments": [],
+        "host_operation": "",
+        "receiver": "",
+        "result_targets": []
+      },
+      "id": "1d914d6fac2c8a2c4bfa",
+      "kind": "call",
+      "language": "javascript",
+      "location": {
+        "column_end": 11,
+        "column_start": 2,
+        "file_path": "before.js",
+        "line_end": 2,
+        "line_start": 2,
+        "snippet": "acquire()",
+        "source": "javascript_frontend"
+      },
+      "operands": [],
+      "scope_id": "dc4d0b8515a9abaa9e81",
+      "target": "acquire",
+      "value": "acquire()"
+    },
+    {
+      "attributes": {
+        "calls": [],
+        "literals": [],
+        "operators": []
+      },
+      "id": "77be8083731e7aa255f7",
+      "kind": "branch",
+      "language": "javascript",
+      "location": {
+        "column_end": 3,
+        "column_start": 2,
+        "file_path": "before.js",
+        "line_end": 5,
+        "line_start": 3,
+        "snippet": "if (enabled) {\n    consume();\n  }",
+        "source": "javascript_frontend"
+      },
+      "operands": [
+        "enabled"
+      ],
+      "scope_id": "dc4d0b8515a9abaa9e81",
+      "target": "",
+      "value": "(enabled)"
+    },
+    {
+      "attributes": {
+        "argument_names": [],
+        "arguments": [],
+        "host_operation": "",
+        "receiver": "",
+        "result_targets": []
+      },
+      "id": "8b356f20837ca269ffcf",
+      "kind": "call",
+      "language": "javascript",
+      "location": {
+        "column_end": 13,
+        "column_start": 4,
+        "file_path": "before.js",
+        "line_end": 4,
+        "line_start": 4,
+        "snippet": "consume()",
+        "source": "javascript_frontend"
+      },
+      "operands": [],
+      "scope_id": "dc4d0b8515a9abaa9e81",
+      "target": "consume",
+      "value": "consume()"
+    }
+  ],
+  "project_path": "<project>",
+  "schema_version": "semantic-ir/v1",
+  "source_units": {
+    "before.js": {
+      "content_hash": "sha256:24c65adce7d50d594699ffedf85431dcda7a9a97d39f67ee639da2cbd0d64ffa",
+      "file_path": "before.js",
+      "language": "javascript",
+      "line_count": 6,
+      "repository_zone": "first_party",
+      "repository_zone_reason": "default repository ownership",
+      "role": "production",
+      "role_reason": "default source path"
+    }
+  },
+  "type_evidence": []
+}

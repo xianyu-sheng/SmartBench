@@ -1,0 +1,352 @@
+{
+  "capabilities": {
+    "javascript": {
+      "language": "javascript",
+      "partial": {
+        "call_graph": "derived from the structural graph; dynamic dispatch is unresolved",
+        "control_flow": "branches and loops are normalized; exceptions and async scheduling are unresolved",
+        "data_flow": "intra-procedural AST taint analysis; interprocedural flow is unresolved",
+        "event_model": "statement-level events are normalized; framework lifecycle is unresolved"
+      },
+      "supported": [
+        "source_locations",
+        "structure",
+        "symbols"
+      ]
+    }
+  },
+  "facts": [
+    {
+      "attributes": {
+        "kind": "call",
+        "operation_id": "06d5e128b712a923d9b2"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 11,
+          "column_start": 2,
+          "file_path": "after.js",
+          "line_end": 2,
+          "line_start": 2,
+          "snippet": "acquire()",
+          "source": "javascript_frontend"
+        }
+      ],
+      "fact_id": "fact-a02c657d92c6eca1",
+      "object": "acquire",
+      "predicate": "calls",
+      "subject": "d0bd03372c213f4679f9"
+    },
+    {
+      "attributes": {
+        "kind": "call",
+        "operation_id": "c0c3c8183dad5b3e3288"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 11,
+          "column_start": 2,
+          "file_path": "after.js",
+          "line_end": 3,
+          "line_start": 3,
+          "snippet": "release()",
+          "source": "javascript_frontend"
+        }
+      ],
+      "fact_id": "fact-60b2cf117f527e20",
+      "object": "release",
+      "predicate": "calls",
+      "subject": "d0bd03372c213f4679f9"
+    },
+    {
+      "attributes": {
+        "kind": "branch",
+        "operation_id": "e8f2c582791c2f3975d3"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 3,
+          "column_start": 2,
+          "file_path": "after.js",
+          "line_end": 6,
+          "line_start": 4,
+          "snippet": "if (enabled) {\n    consume();\n  }",
+          "source": "javascript_frontend"
+        }
+      ],
+      "fact_id": "fact-f49b34db979a006e",
+      "object": "(enabled)",
+      "predicate": "controls",
+      "subject": "d0bd03372c213f4679f9"
+    },
+    {
+      "attributes": {
+        "kind": "call",
+        "operation_id": "c39ccf66780f0e1e534f"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 13,
+          "column_start": 4,
+          "file_path": "after.js",
+          "line_end": 5,
+          "line_start": 5,
+          "snippet": "consume()",
+          "source": "javascript_frontend"
+        }
+      ],
+      "fact_id": "fact-6c0aa754526c0a39",
+      "object": "consume",
+      "predicate": "calls",
+      "subject": "d0bd03372c213f4679f9"
+    }
+  ],
+  "graph": {
+    "edges": [
+      {
+        "edge_type": "contains",
+        "properties": {},
+        "source_id": "def0d41b09b8ae6f",
+        "target_id": "2b94c12ed39e95aa"
+      }
+    ],
+    "meta": {
+      "language": "javascript",
+      "max_file_bytes": 2097152,
+      "max_files": 500,
+      "project_path": "<project>"
+    },
+    "nodes": {
+      "2b94c12ed39e95aa": {
+        "file_path": "after.js",
+        "id": "2b94c12ed39e95aa",
+        "language": "javascript",
+        "line_end": 7,
+        "line_start": 1,
+        "name": "run",
+        "node_type": "function",
+        "properties": {
+          "signature": "function run(enabled) {"
+        }
+      },
+      "def0d41b09b8ae6f": {
+        "file_path": "after.js",
+        "id": "def0d41b09b8ae6f",
+        "language": "javascript",
+        "line_end": 0,
+        "line_start": 0,
+        "name": "after.js",
+        "node_type": "file",
+        "properties": {
+          "line_count": 7
+        }
+      }
+    }
+  },
+  "languages": [
+    "javascript"
+  ],
+  "operation_edges": [
+    {
+      "attributes": {},
+      "kind": "contains",
+      "source_id": "d0bd03372c213f4679f9",
+      "target_id": "fb16c4c8b7e1b7eb6791"
+    },
+    {
+      "attributes": {},
+      "kind": "next",
+      "source_id": "06d5e128b712a923d9b2",
+      "target_id": "c0c3c8183dad5b3e3288"
+    },
+    {
+      "attributes": {},
+      "kind": "true_branch",
+      "source_id": "e8f2c582791c2f3975d3",
+      "target_id": "c39ccf66780f0e1e534f"
+    },
+    {
+      "attributes": {},
+      "kind": "next",
+      "source_id": "c0c3c8183dad5b3e3288",
+      "target_id": "e8f2c582791c2f3975d3"
+    },
+    {
+      "attributes": {},
+      "kind": "contains",
+      "source_id": "d0bd03372c213f4679f9",
+      "target_id": "06d5e128b712a923d9b2"
+    }
+  ],
+  "operations": [
+    {
+      "attributes": {
+        "async": false,
+        "namespace": "",
+        "qualified_name": "run",
+        "receiver_type": "",
+        "return_types": [],
+        "symbol_name": "run"
+      },
+      "id": "d0bd03372c213f4679f9",
+      "kind": "function",
+      "language": "javascript",
+      "location": {
+        "column_end": 1,
+        "column_start": 0,
+        "file_path": "after.js",
+        "line_end": 7,
+        "line_start": 1,
+        "snippet": "function run(enabled) {\n  acquire();\n  release();\n  if (enabled) {\n    consume();\n  }\n}",
+        "source": "javascript_frontend"
+      },
+      "operands": [],
+      "scope_id": "d0bd03372c213f4679f9",
+      "target": "run",
+      "value": "function run(enabled) {"
+    },
+    {
+      "attributes": {
+        "declared_type": "",
+        "parameter_kind": "positional",
+        "position": 0,
+        "receiver": false
+      },
+      "id": "fb16c4c8b7e1b7eb6791",
+      "kind": "parameter",
+      "language": "javascript",
+      "location": {
+        "column_end": 20,
+        "column_start": 13,
+        "file_path": "after.js",
+        "line_end": 1,
+        "line_start": 1,
+        "snippet": "enabled",
+        "source": "javascript_frontend"
+      },
+      "operands": [],
+      "scope_id": "d0bd03372c213f4679f9",
+      "target": "enabled",
+      "value": ""
+    },
+    {
+      "attributes": {
+        "argument_names": [],
+        "arguments": [],
+        "host_operation": "",
+        "receiver": "",
+        "result_targets": []
+      },
+      "id": "06d5e128b712a923d9b2",
+      "kind": "call",
+      "language": "javascript",
+      "location": {
+        "column_end": 11,
+        "column_start": 2,
+        "file_path": "after.js",
+        "line_end": 2,
+        "line_start": 2,
+        "snippet": "acquire()",
+        "source": "javascript_frontend"
+      },
+      "operands": [],
+      "scope_id": "d0bd03372c213f4679f9",
+      "target": "acquire",
+      "value": "acquire()"
+    },
+    {
+      "attributes": {
+        "argument_names": [],
+        "arguments": [],
+        "host_operation": "",
+        "receiver": "",
+        "result_targets": []
+      },
+      "id": "c0c3c8183dad5b3e3288",
+      "kind": "call",
+      "language": "javascript",
+      "location": {
+        "column_end": 11,
+        "column_start": 2,
+        "file_path": "after.js",
+        "line_end": 3,
+        "line_start": 3,
+        "snippet": "release()",
+        "source": "javascript_frontend"
+      },
+      "operands": [],
+      "scope_id": "d0bd03372c213f4679f9",
+      "target": "release",
+      "value": "release()"
+    },
+    {
+      "attributes": {
+        "calls": [],
+        "literals": [],
+        "operators": []
+      },
+      "id": "e8f2c582791c2f3975d3",
+      "kind": "branch",
+      "language": "javascript",
+      "location": {
+        "column_end": 3,
+        "column_start": 2,
+        "file_path": "after.js",
+        "line_end": 6,
+        "line_start": 4,
+        "snippet": "if (enabled) {\n    consume();\n  }",
+        "source": "javascript_frontend"
+      },
+      "operands": [
+        "enabled"
+      ],
+      "scope_id": "d0bd03372c213f4679f9",
+      "target": "",
+      "value": "(enabled)"
+    },
+    {
+      "attributes": {
+        "argument_names": [],
+        "arguments": [],
+        "host_operation": "",
+        "receiver": "",
+        "result_targets": []
+      },
+      "id": "c39ccf66780f0e1e534f",
+      "kind": "call",
+      "language": "javascript",
+      "location": {
+        "column_end": 13,
+        "column_start": 4,
+        "file_path": "after.js",
+        "line_end": 5,
+        "line_start": 5,
+        "snippet": "consume()",
+        "source": "javascript_frontend"
+      },
+      "operands": [],
+      "scope_id": "d0bd03372c213f4679f9",
+      "target": "consume",
+      "value": "consume()"
+    }
+  ],
+  "project_path": "<project>",
+  "schema_version": "semantic-ir/v1",
+  "source_units": {
+    "after.js": {
+      "content_hash": "sha256:c75dc1fe8fc130bc833518fea13266e1843272807052e453b96f1936e107d0e5",
+      "file_path": "after.js",
+      "language": "javascript",
+      "line_count": 7,
+      "repository_zone": "first_party",
+      "repository_zone_reason": "default repository ownership",
+      "role": "production",
+      "role_reason": "default source path"
+    }
+  },
+  "type_evidence": []
+}
