@@ -1,0 +1,518 @@
+{
+  "capabilities": {
+    "python": {
+      "language": "python",
+      "partial": {
+        "call_graph": "structural resolution does not include runtime dispatch",
+        "data_flow": "operation operands plus conservative argument/return propagation; dynamic dispatch is unresolved",
+        "event_model": "branch and transition operations are intraprocedural",
+        "type_info": "annotations and constructor syntax are preserved; no type checker"
+      },
+      "supported": [
+        "control_flow",
+        "source_locations",
+        "structure",
+        "symbols"
+      ]
+    }
+  },
+  "facts": [
+    {
+      "attributes": {
+        "kind": "assign",
+        "operation_id": "729719c1cf94307b5730"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 24,
+          "column_start": 4,
+          "file_path": "before.py",
+          "line_end": 2,
+          "line_start": 2,
+          "snippet": "resource = acquire()",
+          "source": "python_frontend"
+        }
+      ],
+      "fact_id": "fact-97c8936bfede91b5",
+      "object": "resource",
+      "predicate": "writes",
+      "subject": "7a0db22ccbdfeaa424df"
+    },
+    {
+      "attributes": {
+        "kind": "branch",
+        "operation_id": "186ef853dffd05dcbdee"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 25,
+          "column_start": 4,
+          "file_path": "before.py",
+          "line_end": 4,
+          "line_start": 3,
+          "snippet": "if enabled:\n        consume(resource)",
+          "source": "python_frontend"
+        }
+      ],
+      "fact_id": "fact-87b7927f897e110a",
+      "object": "enabled",
+      "predicate": "controls",
+      "subject": "7a0db22ccbdfeaa424df"
+    },
+    {
+      "attributes": {
+        "kind": "call",
+        "operation_id": "9db8413511a1185e8e5c"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 25,
+          "column_start": 8,
+          "file_path": "before.py",
+          "line_end": 4,
+          "line_start": 4,
+          "snippet": "consume(resource)",
+          "source": "python_frontend"
+        }
+      ],
+      "fact_id": "fact-87cb3e833b6c8b84",
+      "object": "consume",
+      "predicate": "calls",
+      "subject": "7a0db22ccbdfeaa424df"
+    },
+    {
+      "attributes": {
+        "kind": "return",
+        "operation_id": "620206a367a5aba55a88"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 15,
+          "column_start": 4,
+          "file_path": "before.py",
+          "line_end": 5,
+          "line_start": 5,
+          "snippet": "return None",
+          "source": "python_frontend"
+        }
+      ],
+      "fact_id": "fact-44413fa54aa38c97",
+      "object": "None",
+      "predicate": "state_transition",
+      "subject": "7a0db22ccbdfeaa424df"
+    },
+    {
+      "attributes": {
+        "kind": "call",
+        "operation_id": "a35f1b0d826bf0dcc42d"
+      },
+      "confidence": 1.0,
+      "evidence": [
+        {
+          "column_end": 24,
+          "column_start": 15,
+          "file_path": "before.py",
+          "line_end": 2,
+          "line_start": 2,
+          "snippet": "acquire()",
+          "source": "python_frontend"
+        }
+      ],
+      "fact_id": "fact-7d41704ed59fe0b1",
+      "object": "acquire",
+      "predicate": "calls",
+      "subject": "7a0db22ccbdfeaa424df"
+    }
+  ],
+  "graph": {
+    "edges": [
+      {
+        "edge_type": "contains",
+        "properties": {},
+        "source_id": "e112479a1c93de33",
+        "target_id": "d00b27fd64a88d09"
+      }
+    ],
+    "meta": {
+      "language": "python",
+      "max_file_bytes": 2097152,
+      "max_files": 500,
+      "project_path": "<project>"
+    },
+    "nodes": {
+      "d00b27fd64a88d09": {
+        "file_path": "before.py",
+        "id": "d00b27fd64a88d09",
+        "language": "python",
+        "line_end": 5,
+        "line_start": 1,
+        "name": "run",
+        "node_type": "function",
+        "properties": {
+          "signature": "def run(enabled, acquire, release, consume):"
+        }
+      },
+      "e112479a1c93de33": {
+        "file_path": "before.py",
+        "id": "e112479a1c93de33",
+        "language": "python",
+        "line_end": 0,
+        "line_start": 0,
+        "name": "before.py",
+        "node_type": "file",
+        "properties": {
+          "line_count": 5
+        }
+      }
+    }
+  },
+  "languages": [
+    "python"
+  ],
+  "operation_edges": [
+    {
+      "attributes": {},
+      "kind": "contains",
+      "source_id": "7a0db22ccbdfeaa424df",
+      "target_id": "f4bb5ff2a7ff1d197e5d"
+    },
+    {
+      "attributes": {},
+      "kind": "contains",
+      "source_id": "7a0db22ccbdfeaa424df",
+      "target_id": "4dc34c06dd19a8c50113"
+    },
+    {
+      "attributes": {},
+      "kind": "contains",
+      "source_id": "7a0db22ccbdfeaa424df",
+      "target_id": "49628e55682abebfb080"
+    },
+    {
+      "attributes": {},
+      "kind": "contains",
+      "source_id": "7a0db22ccbdfeaa424df",
+      "target_id": "9a2da34862fc8bd97809"
+    },
+    {
+      "attributes": {},
+      "kind": "true_branch",
+      "source_id": "186ef853dffd05dcbdee",
+      "target_id": "9db8413511a1185e8e5c"
+    },
+    {
+      "attributes": {},
+      "kind": "next",
+      "source_id": "729719c1cf94307b5730",
+      "target_id": "186ef853dffd05dcbdee"
+    },
+    {
+      "attributes": {},
+      "kind": "next",
+      "source_id": "9db8413511a1185e8e5c",
+      "target_id": "620206a367a5aba55a88"
+    },
+    {
+      "attributes": {},
+      "kind": "false_branch",
+      "source_id": "186ef853dffd05dcbdee",
+      "target_id": "620206a367a5aba55a88"
+    },
+    {
+      "attributes": {},
+      "kind": "contains",
+      "source_id": "7a0db22ccbdfeaa424df",
+      "target_id": "729719c1cf94307b5730"
+    },
+    {
+      "attributes": {},
+      "kind": "next",
+      "source_id": "a35f1b0d826bf0dcc42d",
+      "target_id": "729719c1cf94307b5730"
+    }
+  ],
+  "operations": [
+    {
+      "attributes": {
+        "async": false,
+        "lexical_name": "run",
+        "namespace": "before",
+        "qualified_name": "before.run",
+        "receiver_type": "",
+        "return_types": [],
+        "symbol_name": "run"
+      },
+      "id": "7a0db22ccbdfeaa424df",
+      "kind": "function",
+      "language": "python",
+      "location": {
+        "column_end": 15,
+        "column_start": 0,
+        "file_path": "before.py",
+        "line_end": 5,
+        "line_start": 1,
+        "snippet": "def run(enabled, acquire, release, consume):\n    resource = acquire()\n    if enabled:\n        consume(resource)\n    return None",
+        "source": "python_frontend"
+      },
+      "operands": [],
+      "scope_id": "7a0db22ccbdfeaa424df",
+      "target": "run",
+      "value": "def run(enabled, acquire, release, consume):"
+    },
+    {
+      "attributes": {
+        "declared_type": "",
+        "parameter_kind": "positional",
+        "position": 0,
+        "receiver": false
+      },
+      "id": "f4bb5ff2a7ff1d197e5d",
+      "kind": "parameter",
+      "language": "python",
+      "location": {
+        "column_end": 15,
+        "column_start": 8,
+        "file_path": "before.py",
+        "line_end": 1,
+        "line_start": 1,
+        "snippet": "enabled",
+        "source": "python_frontend"
+      },
+      "operands": [],
+      "scope_id": "7a0db22ccbdfeaa424df",
+      "target": "enabled",
+      "value": ""
+    },
+    {
+      "attributes": {
+        "declared_type": "",
+        "parameter_kind": "positional",
+        "position": 1,
+        "receiver": false
+      },
+      "id": "4dc34c06dd19a8c50113",
+      "kind": "parameter",
+      "language": "python",
+      "location": {
+        "column_end": 24,
+        "column_start": 17,
+        "file_path": "before.py",
+        "line_end": 1,
+        "line_start": 1,
+        "snippet": "acquire",
+        "source": "python_frontend"
+      },
+      "operands": [],
+      "scope_id": "7a0db22ccbdfeaa424df",
+      "target": "acquire",
+      "value": ""
+    },
+    {
+      "attributes": {
+        "declared_type": "",
+        "parameter_kind": "positional",
+        "position": 2,
+        "receiver": false
+      },
+      "id": "49628e55682abebfb080",
+      "kind": "parameter",
+      "language": "python",
+      "location": {
+        "column_end": 33,
+        "column_start": 26,
+        "file_path": "before.py",
+        "line_end": 1,
+        "line_start": 1,
+        "snippet": "release",
+        "source": "python_frontend"
+      },
+      "operands": [],
+      "scope_id": "7a0db22ccbdfeaa424df",
+      "target": "release",
+      "value": ""
+    },
+    {
+      "attributes": {
+        "declared_type": "",
+        "parameter_kind": "positional",
+        "position": 3,
+        "receiver": false
+      },
+      "id": "9a2da34862fc8bd97809",
+      "kind": "parameter",
+      "language": "python",
+      "location": {
+        "column_end": 42,
+        "column_start": 35,
+        "file_path": "before.py",
+        "line_end": 1,
+        "line_start": 1,
+        "snippet": "consume",
+        "source": "python_frontend"
+      },
+      "operands": [],
+      "scope_id": "7a0db22ccbdfeaa424df",
+      "target": "consume",
+      "value": ""
+    },
+    {
+      "attributes": {
+        "bindings": [
+          {
+            "declared_type": "",
+            "inferred_type": "",
+            "target": "resource"
+          }
+        ],
+        "calls": [
+          "acquire"
+        ]
+      },
+      "id": "729719c1cf94307b5730",
+      "kind": "assign",
+      "language": "python",
+      "location": {
+        "column_end": 24,
+        "column_start": 4,
+        "file_path": "before.py",
+        "line_end": 2,
+        "line_start": 2,
+        "snippet": "resource = acquire()",
+        "source": "python_frontend"
+      },
+      "operands": [
+        "acquire"
+      ],
+      "scope_id": "7a0db22ccbdfeaa424df",
+      "target": "resource",
+      "value": "acquire()"
+    },
+    {
+      "attributes": {
+        "calls": [],
+        "literals": [],
+        "operators": []
+      },
+      "id": "186ef853dffd05dcbdee",
+      "kind": "branch",
+      "language": "python",
+      "location": {
+        "column_end": 25,
+        "column_start": 4,
+        "file_path": "before.py",
+        "line_end": 4,
+        "line_start": 3,
+        "snippet": "if enabled:\n        consume(resource)",
+        "source": "python_frontend"
+      },
+      "operands": [
+        "enabled"
+      ],
+      "scope_id": "7a0db22ccbdfeaa424df",
+      "target": "",
+      "value": "enabled"
+    },
+    {
+      "attributes": {
+        "argument_names": [
+          ""
+        ],
+        "arguments": [
+          "resource"
+        ],
+        "awaited": false,
+        "host_operation": "",
+        "receiver": "",
+        "result_targets": []
+      },
+      "id": "9db8413511a1185e8e5c",
+      "kind": "call",
+      "language": "python",
+      "location": {
+        "column_end": 25,
+        "column_start": 8,
+        "file_path": "before.py",
+        "line_end": 4,
+        "line_start": 4,
+        "snippet": "consume(resource)",
+        "source": "python_frontend"
+      },
+      "operands": [
+        "resource"
+      ],
+      "scope_id": "7a0db22ccbdfeaa424df",
+      "target": "consume",
+      "value": "consume(resource)"
+    },
+    {
+      "attributes": {
+        "values": [
+          "None"
+        ]
+      },
+      "id": "620206a367a5aba55a88",
+      "kind": "return",
+      "language": "python",
+      "location": {
+        "column_end": 15,
+        "column_start": 4,
+        "file_path": "before.py",
+        "line_end": 5,
+        "line_start": 5,
+        "snippet": "return None",
+        "source": "python_frontend"
+      },
+      "operands": [],
+      "scope_id": "7a0db22ccbdfeaa424df",
+      "target": "",
+      "value": "None"
+    },
+    {
+      "attributes": {
+        "argument_names": [],
+        "arguments": [],
+        "awaited": false,
+        "host_operation": "729719c1cf94307b5730",
+        "receiver": "",
+        "result_targets": [
+          "resource"
+        ]
+      },
+      "id": "a35f1b0d826bf0dcc42d",
+      "kind": "call",
+      "language": "python",
+      "location": {
+        "column_end": 24,
+        "column_start": 15,
+        "file_path": "before.py",
+        "line_end": 2,
+        "line_start": 2,
+        "snippet": "acquire()",
+        "source": "python_frontend"
+      },
+      "operands": [],
+      "scope_id": "7a0db22ccbdfeaa424df",
+      "target": "acquire",
+      "value": "acquire()"
+    }
+  ],
+  "project_path": "<project>",
+  "schema_version": "semantic-ir/v1",
+  "source_units": {
+    "before.py": {
+      "content_hash": "sha256:8d87c0d731bfb7cb7cc078e633a3e593b2d2405775f002e909dd14463a29e4ba",
+      "file_path": "before.py",
+      "language": "python",
+      "line_count": 5,
+      "repository_zone": "first_party",
+      "repository_zone_reason": "default repository ownership",
+      "role": "production",
+      "role_reason": "default source path"
+    }
+  },
+  "type_evidence": []
+}
