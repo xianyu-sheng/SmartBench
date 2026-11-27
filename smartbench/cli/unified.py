@@ -148,6 +148,15 @@ def print_diagnosis_result(
             f"evidence_packs={len(result.evidence_packs)}"
         )
 
+    # Issue #26: a green light must be bound to coverage. Same numbers as
+    # stats.rules_* in the JSON report.
+    statuses = [entry.get("status") for entry in result.analysis_status.values()]
+    console.print(
+        f"📏 Coverage: {len(statuses)} rules ran · "
+        f"full={statuses.count('full')} partial={statuses.count('partial')} "
+        f"unknown={statuses.count('unknown')} unsupported={statuses.count('unsupported')}"
+    )
+
     if result.errors:
         console.print()
         console.print("⚠️ [yellow]Errors encountered:[/yellow]")

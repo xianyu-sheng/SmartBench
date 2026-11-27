@@ -161,6 +161,70 @@ f.write("hello")
 
             assert [finding.message for finding in result.findings] == ["high"]
 
+    def test_resource_leak_finding_with_default_settings(self):
+        # Issue #26 regression: confidence 0.6 < default min_confidence 0.7
+        # made the built-in rule die silently at default settings.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            (tmp_path / "leak.py").write_text(
+                'f = open("data.txt")\n'
+                'data = f.read()\n'
+            )
+            result = self.engine.diagnose(tmp_path, UnifiedDiagnosticConfig())
+            assert any(f.rule_id == "resource_leak" for f in result.findings)
+            assert not any("below min_confidence" in e for e in result.errors)
+
+    def test_with_open_produces_no_resource_leak_at_defaults(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            (tmp_path / "clean.py").write_text(
+                'with open("data.txt") as f:\n'
+                '    data = f.read()\n'
+            )
+            result = self.engine.diagnose(tmp_path, UnifiedDiagnosticConfig())
+            assert not any(f.rule_id == "resource_leak" for f in result.findings)
+
+    def test_sub_threshold_declaration_warns_instead_of_dying_silently(self):
+        class LowConfidenceRule(DiagnosticRule):
+            default_confidence = 0.5
+
+            @property
+            def rule_id(self):
+                return "low_conf"
+
+            @property
+            def rule_name(self):
+                return "Low confidence"
+
+            def analyze(self, ir):
+                return [
+                    Finding(
+                        rule_id=self.rule_id,
+                        rule_name=self.rule_name,
+                        severity=Severity.WARNING,
+                        location=Location("test.py", 1),
+                        message="low",
+                        confidence=self.default_confidence,
+                    )
+                ]
+
+        rules = RuleRegistry()
+        rules.register(LowConfidenceRule())
+        engine = UnifiedDiagnosticEngine(self.adapters, rules)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            test_file = tmp_path / "test.py"
+            test_file.write_text("value = 1")
+            result = engine.diagnose_file(
+                test_file, tmp_path, UnifiedDiagnosticConfig()
+            )
+            assert result.findings == []
+            assert any(
+                "low_conf" in e and "below min_confidence" in e
+                for e in result.errors
+            )
+
     def test_disabled_rule_requires_explicit_selection(self):
         class DisabledRule(DiagnosticRule):
             enabled_by_default = False

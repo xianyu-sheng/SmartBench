@@ -242,6 +242,40 @@ class TestBuiltinRules:
         findings = ResourceLeakRule()._find_leak_patterns(source, "main.py", "python")
         assert len(findings) == 1
 
+    def test_resource_leak_confidence_meets_default_threshold(self):
+        from smartbench.core import UnifiedDiagnosticConfig
+
+        rule = ResourceLeakRule()
+        assert rule.default_confidence is not None
+        assert rule.default_confidence >= UnifiedDiagnosticConfig().min_confidence
+        findings = rule._find_leak_patterns(
+            "handle = open(path)\n", "main.py", "python"
+        )
+        assert findings[0].confidence == rule.default_confidence
+
+    def test_resource_leak_flags_go_unclosed_open(self):
+        source = (
+            "f, err := os.Open(path)\n"
+            "if err != nil {\n"
+            "    log.Fatal(err)\n"
+            "}\n"
+            "data, _ := io.ReadAll(f)\n"
+        )
+        findings = ResourceLeakRule()._find_leak_patterns(source, "main.go", "go")
+        assert len(findings) == 1
+
+    def test_resource_leak_go_defer_of_other_handle_does_not_suppress(self):
+        # The old line-anchored (?!.*defer.*Close) lookahead suppressed any
+        # line mentioning defer+Close, even for a different handle (issue #26).
+        source = "f, err := os.Open(path); defer other.Close()\n"
+        findings = ResourceLeakRule()._find_leak_patterns(source, "main.go", "go")
+        assert len(findings) == 1
+
+    def test_resource_leak_go_same_line_defer_still_suppressed(self):
+        source = "f, err := os.Open(path); defer f.Close()\n"
+        findings = ResourceLeakRule()._find_leak_patterns(source, "main.go", "go")
+        assert findings == []
+
 
 class TestSecurityRules:
     def test_command_injection_metadata(self):
