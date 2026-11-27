@@ -13,10 +13,10 @@ from rich.console import Console
 from rich.table import Table
 from rich.tree import Tree
 
+import smartbench
 from smartbench import __version__
 from smartbench.core import (
     AdapterRegistry,
-    AnalysisSession,
     RuleRegistry,
     UnifiedDiagnosticConfig,
     UnifiedDiagnosticEngine,
@@ -277,7 +277,7 @@ def run_unified_diagnosis(
 
     # Run the same shared session consumed by interactive Agent review.
     console.print(f"🔍 Analyzing: {safe_terminal_text(project_path)}")
-    session = AnalysisSession.analyze(
+    session = smartbench.analyze(
         project_path,
         config,
         engine=engine,

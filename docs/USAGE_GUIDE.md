@@ -15,6 +15,27 @@ python -m pip install -e ".[graph]"
 smartbench --version
 ```
 
+## Python 库 API
+
+CLI 与库 API 共用同一个公开分析入口：
+
+```python
+import smartbench
+
+session = smartbench.analyze("./my-project")
+report = session.report()
+findings = report["findings"]
+print(len(findings))
+```
+
+`analyze()` 只运行确定性分析，不调用 LLM。`session.report()` 返回版本化字典，
+`report["schema_version"]` 为 `smartbench.report/v1`；对应 JSON Schema 随包发布在
+`smartbench/report-schema/v1.json`，可用 `importlib.resources.files("smartbench")` 读取。
+需要自定义语言或规则过滤时，可传入 `smartbench.UnifiedDiagnosticConfig`。
+
+CLI `--output` 保持原有报告形状，不额外加入 `schema_version`；需要版本化信封的集成方
+应使用库 API。`quick` 的 Agent 审查仍以 CLI 功能为主，库入口只承诺确定性会话。
+
 可选依赖：
 
 ```bash

@@ -6,6 +6,14 @@ Analyzes any codebase with multi-agent debate engine + code graph + pluggable di
 
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
+from pathlib import Path
+from typing import Optional
+
+from smartbench.core import (
+    AnalysisSession,
+    UnifiedDiagnosticConfig,
+    UnifiedDiagnosticEngine,
+)
 
 try:
     # Single source of truth is pyproject.toml; read it from installed metadata
@@ -16,4 +24,22 @@ except PackageNotFoundError:  # source tree without an install
 
 __author__ = "xianyu-sheng"
 
-__all__ = ["__author__", "__version__"]
+
+def analyze(
+    project_path: Path | str,
+    config: Optional[UnifiedDiagnosticConfig] = None,
+    *,
+    engine: Optional[UnifiedDiagnosticEngine] = None,
+) -> AnalysisSession:
+    """Analyze a repository with the shared deterministic session."""
+    return AnalysisSession.analyze(project_path, config, engine=engine)
+
+
+__all__ = [
+    "AnalysisSession",
+    "UnifiedDiagnosticConfig",
+    "UnifiedDiagnosticEngine",
+    "__author__",
+    "__version__",
+    "analyze",
+]

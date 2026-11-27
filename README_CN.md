@@ -111,6 +111,19 @@ smartbench unified run --project . --output report.json --deterministic-output
 
 `--fail-on` 取值 `none`（默认）/ `info` / `warning` / `error`。退出码：`0` 未达阈值、`1` 达到阈值、`2` 参数或内部错误。
 
+**Python 库 API（确定性分析，不用 LLM）：**
+
+```python
+import smartbench
+
+session = smartbench.analyze("/path/to/repo")
+report = session.report()
+findings = report["findings"]
+print(len(findings))
+```
+
+`session.report()` 返回带版本号的 `smartbench.report/v1` 报告。JSON Schema 随包发布在 `smartbench/report-schema/v1.json`，可通过 `importlib.resources` 读取。CLI `--output` 保持既有 JSON 形状；需要版本化报告信封时使用库 API。
+
 **证据门约束的 LLM 审查：**
 
 ```bash
