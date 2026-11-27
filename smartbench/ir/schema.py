@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,7 +14,12 @@ from smartbench.ir.contracts import CONTRACT_SCHEMA_VERSION, validate_semantic_i
 from smartbench.ir.evidence import SemanticFact
 from smartbench.ir.operations import OperationEdge, OperationEdgeKind, SemanticOperation
 from smartbench.ir.type_evidence import TypeEvidence
-from smartbench.path_safety import read_text_bounded, read_text_prefix, resolve_project_file
+from smartbench.path_safety import (
+    read_bytes_bounded,
+    read_text_bounded,
+    read_text_prefix,
+    resolve_project_file,
+)
 from smartbench.provenance import (
     RepositoryZone,
     SourceRole,
@@ -24,7 +30,12 @@ from smartbench.provenance import (
 
 @dataclass(frozen=True)
 class SourceUnit:
-    """Source-file metadata kept in the IR without eagerly duplicating content."""
+    """Source-file metadata kept in the IR without eagerly duplicating content.
+
+    ``line_count`` and ``content_hash`` are computed from the file content at
+    lowering time. ``0`` / ``""`` means the content could not be read (missing
+    file, symlink, or above the 2 MiB bounded-read limit) — not an empty file.
+    """
 
     file_path: str
     language: str
@@ -105,16 +116,34 @@ class SemanticIR:
         for node in graph.nodes.values():
             if not node.file_path or node.file_path in units:
                 continue
+            content_bytes = None
+            content = None
             prefix = None
             if root:
                 resolved = resolve_project_file(Path(root).resolve(), node.file_path)
                 if resolved is not None:
-                    prefix = read_text_prefix(resolved, 4 * 1024)
+                    content_bytes = read_bytes_bounded(resolved, 2 * 1024 * 1024)
+                    content = (
+                        content_bytes.decode("utf-8", errors="ignore")
+                        if content_bytes is not None
+                        else None
+                    )
+                    prefix = (
+                        content[:4 * 1024]
+                        if content is not None
+                        else read_text_prefix(resolved, 4 * 1024)
+                    )
             role, role_reason = classify_source_role(node.file_path, prefix)
             zone, zone_reason = classify_repository_zone(node.file_path, prefix, role)
             units[node.file_path] = SourceUnit(
                 file_path=node.file_path,
                 language=node.language or language or "unknown",
+                line_count=len(content.splitlines()) if content is not None else 0,
+                content_hash=(
+                    "sha256:" + hashlib.sha256(content_bytes).hexdigest()
+                    if content_bytes is not None
+                    else ""
+                ),
                 role=role,
                 role_reason=role_reason,
                 repository_zone=zone,

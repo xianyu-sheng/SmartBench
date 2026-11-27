@@ -1,5 +1,6 @@
 """Typed SemanticIR contract and bounded ICFG regression tests."""
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -150,3 +151,79 @@ def test_go_frontend_emits_valid_contract(tmp_path: Path):
     ir = GoAdapter().parse_semantic_project(tmp_path)
     assert validate_semantic_ir(ir.operations) == ()
     assert ir.meta["semantic_contract"]["valid"] is True
+
+
+@pytest.mark.skipif(get_parser("go") is None, reason="tree-sitter Go unavailable")
+def test_go_source_units_carry_real_metadata(tmp_path: Path):
+    # Issue #27: line_count=0 / content_hash="" stubs mislead report consumers.
+    content = "package sample\n\nfunc run() int {\n\treturn 1\n}\n"
+    source_file = tmp_path / "sample.go"
+    source_file.write_text(content, encoding="utf-8")
+
+    ir = GoAdapter().parse_semantic_project(tmp_path)
+
+    unit = ir.source_units["sample.go"]
+    assert unit.line_count == len(content.splitlines())
+    assert unit.content_hash == (
+        "sha256:" + hashlib.sha256(source_file.read_bytes()).hexdigest()
+    )
+
+
+def test_python_source_units_carry_real_metadata(tmp_path: Path):
+    content = "import os\n\ndef run():\n    return os.getcwd()\n"
+    source_file = tmp_path / "app.py"
+    source_file.write_text(content, encoding="utf-8")
+
+    ir = PythonAdapter().parse_semantic_project(tmp_path)
+
+    unit = ir.source_units["app.py"]
+    assert unit.line_count == len(content.splitlines())
+    assert unit.content_hash == (
+        "sha256:" + hashlib.sha256(source_file.read_bytes()).hexdigest()
+    )
+
+
+def test_source_unit_metadata_stays_sentinel_when_unreadable(tmp_path: Path):
+    from smartbench.graph.schema import CodeGraph, CodeNode, NodeType
+    from smartbench.ir import SemanticIR
+
+    graph = CodeGraph()
+    graph.add_node(
+        CodeNode(
+            id=CodeNode.make_id("missing.py", "missing.py", NodeType.FILE),
+            node_type=NodeType.FILE,
+            name="missing.py",
+            file_path="missing.py",
+            language="python",
+        )
+    )
+
+    ir = SemanticIR.from_graph(graph, project_path=str(tmp_path))
+
+    unit = ir.source_units["missing.py"]
+    assert unit.line_count == 0
+    assert unit.content_hash == ""
+
+
+def test_source_unit_hash_uses_raw_bytes_for_non_utf8(tmp_path: Path):
+    from smartbench.graph.schema import CodeGraph, CodeNode, NodeType
+    from smartbench.ir import SemanticIR
+
+    raw = b"\xff\xfe\x00broken\n"
+    (tmp_path / "broken.py").write_bytes(raw)
+    graph = CodeGraph()
+    graph.add_node(
+        CodeNode(
+            id=CodeNode.make_id("broken.py", "broken.py", NodeType.FILE),
+            node_type=NodeType.FILE,
+            name="broken.py",
+            file_path="broken.py",
+            language="python",
+        )
+    )
+
+    ir = SemanticIR.from_graph(graph, project_path=str(tmp_path))
+
+    assert ir.source_units["broken.py"].content_hash == (
+        "sha256:" + hashlib.sha256(raw).hexdigest()
+    )
