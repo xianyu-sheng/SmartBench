@@ -89,6 +89,9 @@ class UnusedImportRule(DiagnosticRule):
     """Detects potentially unused imports."""
 
     analysis_method = AnalysisMethod.HEURISTIC
+    # Below the default min_confidence (0.7): the engine warns at startup
+    # instead of letting this rule die silently (issue #26).
+    default_confidence = 0.6
 
     @property
     def rule_id(self) -> str:

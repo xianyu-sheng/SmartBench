@@ -168,6 +168,11 @@ class DiagnosticRule:
     # until their analysis contract is documented.
     analysis_method: AnalysisMethod = AnalysisMethod.UNKNOWN
 
+    # Rules whose findings carry a fixed confidence declare it here so the
+    # engine can warn when the configured min_confidence would filter every
+    # finding out (issue #26: a rule must not die silently at default settings).
+    default_confidence: Optional[float] = None
+
     def analyze(self, ir: Any) -> List[Finding]:
         """Analyze the given IR and return findings.
 

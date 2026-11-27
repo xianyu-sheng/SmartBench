@@ -290,3 +290,29 @@ class TestDeterministicOutput:
             assert result.exit_code == 0
 
         assert first.read_bytes() == second.read_bytes()
+
+
+class TestUnifiedCoverageReport:
+    def test_default_run_reports_resource_leak_and_coverage(self, runner, tmp_path):
+        # Issue #26: a leak must surface at default settings, and the terminal
+        # summary must carry the same coverage numbers as the JSON report.
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "leak.py").write_text('f = open("data.txt")\ndata = f.read()\n')
+        output = tmp_path / "report.json"
+
+        result = runner.invoke(
+            app,
+            ["unified", "run", "--project", str(project), "--output", str(output)],
+        )
+        assert result.exit_code == 0
+
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        assert any(f["rule_id"] == "resource_leak" for f in payload["findings"])
+
+        stats = payload["stats"]
+        text = plain_output(result)
+        assert f"Coverage: {stats['rules_total']} rules ran" in text
+        assert f"full={stats['rules_full']}" in text
+        assert f"partial={stats['rules_partial']}" in text
+        assert f"unknown={stats['rules_unknown']}" in text

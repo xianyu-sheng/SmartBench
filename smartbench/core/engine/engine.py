@@ -213,6 +213,7 @@ class UnifiedDiagnosticEngine:
                 config,
                 result,
             )
+            self._warn_sub_threshold_rules(applicable_rules, config, result)
 
             if result.ir:
                 for rule in applicable_rules:
@@ -291,6 +292,7 @@ class UnifiedDiagnosticEngine:
                 config,
                 result,
             )
+            self._warn_sub_threshold_rules(applicable_rules, config, result)
 
             # Run rules
             for rule in applicable_rules:
@@ -417,6 +419,27 @@ class UnifiedDiagnosticEngine:
             applicable = [r for r in applicable if r.rule_id in config.rule_ids]
 
         return applicable
+
+    @staticmethod
+    def _warn_sub_threshold_rules(
+        rules: List[DiagnosticRule],
+        config: UnifiedDiagnosticConfig,
+        result: UnifiedDiagnosticResult,
+    ) -> None:
+        """Warn when a rule's declared confidence is below the run threshold.
+
+        Without this check such a rule is registered, runs, and then has every
+        finding filtered out — a silent death at default settings (issue #26).
+        """
+        for rule in rules:
+            declared = rule.default_confidence
+            if declared is not None and declared < config.min_confidence:
+                result.errors.append(
+                    f"Warning: rule {rule.rule_id} declares confidence "
+                    f"{declared:.2f} below min_confidence "
+                    f"{config.min_confidence:.2f}; its findings will be "
+                    "filtered out"
+                )
 
     def _execute_rule(
         self,

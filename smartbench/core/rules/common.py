@@ -29,6 +29,7 @@ class NullDereferenceRule(DiagnosticRule):
     """
 
     analysis_method = AnalysisMethod.HEURISTIC
+    default_confidence = 0.7
 
     @property
     def rule_id(self) -> str:
@@ -116,7 +117,7 @@ class NullDereferenceRule(DiagnosticRule):
                         line_end=line_no,
                     ),
                     message=message,
-                    confidence=0.7,
+                    confidence=self.default_confidence,
                 )
                 findings.append(finding)
 
@@ -139,6 +140,7 @@ class ResourceLeakRule(DiagnosticRule):
     """
 
     analysis_method = AnalysisMethod.HEURISTIC
+    default_confidence = 0.7
 
     @property
     def rule_id(self) -> str:
@@ -180,12 +182,14 @@ class ResourceLeakRule(DiagnosticRule):
         """Find resource leak patterns in source code."""
         findings: List[Finding] = []
 
-        # Language-specific resource patterns
+        # Language-specific resource patterns. Cleanup suppression is handled
+        # by the bounded _has_cleanup lookahead below; a same-line negative
+        # lookahead here would be dead logic (issue #26).
         leak_patterns: Dict[str, List[tuple]] = {
             "python": [
                 # open() without with statement
                 (
-                    r"^(\s*)(?!.*with.*open)\s*(\w+)\s*=\s*open\(",
+                    r"^(\s*)(\w+)\s*=\s*open\(",
                     "File opened without 'with' statement: may not be closed",
                 ),
             ],
@@ -193,7 +197,7 @@ class ResourceLeakRule(DiagnosticRule):
                 # File/resource opened without defer Close()
                 # Matches both = and := assignment
                 (
-                    r"^(\s*)(?!.*defer.*Close)\s*(\w+),\s*(\w+)\s*:?=\s*(os\.Open|os\.OpenFile|sql\.Open|net\.Dial|net\.Listen)\(",
+                    r"^(\s*)(\w+),\s*(\w+)\s*:?=\s*(os\.Open|os\.OpenFile|sql\.Open|net\.Dial|net\.Listen)\(",
                     "Resource opened without defer Close(): may leak",
                 ),
             ],
@@ -224,7 +228,7 @@ class ResourceLeakRule(DiagnosticRule):
                         line_end=line_no,
                     ),
                     message=message,
-                    confidence=0.6,
+                    confidence=self.default_confidence,
                 )
                 findings.append(finding)
 
