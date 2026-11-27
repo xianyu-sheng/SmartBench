@@ -29,7 +29,11 @@ func load(path string) error {
 """.strip()
 
 
-LEAK = SAFE.replace("    defer file.Close()\n", "")
+LEAK = SAFE.replace("    defer file.Close()\n", "") + """
+func parse(file *os.File) error {
+    return nil
+}
+""".strip()
 
 
 CONDITIONAL_CLEANUP = """
@@ -126,6 +130,10 @@ func load(client *Client, req *Request) error {
     if err != nil { return err }
     defer response.Body.Close()
     return decode(response.Body)
+}
+
+func decode(body interface{}) error {
+    return nil
 }
 """.strip()
     target = (
@@ -243,6 +251,10 @@ func load(req *Request) error {
     if err != nil { return err }
     defer response.Body.Close()
     return decode(response.Body)
+}
+
+func decode(body interface{}) error {
+    return nil
 }
 """.strip()
     protocol = ResourceProtocolMiner().learn(
