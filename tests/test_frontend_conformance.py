@@ -64,30 +64,18 @@ MALFORMED_CASES = [
     pytest.param(
         GO_CASE,
         id="go",
-        marks=[
-            pytest.mark.skipif(
-                get_parser("go") is None,
-                reason="tree-sitter Go unavailable",
-            ),
-            pytest.mark.xfail(
-                reason="Go lowering does not surface tree-sitter error nodes (issue #73)",
-                strict=True,
-            ),
-        ],
+        marks=pytest.mark.skipif(
+            get_parser("go") is None,
+            reason="tree-sitter Go unavailable",
+        ),
     ),
     pytest.param(
         JAVASCRIPT_CASE,
         id="javascript",
-        marks=[
-            pytest.mark.skipif(
-                get_parser("javascript") is None,
-                reason="tree-sitter JavaScript unavailable",
-            ),
-            pytest.mark.xfail(
-                reason="JavaScript lowering does not surface tree-sitter error nodes (issue #73)",
-                strict=True,
-            ),
-        ],
+        marks=pytest.mark.skipif(
+            get_parser("javascript") is None,
+            reason="tree-sitter JavaScript unavailable",
+        ),
     ),
 ]
 
@@ -98,7 +86,7 @@ def _parse_snapshot(case: FrontendCase, snapshot: str, project_dir: Path) -> Sem
     source_name = "malformed.txt" if snapshot == "malformed" else f"{snapshot}{extension}"
     source = case.fixture_dir / source_name
     target = project_dir / f"{snapshot}{extension}"
-    target.write_bytes(source.read_bytes())
+    target.write_bytes(source.read_bytes().replace(b"\r\n", b"\n"))
     return case.adapter.parse_semantic_project(project_dir)
 
 

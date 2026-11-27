@@ -29,7 +29,7 @@ func load(path string) error {
 """.strip()
 
 
-LEAK = SAFE.replace("    defer file.Close()\n", "") + """
+LEAK = SAFE.replace("    defer file.Close()\n", "") + "\n" + """
 func parse(file *os.File) error {
     return nil
 }

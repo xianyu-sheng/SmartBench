@@ -98,6 +98,9 @@ class JavaScriptSemanticLowerer:
                 continue
             try:
                 tree = parser.parse(source.encode("utf-8"))
+                if tree.root_node.has_error:
+                    result.errors.append(f"{file_path}: tree-sitter {language} parse error")
+                    continue
                 lowered = _JavaScriptFileLowerer(file_path, source, language).lower(
                     tree.root_node
                 )
