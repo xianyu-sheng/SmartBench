@@ -111,6 +111,19 @@ smartbench unified run --project . --output report.json --deterministic-output
 
 `--fail-on` accepts `none` (default), `info`, `warning`, `error`. Exit codes: `0` clean at threshold, `1` findings at threshold, `2` bad arguments or internal error.
 
+**Python library (deterministic, no LLM):**
+
+```python
+import smartbench
+
+session = smartbench.analyze("/path/to/repo")
+report = session.report()
+findings = report["findings"]
+print(len(findings))
+```
+
+`session.report()` returns the versioned `smartbench.report/v1` envelope. Its JSON Schema ships at `smartbench/report-schema/v1.json` and can be loaded with `importlib.resources`. Existing CLI `--output` JSON keeps its established shape; use the library API when the versioned report envelope is required.
+
 **Evidence-gated LLM review:**
 
 ```bash

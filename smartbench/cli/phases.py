@@ -26,6 +26,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.prompt import Prompt
 from rich.table import Table
 
+import smartbench
 from smartbench.cli.display import (
     display_diagnosis_results,
     display_fingerprint,
@@ -160,7 +161,7 @@ def run_analysis_session(
             "构建统一分析会话（扫描 → SemanticIR → Linker → 规则）...",
             total=None,
         )
-        session = AnalysisSession.analyze(
+        session = smartbench.analyze(
             project_path,
             UnifiedDiagnosticConfig(
                 build_evidence_packs=build_evidence_packs,

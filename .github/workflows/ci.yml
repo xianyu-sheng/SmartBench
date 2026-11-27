@@ -142,3 +142,27 @@ jobs:
           /tmp/smartbench-wheel-smoke/bin/smartbench --help
           /tmp/smartbench-wheel-smoke/bin/smartbench check
           /tmp/smartbench-wheel-smoke/bin/python -c "import importlib.metadata as m; assert m.version('smartbench')"
+      - name: Smoke test installed library API and report schema
+        working-directory: /tmp
+        run: |
+          /tmp/smartbench-wheel-smoke/bin/python - <<'PY'
+          import json
+          import tempfile
+          from importlib.resources import files
+          from pathlib import Path
+
+          import smartbench
+
+          schema = json.loads(
+              files("smartbench").joinpath("report-schema/v1.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          with tempfile.TemporaryDirectory() as project:
+              Path(project, "app.py").write_text(
+                  "def ok():\n    return 1\n", encoding="utf-8"
+              )
+              report = smartbench.analyze(project).report()
+          assert report["schema_version"] == "smartbench.report/v1"
+          assert schema["properties"]["schema_version"]["const"] == report["schema_version"]
+          PY

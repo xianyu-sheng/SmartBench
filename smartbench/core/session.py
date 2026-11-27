@@ -47,6 +47,8 @@ from smartbench.ir import (
     SemanticIR,
 )
 
+REPORT_SCHEMA_VERSION = "smartbench.report/v1"
+
 
 @dataclass
 class ProjectReaderStage:
@@ -302,6 +304,10 @@ class AnalysisSession:
                 + hashlib.sha256(version_material.encode("utf-8")).hexdigest()[:16]
             ),
         )
+
+    def report(self) -> dict[str, object]:
+        """Return the versioned public report."""
+        return {"schema_version": REPORT_SCHEMA_VERSION, **self.report_dict()}
 
     def report_dict(self) -> dict[str, object]:
         """Return a JSON-safe report shared by CLI consumers."""
