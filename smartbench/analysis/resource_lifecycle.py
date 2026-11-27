@@ -20,6 +20,7 @@ from typing import Iterable
 from smartbench.analysis.control_flow import ControlFlowGraph
 from smartbench.ir import (
     FactKind,
+    OperationEdgeKind,
     OperationKind,
     SemanticFact,
     SemanticIR,
@@ -280,6 +281,416 @@ class ResourceProtocolMiner:
         return [protocols[key] for key in sorted(protocols)]
 
 
+class _OwnershipDisposition(str, Enum):
+    CLOSES = "closes"
+    LEAKS = "leaks"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class _OwnershipProof:
+    disposition: _OwnershipDisposition
+    reason: str
+
+
+class _OwnershipFunctionIndex:
+    """Conservative summaries for unique local free functions."""
+
+    def __init__(self, ir: SemanticIR, cfg: ControlFlowGraph) -> None:
+        self.cfg = cfg
+        self.operations_by_scope: dict[str, list[SemanticOperation]] = {}
+        for operation in ir.operations:
+            self.operations_by_scope.setdefault(operation.scope_id, []).append(operation)
+        self.functions = tuple(
+            operation
+            for operation in ir.operations
+            if operation.kind == OperationKind.FUNCTION
+            and not str(operation.attributes.get("receiver_type", "")).strip()
+            and "." not in str(operation.attributes.get("lexical_name", ""))
+        )
+        self.cache: dict[
+            tuple[str, str, str, tuple[str, ...]],
+            _OwnershipProof,
+        ] = {}
+
+    def prove_transfer(
+        self,
+        call: SemanticOperation,
+        argument_index: int,
+        member_path: str,
+        cleanup_methods: tuple[str, ...],
+        stack: tuple[str, ...] = (),
+    ) -> _OwnershipProof:
+        function, resolution_reason = self._resolve(call)
+        if function is None:
+            return _OwnershipProof(_OwnershipDisposition.UNKNOWN, resolution_reason)
+        parameter = self._parameter(function, call, argument_index)
+        if parameter is None:
+            return _OwnershipProof(
+                _OwnershipDisposition.UNKNOWN,
+                f"argument {argument_index} cannot be mapped to a positional parameter "
+                f"of {function.target}",
+            )
+        key = (function.id, parameter.id, member_path, cleanup_methods)
+        cached = self.cache.get(key)
+        if cached is not None:
+            return cached
+        if function.id in stack:
+            return _OwnershipProof(
+                _OwnershipDisposition.UNKNOWN,
+                f"recursive ownership summary for {function.target}",
+            )
+        proof = self._summarize(
+            function,
+            parameter,
+            member_path,
+            cleanup_methods,
+            (*stack, function.id),
+        )
+        self.cache[key] = proof
+        return proof
+
+    def _resolve(
+        self,
+        call: SemanticOperation,
+    ) -> tuple[SemanticOperation | None, str]:
+        if str(call.attributes.get("receiver", "")).strip():
+            return None, f"{call.target} is a method call, not a local free function"
+        candidates = [
+            function
+            for function in self.functions
+            if function.language.lower() == call.language.lower()
+            and (
+                function.target == call.target
+                or str(function.attributes.get("qualified_name", "")) == call.target
+            )
+        ]
+        if len(candidates) == 1:
+            return candidates[0], ""
+        if not candidates:
+            return None, f"no local free function resolves {call.target}"
+        return None, f"multiple local free functions resolve {call.target}"
+
+    def _parameter(
+        self,
+        function: SemanticOperation,
+        call: SemanticOperation,
+        argument_index: int,
+    ) -> SemanticOperation | None:
+        parameters = [
+            operation
+            for operation in self._scope_operations(function)
+            if operation.kind == OperationKind.PARAMETER
+            and operation.attributes.get("parameter_kind") == "positional"
+            and isinstance(operation.attributes.get("position"), int)
+        ]
+        argument_names = call.attributes.get("argument_names", ())
+        if (
+            isinstance(argument_names, (list, tuple))
+            and argument_index < len(argument_names)
+            and str(argument_names[argument_index]).strip()
+        ):
+            name = str(argument_names[argument_index]).strip()
+            matches = [parameter for parameter in parameters if parameter.target == name]
+        else:
+            matches = [
+                parameter
+                for parameter in parameters
+                if parameter.attributes["position"] == argument_index
+            ]
+        return matches[0] if len(matches) == 1 else None
+
+    def _scope_operations(self, function: SemanticOperation) -> list[SemanticOperation]:
+        return self.operations_by_scope.get(function.id, [])
+
+    def _summarize(
+        self,
+        function: SemanticOperation,
+        parameter: SemanticOperation,
+        member_path: str,
+        cleanup_methods: tuple[str, ...],
+        stack: tuple[str, ...],
+    ) -> _OwnershipProof:
+        body = [
+            operation
+            for operation in self._scope_operations(function)
+            if operation.kind not in {OperationKind.FUNCTION, OperationKind.PARAMETER}
+        ]
+        if not body:
+            return _OwnershipProof(
+                _OwnershipDisposition.LEAKS,
+                f"{function.target} has no operation that closes its resource parameter",
+            )
+        aliases, alias_assignment_ids, alias_definitions = _parameter_aliases(
+            body, parameter.target
+        )
+        cleanup_ids: set[str] = set()
+        for operation in body:
+            active_aliases = _active_aliases(
+                parameter.target,
+                aliases,
+                alias_definitions,
+                operation,
+            )
+            if (
+                operation.kind in {OperationKind.CALL, OperationKind.DEFER}
+                and _method_name(operation) in cleanup_methods
+                and any(
+                    _receiver_member_path(operation, alias) == member_path
+                    for alias in active_aliases
+                )
+            ):
+                cleanup_ids.add(operation.id)
+        protections = [
+            operation for operation in body if operation.id in cleanup_ids
+        ]
+        unknown_reasons: list[str] = []
+        ownership_call_hosts: set[str] = set()
+        for operation in body:
+            if operation.kind != OperationKind.CALL or operation.id in cleanup_ids:
+                continue
+            active_aliases = _active_aliases(
+                parameter.target,
+                aliases,
+                alias_definitions,
+                operation,
+            )
+            argument_index = _resource_argument_index(
+                operation, active_aliases, member_path
+            )
+            if argument_index is None:
+                continue
+            ownership_call_hosts.add(_host_id(operation))
+            argument = str(operation.attributes["arguments"][argument_index]).strip()
+            effective_path = (
+                ""
+                if member_path
+                and any(
+                    argument == f"{alias}.{member_path}" for alias in active_aliases
+                )
+                else member_path
+            )
+            proof = self.prove_transfer(
+                operation,
+                argument_index,
+                effective_path,
+                cleanup_methods,
+                stack,
+            )
+            if proof.disposition == _OwnershipDisposition.CLOSES:
+                protections.append(operation)
+            elif proof.disposition == _OwnershipDisposition.UNKNOWN:
+                unknown_reasons.append(
+                    f"{function.target} calls {operation.target}: {proof.reason}"
+                )
+
+        for operation in body:
+            if (
+                operation.id in cleanup_ids
+                or operation.id in alias_assignment_ids
+                or operation.id in {item.id for item in protections}
+                or operation.id in ownership_call_hosts
+                or _host_id(operation) in cleanup_ids | {item.id for item in protections}
+            ):
+                continue
+            active_aliases = _active_aliases(
+                parameter.target,
+                aliases,
+                alias_definitions,
+                operation,
+            )
+            if any(
+                _uses_resource(operation, alias, member_path)
+                for alias in active_aliases
+            ) and operation.kind not in {
+                OperationKind.CALL,
+                OperationKind.DEFER,
+                OperationKind.RETURN,
+            }:
+                unknown_reasons.append(
+                    f"{function.target} has unsupported resource operation "
+                    f"{operation.kind.value} at {operation.id}"
+                )
+            if operation.kind == OperationKind.RETURN and _returns_alias(
+                operation,
+                active_aliases,
+                member_path,
+            ):
+                unknown_reasons.append(
+                    f"{function.target} returns an aliased resource without a proven close"
+                )
+
+        coverage, reason = self._cleanup_coverage(body, protections)
+        if coverage:
+            return _OwnershipProof(
+                _OwnershipDisposition.CLOSES,
+                f"{function.target} closes the resource on every represented exit",
+            )
+        if coverage is None:
+            return _OwnershipProof(
+                _OwnershipDisposition.UNKNOWN,
+                f"{function.target}: {reason}",
+            )
+        if unknown_reasons:
+            return _OwnershipProof(
+                _OwnershipDisposition.UNKNOWN,
+                "; ".join(dict.fromkeys(unknown_reasons)),
+            )
+        return _OwnershipProof(
+            _OwnershipDisposition.LEAKS,
+            f"{function.target} has an exit without resource cleanup",
+        )
+
+    def _cleanup_coverage(
+        self,
+        body: list[SemanticOperation],
+        protections: list[SemanticOperation],
+    ) -> tuple[bool | None, str]:
+        body_ids = {operation.id for operation in body}
+        entries = [
+            operation
+            for operation in body
+            if not any(
+                arc.source_id in body_ids
+                for arc in self.cfg.predecessors(operation.id)
+            )
+        ]
+        exits = [
+            operation
+            for operation in body
+            if not self.cfg.successors(operation.id)
+            or operation.kind in {OperationKind.RETURN, OperationKind.RAISE}
+        ]
+        if not entries or not exits:
+            return None, "function entry or exit coverage is unavailable"
+        for operation in body:
+            successor_kinds = {
+                arc.kind for arc in self.cfg.successors(operation.id)
+            }
+            if operation.kind == OperationKind.BRANCH and not {
+                OperationEdgeKind.TRUE_BRANCH,
+                OperationEdgeKind.FALSE_BRANCH,
+            }.issubset(successor_kinds):
+                return None, "function CFG has an incomplete branch outcome"
+            if operation.kind == OperationKind.LOOP and not {
+                OperationEdgeKind.BODY,
+                OperationEdgeKind.LOOP_EXIT,
+            }.issubset(successor_kinds):
+                return None, "function CFG has an incomplete loop exit"
+        for entry in entries:
+            reachable_exits = [
+                exit_operation
+                for exit_operation in exits
+                if entry.id == exit_operation.id
+                or self.cfg.reachable(entry.id, exit_operation.id)
+            ]
+            if not reachable_exits:
+                return None, "function CFG does not connect entry to an exit"
+            for exit_operation in reachable_exits:
+                covered = any(
+                    self.cfg.dominates_between(
+                        entry.id,
+                        protection.id,
+                        exit_operation.id,
+                    )
+                    for protection in protections
+                )
+                if not covered:
+                    return False, "at least one represented exit bypasses cleanup"
+        return True, ""
+
+
+def _parameter_aliases(
+    body: list[SemanticOperation],
+    parameter: str,
+) -> tuple[set[str], set[str], dict[str, tuple[str, int, int, str]]]:
+    aliases = {parameter}
+    alias_assignment_ids: set[str] = set()
+    alias_definitions: dict[str, tuple[str, int, int, str]] = {}
+    if any(
+        operation.kind in {OperationKind.BRANCH, OperationKind.LOOP}
+        for operation in body
+    ):
+        return aliases, alias_assignment_ids, alias_definitions
+    for operation in sorted(body, key=_operation_order):
+        if operation.kind != OperationKind.ASSIGN:
+            continue
+        raw_bindings = operation.attributes.get("bindings", ())
+        targets = []
+        if isinstance(raw_bindings, (list, tuple)):
+            for binding in raw_bindings:
+                if isinstance(binding, dict) and binding.get("target"):
+                    targets.append(str(binding["target"]))
+        if not targets:
+            targets = [operation.target] if operation.target else []
+        value = operation.value
+        if ":=" in value:
+            rhs = value.split(":=", 1)[1].strip()
+        elif re.search(r"(?<![=!<>])=(?!=)", value):
+            rhs = re.split(r"(?<![=!<>])=(?!=)", value, maxsplit=1)[1].strip()
+        else:
+            rhs = value.strip()
+        for target in targets:
+            if rhs in aliases:
+                aliases.add(target)
+                alias_assignment_ids.add(operation.id)
+                alias_definitions[target] = _operation_order(operation)
+            else:
+                aliases.discard(target)
+                alias_definitions.pop(target, None)
+    return aliases, alias_assignment_ids, alias_definitions
+
+
+def _active_aliases(
+    parameter: str,
+    aliases: set[str],
+    definitions: dict[str, tuple[str, int, int, str]],
+    operation: SemanticOperation,
+) -> set[str]:
+    operation_order = _operation_order(operation)
+    active: set[str] = set()
+    for alias in aliases:
+        if alias == parameter:
+            active.add(alias)
+        elif (definition := definitions.get(alias)) is not None and definition <= operation_order:
+            active.add(alias)
+    return active
+
+
+def _returns_alias(
+    operation: SemanticOperation,
+    aliases: set[str],
+    member_path: str,
+) -> bool:
+    raw_values = operation.attributes.get("values", ())
+    values = (
+        [str(value).strip() for value in raw_values]
+        if isinstance(raw_values, (list, tuple))
+        else [item.strip() for item in operation.value.split(",")]
+    )
+    resources = set(aliases)
+    if member_path:
+        resources.update(f"{alias}.{member_path}" for alias in aliases)
+    return any(value in resources for value in values)
+
+
+def _resource_argument_index(
+    operation: SemanticOperation,
+    aliases: set[str] | tuple[str, ...],
+    member_path: str,
+) -> int | None:
+    arguments = operation.attributes.get("arguments", ())
+    if not isinstance(arguments, (list, tuple)):
+        return None
+    resources = set(aliases)
+    if member_path:
+        resources.update(f"{alias}.{member_path}" for alias in aliases)
+    for index, argument in enumerate(arguments):
+        if str(argument).strip() in resources:
+            return index
+    return None
+
+
 class ResourceLifecycleAnalyzer:
     """Verify cleanup-before-use invariants without language-specific syntax."""
 
@@ -291,6 +702,7 @@ class ResourceLifecycleAnalyzer:
         protocol_list = list(protocols)
         result = ResourceLifecycleResult(protocols_evaluated=len(protocol_list))
         cfg = ControlFlowGraph.from_ir(ir)
+        ownership_index = _OwnershipFunctionIndex(ir, cfg)
         type_index = TypeEvidenceIndex(ir.type_evidence)
         operations = {operation.id: operation for operation in ir.operations}
         ordered = sorted(ir.operations, key=_operation_order)
@@ -326,21 +738,51 @@ class ResourceLifecycleAnalyzer:
                     )
                     continue
 
-                cleanups = tuple(
+                scope_body = [
                     operation
                     for operation in ordered
                     if operation.scope_id == acquire.scope_id
-                    and operation.kind == OperationKind.DEFER
-                    and _receiver_member_path(operation, binding)
-                    == protocol.resource_member_path
-                    and _method_name(operation) in protocol.cleanup_methods
+                    and operation.id not in {acquire.id, _host_id(acquire)}
                     and cfg.reachable(acquire.id, operation.id)
+                ]
+                aliases, alias_assignment_ids, alias_definitions = _parameter_aliases(
+                    scope_body, binding
                 )
+                cleanup_operations: list[SemanticOperation] = []
+                for operation in ordered:
+                    if (
+                        operation.scope_id != acquire.scope_id
+                        or operation.kind != OperationKind.DEFER
+                        or _method_name(operation) not in protocol.cleanup_methods
+                        or not cfg.reachable(acquire.id, operation.id)
+                    ):
+                        continue
+                    active_aliases = _active_aliases(
+                        binding,
+                        aliases,
+                        alias_definitions,
+                        operation,
+                    )
+                    if any(
+                        _receiver_member_path(operation, alias)
+                        == protocol.resource_member_path
+                        for alias in active_aliases
+                    ):
+                        cleanup_operations.append(operation)
+                cleanups = tuple(cleanup_operations)
                 ownership_transfers = tuple(
                     operation
                     for operation in ordered
                     if operation.scope_id == acquire.scope_id
-                    and _transfers_ownership(operation, binding)
+                    and _transfers_ownership(
+                        operation,
+                        _active_aliases(
+                            binding,
+                            aliases,
+                            alias_definitions,
+                            operation,
+                        ),
+                    )
                     and cfg.reachable(acquire.id, operation.id)
                 )
                 if ownership_transfers:
@@ -350,21 +792,81 @@ class ResourceLifecycleAnalyzer:
                         "to the caller"
                     )
                     continue
-                uses = [
-                    operation
-                    for operation in ordered
-                    if operation.scope_id == acquire.scope_id
-                    and operation.id not in {acquire.id, _host_id(acquire)}
-                    and not _is_embedded_call(operation)
-                    and operation not in cleanups
-                    and _uses_resource(
-                        operation,
+                transfer_calls: list[SemanticOperation] = []
+                unknown_transfers: dict[str, _OwnershipProof] = {}
+                for operation in ordered:
+                    if (
+                        operation.scope_id != acquire.scope_id
+                        or operation.kind != OperationKind.CALL
+                        or not cfg.reachable(acquire.id, operation.id)
+                    ):
+                        continue
+                    active_aliases = _active_aliases(
                         binding,
+                        aliases,
+                        alias_definitions,
+                        operation,
+                    )
+                    argument_index = _resource_argument_index(
+                        operation,
+                        active_aliases,
                         protocol.resource_member_path,
                     )
-                    and cfg.reachable(acquire.id, operation.id)
-                ]
+                    if argument_index is None:
+                        continue
+                    argument = str(
+                        operation.attributes["arguments"][argument_index]
+                    ).strip()
+                    effective_path = (
+                        ""
+                        if protocol.resource_member_path
+                        and any(
+                            argument == f"{alias}.{protocol.resource_member_path}"
+                            for alias in active_aliases
+                        )
+                        else protocol.resource_member_path
+                    )
+                    proof = ownership_index.prove_transfer(
+                        operation,
+                        argument_index,
+                        effective_path,
+                        protocol.cleanup_methods,
+                    )
+                    if proof.disposition == _OwnershipDisposition.CLOSES:
+                        transfer_calls.append(operation)
+                    elif proof.disposition == _OwnershipDisposition.UNKNOWN:
+                        unknown_transfers[operation.id] = proof
+                transfer_ids = {operation.id for operation in transfer_calls}
+                uses: list[SemanticOperation] = []
+                for operation in ordered:
+                    if (
+                        operation.scope_id != acquire.scope_id
+                        or operation.id in {acquire.id, _host_id(acquire)}
+                        or operation.id in transfer_ids
+                        or operation.id in alias_assignment_ids
+                        or _is_embedded_call(operation)
+                        or operation in cleanups
+                        or not cfg.reachable(acquire.id, operation.id)
+                    ):
+                        continue
+                    active_aliases = _active_aliases(
+                        binding,
+                        aliases,
+                        alias_definitions,
+                        operation,
+                    )
+                    if any(
+                        _uses_resource(
+                            operation,
+                            alias,
+                            protocol.resource_member_path,
+                        )
+                        for alias in active_aliases
+                    ):
+                        uses.append(operation)
                 if not uses:
+                    if transfer_calls:
+                        continue
                     result.abstentions += 1
                     result.unknown_reasons.append(
                         f"{protocol.protocol_id}: no reachable resource use for {binding}"
@@ -376,14 +878,29 @@ class ResourceLifecycleAnalyzer:
                         use
                         for use in uses
                         if not any(
-                            cfg.reachable(acquire.id, cleanup.id)
-                            and cfg.reachable(cleanup.id, use.id)
-                            and cfg.dominates_between(acquire.id, cleanup.id, use.id)
-                            for cleanup in cleanups
+                            cfg.reachable(acquire.id, protection.id)
+                            and cfg.reachable(protection.id, use.id)
+                            and cfg.dominates_between(
+                                acquire.id,
+                                protection.id,
+                                use.id,
+                            )
+                            for protection in (*cleanups, *transfer_calls)
                         )
                     ),
                     None,
                 )
+                if (
+                    first_unprotected is not None
+                    and first_unprotected.id in unknown_transfers
+                ):
+                    proof = unknown_transfers[first_unprotected.id]
+                    result.abstentions += 1
+                    result.unknown_reasons.append(
+                        f"{protocol.protocol_id}: ownership of {binding} passed to "
+                        f"{first_unprotected.target} is undecidable: {proof.reason}"
+                    )
+                    continue
                 if first_unprotected is not None:
                     result.findings.append(
                         ResourceLifecycleFinding(
@@ -540,11 +1057,14 @@ def _missing_acquire_reason(protocol: ResourceProtocol) -> str:
     return f"{protocol.protocol_id}: acquire symbol not present"
 
 
-def _transfers_ownership(operation: SemanticOperation, binding: str) -> bool:
+def _transfers_ownership(
+    operation: SemanticOperation,
+    bindings: Iterable[str],
+) -> bool:
     if operation.kind != OperationKind.RETURN:
         return False
     returned = [item.strip() for item in operation.value.split(",")]
-    return binding in returned
+    return any(binding in returned for binding in bindings)
 
 
 def _operation_order(operation: SemanticOperation) -> tuple[str, int, int, str]:
