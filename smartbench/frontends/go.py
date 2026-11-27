@@ -77,6 +77,9 @@ class GoSemanticLowerer:
                 continue
             try:
                 tree = parser.parse(source.encode("utf-8"))
+                if tree.root_node.has_error:
+                    result.errors.append(f"{file_path}: tree-sitter Go parse error")
+                    continue
                 lowered = _GoFileLowerer(file_path, source).lower(tree.root_node)
             except Exception as exc:
                 result.errors.append(f"{file_path}: {exc}")

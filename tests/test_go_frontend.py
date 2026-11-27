@@ -37,6 +37,17 @@ def _lower(tmp_path: Path) -> SemanticIR:
     return GoAdapter().parse_semantic_project(tmp_path)
 
 
+def test_go_frontend_surfaces_malformed_source(tmp_path: Path):
+    (tmp_path / "malformed.go").write_text("package sample\n\nfunc run( {\n", encoding="utf-8")
+
+    ir = GoAdapter().parse_semantic_project(tmp_path)
+
+    errors = ir.meta["go_frontend"]["errors"]
+    assert errors
+    assert "malformed.go" in errors[0]
+    assert ir.operations == []
+
+
 def test_go_frontend_declares_honest_capabilities(tmp_path: Path):
     ir = _lower(tmp_path)
     capabilities = ir.capabilities["go"]

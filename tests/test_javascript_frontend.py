@@ -20,6 +20,18 @@ HAS_ECMASCRIPT_PARSERS = all(
 )
 
 
+@pytest.mark.skipif(get_parser("javascript") is None, reason="tree-sitter JavaScript unavailable")
+def test_javascript_frontend_surfaces_malformed_source(tmp_path: Path):
+    (tmp_path / "malformed.js").write_text("function run( {\n", encoding="utf-8")
+
+    ir = JavaScriptAdapter().parse_semantic_project(tmp_path)
+
+    errors = ir.meta["javascript_frontend"]["errors"]
+    assert errors
+    assert "malformed.js" in errors[0]
+    assert ir.operations == []
+
+
 @pytest.mark.skipif(not HAS_ECMASCRIPT_PARSERS, reason="tree-sitter JavaScript/TypeScript unavailable")
 @pytest.mark.parametrize(
     ("language", "adapter", "filename", "source"),
