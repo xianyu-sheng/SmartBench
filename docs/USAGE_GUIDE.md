@@ -2,7 +2,7 @@
 
 [返回 README](../README_CN.md)
 
-本文档对应当前 `smartbench` CLI。`legacy/` 中的旧 Raft 压测命令不属于当前命令行入口。
+本文档对应当前 `smartbench` CLI。旧 Raft 压测命令（原 `legacy/` 目录）已移除，清理记录见 [CHANGELOG](../CHANGELOG.md)。
 
 ## 安装
 
@@ -284,6 +284,19 @@ smartbench eval-rag \
 加上 `--graph-only` 可只评测结构检索。查询文件是 JSON 数组，每项至少包含
 `query` 和目录明确的 `expected_file`；同名但位于其他目录的文件不会被误算为命中。
 
+### 退出码与 CI 语义
+
+| 命令 | 退出码 0 | 退出码 1 | 退出码 2 |
+|---|---|---|---|
+| `unified run` | 运行完成，且无达到 `--fail-on` 阈值的 finding（默认 `none`，发现 finding 也退出 0） | 项目路径不存在；或有 finding 达到 `--fail-on` 阈值 | 诊断过程发生意外异常 |
+| `quick` | 运行完成（有无 finding 均不影响退出码） | 项目路径不可访问 | — |
+| `check-branches` | 检查完成（already-fixed/clean 结果不影响退出码） | 输入文件不存在、JSON 无效、`final_suggestions` 形状错误、目标不是 git 仓库或 checker 初始化失败 | — |
+
+CI gate 目前只有 `unified run --fail-on <severity>` 提供。`quick` 与
+`check-branches` 的退出码只表示"运行是否成功"，不表示"是否发现问题"；
+在 CI 中消费它们的结果请解析 `--output` JSON（`check-branches` 用 `--json`），
+而不是依赖退出码。
+
 ## 模型凭证
 
 快速模式当前支持以下凭证：
@@ -311,6 +324,11 @@ smartbench eval-rag \
 `analysis_report.project_reader.status` 可能为 `not_run`、`unsupported`、`unavailable`、
 `abstained`、`supported_no_finding` 或 `findings`。网络/API 失败使用 `unavailable`，不会被
 伪装成干净结果。
+
+`ir_source_units.<file>.line_count` 与 `content_hash` 在 IR lowering 时从源文件计算：
+`line_count` 为文本行数，`content_hash` 为原始文件字节的 `sha256:<hex>`。若文件不可读、
+是符号链接或超过 2 MiB 有界读取上限，两者保持 `0` / `""`（不是空文件）；空文件的
+`content_hash` 仍为 `sha256:` 加空内容摘要。
 
 ## 如何解读证据状态
 

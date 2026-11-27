@@ -48,10 +48,10 @@ def is_project_file(project_root: PathLike, candidate: PathLike) -> bool:
     return resolved.is_file()
 
 
-def read_text_bounded(
+def read_bytes_bounded(
     file_path: PathLike,
     max_bytes: int = 2 * 1024 * 1024,
-) -> Optional[str]:
+) -> Optional[bytes]:
     """Read a regular non-symlink file without exceeding a byte limit."""
     try:
         limit = int(max_bytes)
@@ -71,6 +71,17 @@ def read_text_bounded(
     except OSError:
         return None
     if len(payload) > limit:
+        return None
+    return payload
+
+
+def read_text_bounded(
+    file_path: PathLike,
+    max_bytes: int = 2 * 1024 * 1024,
+) -> Optional[str]:
+    """Read a regular non-symlink file without exceeding a byte limit."""
+    payload = read_bytes_bounded(file_path, max_bytes)
+    if payload is None:
         return None
     return payload.decode("utf-8", errors="ignore")
 
